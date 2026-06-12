@@ -206,7 +206,7 @@ function onPointerUp(e: PointerEvent) {
     @pointercancel="onPointerUp"
   >
     <div
-      class="pointer-events-none absolute rounded-[50%] border border-white/45"
+      class="pointer-events-none absolute rounded-[50%] border border-gizmo-ring"
       :style="ellipseStyle"
       style="transform: translate(-50%, -50%)"
       aria-hidden="true"
@@ -215,10 +215,13 @@ function onPointerUp(e: PointerEvent) {
     <div
       v-for="cardinal in CARDINAL_HANDLES"
       :key="cardinal"
-      class="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/60 bg-white/90 shadow-[0_1px_6px_rgba(0,0,0,0.4)]"
+      class="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2"
       :style="handleStyles[cardinal]"
       aria-hidden="true"
-    />
+    >
+      <div class="absolute inset-0 rounded-full bg-gizmo-handle-outer shadow-sm" />
+      <div class="absolute inset-[2px] rounded-full bg-gizmo-handle shadow-sm" />
+    </div>
 
     <div
       class="pointer-events-none absolute flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
@@ -226,8 +229,8 @@ function onPointerUp(e: PointerEvent) {
       :style="centerStyle"
       aria-hidden="true"
     >
-      <div class="absolute inset-0 rounded-full bg-white/20" />
-      <div class="relative size-3 rounded-full bg-white/90 shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
+      <div class="absolute inset-0 rounded-full bg-gizmo-handle-outer" />
+      <div class="relative size-3 rounded-full bg-gizmo-handle shadow-sm" />
     </div>
   </div>
 </template>

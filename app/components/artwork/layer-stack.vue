@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PlusIcon } from "lucide-vue-next";
+import { PlusIcon } from "@heroicons/vue/16/solid";
 import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverPortal } from "reka-ui";
 import type { ArtworkLayer } from "#shared/types/artwork";
 
@@ -42,7 +42,7 @@ function toggleEnabled(layer: ArtworkLayer) {
               class="flex size-6 cursor-default items-center justify-center rounded-md text-tertiary transition-colors duration-150 hover:bg-surface-1 hover:text-secondary"
               title="Add layer"
             >
-              <PlusIcon class="size-3.5" />
+              <PlusIcon class="size-4" />
             </button>
           </PopoverTrigger>
           <PopoverPortal>

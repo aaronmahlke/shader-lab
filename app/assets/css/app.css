@@ -1,3 +1,4 @@
+@import "./tokens/theme.css";
 @import "tailwindcss";
 
 /*
@@ -201,9 +202,6 @@
   --shadow-2xl: 0 1px 1px 0 rgba(0, 0, 0, 0.02),
     0 8px 16px -4px rgba(0, 0, 0, 0.04), 0 24px 32px -8px rgba(0, 0, 0, 0.06);
 
-  --shadow-slider: 0 0 0 1px oklch(1 0 0 / 0.06),
-    0 1px 1px 0 rgba(0, 0, 0, 0.1), 0 4px 8px 0 rgba(0, 0, 0, 0.12);
-
   /*
    * ═══════════════════════════════════════
    * EASING
@@ -219,11 +217,18 @@
    */
   --animate-overlayShow: overlayShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-contentShow: contentShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-contentHide: contentHide 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-down: slide-down 200ms var(--ease-out-expo);
+  --animate-slide-up: slide-up 200ms var(--ease-out-expo);
+  --animate-slide-left: slide-left 200ms var(--ease-out-expo);
+  --animate-slide-right: slide-right 200ms var(--ease-out-expo);
   --animate-fade-in-from-top: fade-in-from-top 150ms
     cubic-bezier(0.16, 1, 0.3, 1);
   --animate-fade-out: fade-out 250ms cubic-bezier(0.16, 1, 0.3, 1);
 
   --animate-collapse: collapse 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-grid-dot: grid-dot 1.2s ease-in-out infinite;
+  --animate-grid-dot-fast: grid-dot-fast 0.8s ease-in-out infinite;
   --animate-expand: expand 150ms cubic-bezier(0.16, 1, 0.3, 1);
 
   @keyframes overlayShow {
@@ -243,6 +248,61 @@
     to {
       opacity: 1;
       scale: 1;
+    }
+  }
+
+  @keyframes contentHide {
+    from {
+      opacity: 1;
+      scale: 1;
+    }
+    to {
+      opacity: 0;
+      scale: 0.98;
+    }
+  }
+
+  @keyframes slide-down {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  @keyframes slide-left {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateX(10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateX(0);
+    }
+  }
+
+  @keyframes slide-right {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateX(0);
     }
   }
 
@@ -284,6 +344,37 @@
     to {
       height: var(--reka-collapsible-content-height);
     }
+  }
+
+  @keyframes grid-dot {
+    0%,
+    100% {
+      opacity: 0.15;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes grid-dot-fast {
+    0%,
+    100% {
+      opacity: 0.15;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}
+
+@layer components {
+  .floating-content-enter {
+    @apply motion-reduce:animate-none;
+    @apply data-[state=closed]:animate-contentHide;
+    @apply data-[state=open]:data-[side=bottom]:animate-slide-down;
+    @apply data-[state=open]:data-[side=top]:animate-slide-up;
+    @apply data-[state=open]:data-[side=left]:animate-slide-left;
+    @apply data-[state=open]:data-[side=right]:animate-slide-right;
   }
 }
 

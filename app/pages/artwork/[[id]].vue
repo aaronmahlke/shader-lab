@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DownloadIcon } from "lucide-vue-next";
+import { ArrowDownTrayIcon } from "@heroicons/vue/16/solid";
 import type {
   ArtworkDocument,
   ArtworkLayer,
@@ -320,7 +320,7 @@ function createNewShaderFromArtwork() {
       <div class="h-4 w-px bg-surface-1" />
       <UiEditableText v-model="artworkName" fill class="min-w-0 flex-1 text-copy-sm text-secondary" />
       <ArtworkCanvasSizeControl v-model:canvas="artworkDoc.canvas" />
-      <UiButton variant="ghost" size="sm" :icon-left="DownloadIcon" @click="exportOpen = true">
+      <UiButton variant="ghost" size="sm" :icon-left="ArrowDownTrayIcon" @click="exportOpen = true">
         Export
       </UiButton>
     </template>

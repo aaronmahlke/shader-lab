@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CollapsibleRoot, CollapsibleTrigger, CollapsibleContent } from "reka-ui";
-import { ChevronRightIcon, DicesIcon } from "lucide-vue-next";
+import { ChevronRightIcon, CubeIcon } from "@heroicons/vue/16/solid";
 
 type Props = {
   label: string;
@@ -25,7 +25,7 @@ const open = ref(defaultOpen);
       >
         <ChevronRightIcon
           :class="[
-            'size-3.5 text-tertiary transition-transform duration-150 ease-out-expo',
+            'size-4 text-tertiary transition-transform duration-150 ease-out-expo',
             open && 'rotate-90',
           ]"
         />
@@ -34,7 +34,7 @@ const open = ref(defaultOpen);
       <UiButton
         variant="ghost"
         size="sm"
-        :icon-left="DicesIcon"
+        :icon-left="CubeIcon"
         title="Randomize"
         @click="emit('randomize')"
       />

@@ -1,0 +1,209 @@
+/*
+ * Shader Lab semantic color tokens (Atlasflow-style).
+ * Dark-only. All component colors must use utilities derived from these tokens.
+ *
+ * layer-0/1     — chrome + panel cards
+ * control*      — inputs, tracks, selected rows
+ * tint*         — hovers, toggles, slider fill
+ * neutral*      — text hierarchy
+ * mod*          — LFO modulation strip
+ * slider*       — in-track slider parts
+ * gizmo*        — canvas wave gizmo handles
+ */
+
+:root {
+  color-scheme: dark;
+}
+
+@theme {
+  /* ── Layers ── */
+  --background-color-layer-0: var(--color-neutral-950);
+  --background-color-layer-1: var(--color-neutral-900);
+
+  /* ── Interaction tints ── */
+  --background-color-tint-subtle: oklch(1 0 0 / 0.04);
+  --background-color-tint: oklch(1 0 0 / 0.08);
+  --background-color-tint-strong: oklch(1 0 0 / 0.13);
+
+  /* ── Text ── */
+  --text-color-neutral-strong: var(--color-white);
+  --text-color-neutral: oklch(1 0 0 / 0.7);
+  --text-color-neutral-subtle: oklch(1 0 0 / 0.4);
+  --text-color-neutral-weak: var(--color-neutral-500);
+
+  /* ── Borders ── */
+  --border-color-neutral: var(--color-neutral-800);
+  --border-color-neutral-subtle: var(--color-neutral-800);
+  --border-color-neutral-strong: var(--color-neutral-600);
+
+  /* ── Divides ── */
+  --divide-color-neutral: var(--border-color-neutral);
+  --divide-color-neutral-subtle: var(--border-color-neutral-subtle);
+
+  /* ── Rings ── */
+  --ring-color-focus: var(--color-neutral-500);
+  --ring-offset-color-layer-1: var(--background-color-layer-1);
+
+  /* ── Controls (Figma cal: track #212121) ── */
+  --background-color-control: var(--color-neutral-800);
+  --background-color-control-strong: var(--color-neutral-800);
+  --background-color-control-track: oklch(0.268 0 0);
+
+  /* ── Code / wave canvas ── */
+  --background-color-code: var(--color-black);
+  --background-color-code-subtle: oklch(1 0 0 / 0.03);
+
+  /* ── Slider (Figma cal: fill 8% idle, ~13% active, handle ~#5d5c5c) ── */
+  --background-color-slider-fill: oklch(1 0 0 / 0.08);
+  --background-color-slider-fill-active: oklch(1 0 0 / 0.18);
+  --background-color-slider-handle: oklch(0.48 0 0);
+  --background-color-slider-tick: oklch(1 0 0 / 0.22);
+  --background-color-slider-tick-active: oklch(1 0 0 / 0.45);
+
+  /* ── Modulation strip ── */
+  --background-color-mod-range: var(--color-blue-400);
+  --background-color-mod-range-subtle: oklch(from var(--color-blue-400) l c h / 0.25);
+  --background-color-mod-anchor: var(--color-red-400);
+  --background-color-mod-endpoint: oklch(0.08 0 0);
+  --background-color-mod-live: oklch(1 0 0 / 0.3);
+
+  /* ── Gizmo ── */
+  --background-color-gizmo-ring: oklch(1 0 0 / 0.1);
+  --background-color-gizmo-handle-outer: oklch(1 0 0 / 0.1);
+  --background-color-gizmo-handle: var(--color-white);
+  --border-color-gizmo-ring: oklch(1 0 0 / 0.45);
+
+  /* ── Primary (Atlasflow button) ── */
+  --background-color-primary: var(--color-neutral-900);
+  --text-color-on-primary: var(--color-neutral-50);
+
+  /* ── LFO accent (icon swatch uses dynamic palette; strip uses mod-* above) ── */
+  --background-color-lfo-accent: var(--color-pink-500);
+
+  /* ── Status (reuse Atlasflow pattern) ── */
+  --background-color-danger-subtle: var(--color-red-950);
+  --text-color-danger: var(--color-red-500);
+  --background-color-info-subtle: var(--color-blue-950);
+  --text-color-info: var(--color-blue-500);
+
+  /* ── Editor layout ── */
+  --width-editor-panel: 260px;
+
+  /* ── Typography (property labels) ── */
+  --text-copy-sm: 13px;
+  --text-copy-sm--line-height: 1.25rem;
+
+  /* ── Shadows ── */
+  --shadow-slider: 0 0 0 1px oklch(1 0 0 / 0.06), 0 1px 1px 0 oklch(0 0 0 / 0.1),
+    0 4px 8px 0 oklch(0 0 0 / 0.12);
+  --shadow-panel: 0 4px 10px 0 oklch(0 0 0 / 0.25);
+}
+
+@utility bg-primary {
+  background-color: var(--background-color-primary);
+}
+@utility text-on-primary {
+  color: var(--text-color-on-primary);
+}
+@utility bg-layer-0 {
+  background-color: var(--background-color-layer-0);
+}
+@utility bg-layer-1 {
+  background-color: var(--background-color-layer-1);
+}
+@utility bg-control {
+  background-color: var(--background-color-control);
+}
+@utility bg-control-strong {
+  background-color: var(--background-color-control-strong);
+}
+@utility bg-control-track {
+  background-color: var(--background-color-control-track);
+}
+@utility bg-tint-subtle {
+  background-color: var(--background-color-tint-subtle);
+}
+@utility bg-tint {
+  background-color: var(--background-color-tint);
+}
+@utility bg-tint-strong {
+  background-color: var(--background-color-tint-strong);
+}
+@utility bg-code {
+  background-color: var(--background-color-code);
+}
+@utility bg-slider-fill {
+  background-color: var(--background-color-slider-fill);
+}
+@utility bg-slider-fill-active {
+  background-color: var(--background-color-slider-fill-active);
+}
+@utility bg-slider-handle {
+  background-color: var(--background-color-slider-handle);
+}
+@utility bg-slider-tick {
+  background-color: var(--background-color-slider-tick);
+}
+@utility bg-slider-tick-active {
+  background-color: var(--background-color-slider-tick-active);
+}
+@utility bg-mod-range {
+  background-color: var(--background-color-mod-range);
+}
+@utility bg-mod-range-subtle {
+  background-color: var(--background-color-mod-range-subtle);
+}
+@utility bg-mod-anchor {
+  background-color: var(--background-color-mod-anchor);
+}
+@utility bg-mod-endpoint {
+  background-color: var(--background-color-mod-endpoint);
+}
+@utility bg-mod-live {
+  background-color: var(--background-color-mod-live);
+}
+@utility bg-gizmo-ring {
+  background-color: var(--background-color-gizmo-ring);
+}
+@utility bg-gizmo-handle-outer {
+  background-color: var(--background-color-gizmo-handle-outer);
+}
+@utility bg-gizmo-handle {
+  background-color: var(--background-color-gizmo-handle);
+}
+@utility border-gizmo-ring {
+  border-color: var(--border-color-gizmo-ring);
+}
+@utility text-neutral-strong {
+  color: var(--text-color-neutral-strong);
+}
+@utility text-neutral {
+  color: var(--text-color-neutral);
+}
+@utility text-neutral-subtle {
+  color: var(--text-color-neutral-subtle);
+}
+@utility text-neutral-weak {
+  color: var(--text-color-neutral-weak);
+}
+@utility border-neutral {
+  border-color: var(--border-color-neutral);
+}
+@utility border-neutral-subtle {
+  border-color: var(--border-color-neutral-subtle);
+}
+@utility border-neutral-strong {
+  border-color: var(--border-color-neutral-strong);
+}
+@utility divide-neutral {
+  border-color: var(--divide-color-neutral);
+}
+@utility ring-focus {
+  --tw-ring-color: var(--ring-color-focus);
+}
+@utility ring-offset-layer-1 {
+  --tw-ring-offset-color: var(--ring-offset-color-layer-1);
+}
+@utility w-editor-panel {
+  width: var(--width-editor-panel);
+}

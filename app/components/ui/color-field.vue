@@ -41,7 +41,7 @@ const open = ref(false);
           :avoid-collisions="true"
           :collision-padding="{ top: 16, bottom: 16, left: 16, right: 16 }"
           :sticky="'partial'"
-          class="z-50 w-56 rounded-xl border border-edge bg-base-1 p-3 shadow-2xl backdrop-blur-xl data-[state=open]:animate-contentShow"
+          class="floating-content-enter z-50 w-56 origin-[var(--reka-popover-content-transform-origin)] rounded-xl border border-edge bg-base-1 p-3 shadow-2xl backdrop-blur-xl"
         >
           <UiColorPicker v-model="model" />
         </PopoverContent>

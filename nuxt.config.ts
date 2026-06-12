@@ -10,6 +10,9 @@ export default defineNuxtConfig({
   fonts: { experimental: { disableLocalFallbacks: true } },
   vite: {
     plugins: [tailwindcss(), glsl()],
+    optimizeDeps: {
+      include: ["@heroicons/vue/16/solid"],
+    },
   },
   nitro: {
     rollupConfig: {

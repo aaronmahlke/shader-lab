@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BoldIcon, ItalicIcon, UnderlineIcon } from "lucide-vue-next";
+import { BoldIcon, ItalicIcon, UnderlineIcon } from "@heroicons/vue/16/solid";
 import type { ArtworkTextLayer } from "#shared/types/artwork";
 
 const props = defineProps<{
@@ -29,7 +29,7 @@ const emit = defineEmits<{
       title="Bold selection"
       @click="emit('bold')"
     >
-      <BoldIcon class="size-3.5" />
+      <BoldIcon class="size-4" />
     </button>
     <button
       type="button"
@@ -38,7 +38,7 @@ const emit = defineEmits<{
       title="Italic selection"
       @click="emit('italic')"
     >
-      <ItalicIcon class="size-3.5" />
+      <ItalicIcon class="size-4" />
     </button>
     <button
       type="button"
@@ -47,7 +47,7 @@ const emit = defineEmits<{
       title="Underline selection"
       @click="emit('underline')"
     >
-      <UnderlineIcon class="size-3.5" />
+      <UnderlineIcon class="size-4" />
     </button>
     <div class="mx-0.5 h-5 w-px bg-edge" />
     <UiColorField

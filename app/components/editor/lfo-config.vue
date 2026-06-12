@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Trash2Icon } from "lucide-vue-next";
+import { XMarkIcon, SignalIcon } from "@heroicons/vue/16/solid";
 import type { LFOSource } from "#shared/types/editor";
 import { LFO_PRESETS, clonePresetPoints } from "#shared/editor/lfo-presets";
 
@@ -9,11 +9,18 @@ type Props = {
 };
 
 type Emits = {
-  delete: [];
+  close: [];
 };
 
 const { lfo, cursorPosition } = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+const activePreset = computed(() => {
+  for (const [key, preset] of Object.entries(LFO_PRESETS)) {
+    if (JSON.stringify(preset.points) === JSON.stringify(lfo.points)) return key;
+  }
+  return null;
+});
 
 function applyPreset(key: string) {
   lfo.points = clonePresetPoints(key);
@@ -21,79 +28,77 @@ function applyPreset(key: string) {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-lg rounded-xl border border-edge bg-base-1">
-    <div class="flex flex-col gap-3 p-3">
-      <div class="flex items-center justify-between px-1">
-        <div class="flex min-w-0 flex-1 items-center gap-2">
-          <span class="size-2.5 shrink-0 rounded-full" :style="{ backgroundColor: lfo.color }" />
-          <UiEditableText v-model="lfo.label" fill class="text-copy-sm text-primary" />
-        </div>
-        <button
-          class="flex size-6 items-center justify-center rounded-md text-tertiary transition-colors duration-150 hover:bg-surface-1 hover:text-secondary"
-          title="Delete LFO"
-          @click="emit('delete')"
-        >
-          <Trash2Icon class="size-3.5" />
-        </button>
+  <div class="w-[380px] rounded-lg bg-control-strong p-1 shadow-panel">
+    <div class="flex flex-col gap-1">
+      <div class="flex h-7 items-center gap-2 px-2">
+        <SignalIcon class="size-4 shrink-0" :style="{ color: lfo.color }" />
+        <UiEditableText v-model="lfo.label" fill class="min-w-0 flex-1 text-copy-sm text-neutral" />
+        <UiHover radius="rounded-md" :focusable="false">
+          <button
+            type="button"
+            class="flex size-7 shrink-0 items-center justify-center text-neutral-subtle outline-none group-hover/h:text-neutral-strong"
+            title="Close"
+            @click="emit('close')"
+          >
+            <XMarkIcon class="size-4" />
+          </button>
+        </UiHover>
       </div>
 
-      <EditorWaveEditor
-        v-model="lfo.points"
-        :color="lfo.color"
-        :cursor-position="cursorPosition"
-      />
+      <div class="overflow-hidden rounded-lg bg-code">
+        <EditorWaveEditor
+          v-model="lfo.points"
+          :color="lfo.color"
+          :cursor-position="cursorPosition"
+          class="h-24"
+        />
+      </div>
 
-      <div class="flex items-center justify-between gap-3 px-1">
+      <div class="flex items-center justify-between gap-2 px-1 pb-1">
         <div class="flex gap-1">
-          <UiButton
+          <button
             v-for="(preset, key) in LFO_PRESETS"
             :key="key"
-            variant="option"
-            size="sm"
+            class="h-7 rounded-md px-2 text-copy-sm transition-colors duration-150"
+            :class="activePreset === key ? 'bg-tint-strong text-neutral' : 'bg-tint-subtle text-neutral-subtle hover:text-neutral'"
             @click="applyPreset(key as string)"
           >
             {{ preset.label }}
-          </UiButton>
+          </button>
         </div>
         <div class="flex gap-1">
-          <UiButton
-            variant="option"
-            size="sm"
-            :active="lfo.mode === 'loop'"
+          <button
+            class="h-7 rounded-md px-2 text-copy-sm transition-colors duration-150"
+            :class="lfo.mode === 'loop' ? 'bg-tint-strong text-neutral' : 'bg-tint-subtle text-neutral-subtle hover:text-neutral'"
             @click="lfo.mode = 'loop'"
           >
             Loop
-          </UiButton>
-          <UiButton
-            variant="option"
-            size="sm"
-            :active="lfo.mode === 'pingpong'"
+          </button>
+          <button
+            class="h-7 rounded-md px-2 text-copy-sm transition-colors duration-150"
+            :class="lfo.mode === 'pingpong' ? 'bg-tint-strong text-neutral' : 'bg-tint-subtle text-neutral-subtle hover:text-neutral'"
             @click="lfo.mode = 'pingpong'"
           >
             Ping-pong
-          </UiButton>
+          </button>
         </div>
       </div>
 
-      <div class="flex gap-3">
-        <div class="flex-1">
-          <UiSliderField
-            v-model="lfo.rate"
-            label="Rate (Hz)"
-            :min="0.01"
-            :max="3"
-            :step="0.01"
-          />
-        </div>
-        <div class="flex-1">
-          <UiSliderField
-            v-model="lfo.phase"
-            label="Phase"
-            :min="0"
-            :max="360"
-            :step="1"
-          />
-        </div>
+      <div class="flex flex-col gap-2.5 px-1 pb-1">
+        <UiSliderField
+          v-model="lfo.rate"
+          label="Rate"
+          :min="0.01"
+          :max="3"
+          :step="0.01"
+        />
+        <UiSliderField
+          v-model="lfo.phase"
+          label="Phase"
+          :min="0"
+          :max="360"
+          :step="1"
+        />
       </div>
     </div>
   </div>

@@ -18,6 +18,7 @@ import {
   WAVE_POS_X,
   WAVE_POS_Y,
 } from "#shared/editor/wave-position";
+import { SignalIcon, CubeIcon, ArrowPathIcon } from "@heroicons/vue/16/solid";
 import type { GradientStop } from "#shared/types";
 import type { MeshPoint } from "#shared/types/mesh";
 
@@ -26,6 +27,7 @@ useHead({ title: "Shader — Shader Lab" });
 const route = useRoute();
 const fromArtworkId = computed(() => route.query.fromArtwork as string | undefined);
 const exportOpen = ref(false);
+const layerSettingsRef = ref<{ randomize: () => void; reset: () => void } | null>(null);
 
 const { data: fromArtworkRow } = await useFetch(
   () => (fromArtworkId.value ? `/api/artworks/${fromArtworkId.value}` : null),
@@ -91,11 +93,6 @@ const selectedTemplate = computed(() => {
 
 const selectedLfoId = ref<string | null>(null);
 const draggingLfoId = ref<string | null>(null);
-
-const selectedLfo = computed(() => {
-  if (!selectedLfoId.value) return null;
-  return lfos.value.find((l) => l.id === selectedLfoId.value) ?? null;
-});
 
 // --- Modulation Engine ---
 
@@ -210,6 +207,11 @@ function duplicateLayer(id: string) {
   const idx = layers.value.findIndex((l) => l.id === id);
   layers.value.splice(idx, 0, clone);
   selectedLayerId.value = newId;
+
+  const clonedAssignments = assignments.value
+    .filter((a) => a.layerId === id)
+    .map((a) => ({ ...a, layerId: newId }));
+  assignments.value.push(...clonedAssignments);
 }
 
 // --- LFO Management ---
@@ -342,30 +344,22 @@ function setWaveFloat(
 
 <template>
   <EditorFrame>
-    <template #header>
-      <NuxtLink
-        :to="fromArtworkId ? `/artwork/${fromArtworkId}` : '/'"
-        class="shrink-0 text-copy-sm text-tertiary transition-colors duration-150 hover:text-primary"
-      >
-        {{ fromArtworkId ? (fromArtworkName ?? "Artwork") : "Shader Lab" }}
-      </NuxtLink>
-      <template v-if="fromArtworkId">
-        <span class="text-copy-sm text-tertiary">›</span>
-      </template>
-      <div class="h-4 w-px bg-surface-1" />
-      <UiEditableText v-model="shaderName" fill class="min-w-0 flex-1 text-copy-sm text-secondary" />
-      <UiButton variant="ghost" size="sm" @click="exportOpen = true">
-        Export
-      </UiButton>
-    </template>
-
     <template #left>
       <EditorLayerStack
         v-model:layers="layers"
         v-model:selected-layer-id="selectedLayerId"
+        v-model:shader-name="shaderName"
+        v-model:lfos="lfos"
+        v-model:selected-lfo-id="selectedLfoId"
+        :home-to="fromArtworkId ? `/artwork/${fromArtworkId}` : '/'"
+        :lfo-cursor-position="selectedLfoCursorPosition"
         @add-layer="addLayer"
         @duplicate-layer="duplicateLayer"
         @remove-layer="removeLayer"
+        @drag-start="onDragStart"
+        @duplicate-lfo="duplicateLfo"
+        @clear-assignments="clearLfoAssignments"
+        @delete-lfo="deleteLfo"
       />
     </template>
 
@@ -395,65 +389,69 @@ function setWaveFloat(
           @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
         />
 
-        <div
-          v-if="selectedLfo"
-          class="pointer-events-none absolute inset-x-4 bottom-4 z-20 flex justify-center"
-        >
-          <EditorLfoConfig
-            class="pointer-events-auto shadow-2xl"
-            :lfo="selectedLfo"
-            :cursor-position="selectedLfoCursorPosition"
-            @delete="deleteLfo(selectedLfo!.id)"
-          />
-        </div>
       </div>
     </ClientOnly>
 
-    <template #footer>
-      <EditorLfoRack
-        v-model:lfos="lfos"
-        v-model:selected-lfo-id="selectedLfoId"
-        @drag-start="(id: string, x: number, y: number) => onDragStart(id, x, y)"
-        @duplicate-lfo="duplicateLfo"
-        @clear-assignments="clearLfoAssignments"
-        @delete-lfo="deleteLfo"
-      />
-    </template>
-
     <template #right>
-      <EditorLayerSettings
-        v-if="selectedLayer && selectedTemplate"
-        :key="selectedLayer.id"
-        :layer="selectedLayer"
-        :template="selectedTemplate"
-        :assignments="selectedLayerAssignments"
-        :lfos="lfos"
-        :dragging-lfo-id="draggingLfoId"
-        @assign-lfo="assignLfo"
-        @remove-assignment="removeAssignment"
-        @update-depth="updateDepth"
-      />
-      <div
-        v-else
-        class="flex flex-1 items-center justify-center p-6 text-center"
-      >
-        <p class="text-copy-sm text-tertiary">
-          Select a layer to edit its settings.
-        </p>
+      <div class="flex h-full min-h-0 flex-col">
+        <div class="flex shrink-0 items-center justify-between border-b border-neutral px-3 py-2.5">
+          <div class="flex items-center gap-0.5">
+            <UiButton
+              v-if="selectedLayer && selectedTemplate"
+              variant="ghost"
+              size="sm"
+              :icon-left="CubeIcon"
+              title="Randomize"
+              @click="layerSettingsRef?.randomize()"
+            />
+            <UiButton
+              v-if="selectedLayer && selectedTemplate"
+              variant="ghost"
+              size="sm"
+              :icon-left="ArrowPathIcon"
+              title="Reset to defaults"
+              @click="layerSettingsRef?.reset()"
+            />
+          </div>
+          <UiButton variant="filled" size="sm" @click="exportOpen = true">
+            Export
+          </UiButton>
+        </div>
+        <EditorLayerSettings
+          v-if="selectedLayer && selectedTemplate"
+          ref="layerSettingsRef"
+          :key="selectedLayer.id"
+          :layer="selectedLayer"
+          :template="selectedTemplate"
+          :assignments="selectedLayerAssignments"
+          :lfos="lfos"
+          :dragging-lfo-id="draggingLfoId"
+          @assign-lfo="assignLfo"
+          @remove-assignment="removeAssignment"
+          @update-depth="updateDepth"
+        />
+        <div
+          v-else
+          class="flex flex-1 items-center justify-center p-6 text-center"
+        >
+          <p class="text-copy-sm text-neutral-subtle">
+            Select a layer to edit its settings.
+          </p>
+        </div>
       </div>
     </template>
   </EditorFrame>
 
   <div
     v-if="draggingLfo"
-    class="pointer-events-none fixed z-50 flex w-max items-center gap-2 whitespace-nowrap rounded-lg border border-edge bg-base-1 px-2.5 py-1.5 text-copy-sm text-primary shadow-2xl"
+    class="pointer-events-none fixed z-50 flex w-max items-center gap-2 whitespace-nowrap rounded-lg border border-neutral bg-layer-1 px-2.5 py-1.5 text-copy-sm text-neutral-strong shadow-panel"
     :style="{
       left: `${dragPos.x}px`,
       top: `${dragPos.y}px`,
       transform: 'translate(-50%, -50%)',
     }"
   >
-    <span class="size-2.5 rounded-full" :style="{ backgroundColor: draggingLfo.color }" />
+    <SignalIcon class="size-4 text-neutral-subtle" />
     <span>{{ draggingLfo.label }}</span>
   </div>
 

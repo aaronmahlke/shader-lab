@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PlusIcon } from "lucide-vue-next";
+import { PlusIcon } from "@heroicons/vue/16/solid";
 import type { LFOSource } from "#shared/types/editor";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
@@ -15,11 +15,24 @@ const lfos = defineModel<LFOSource[]>("lfos", { required: true });
 const selectedLfoId = defineModel<string | null>("selectedLfoId", { required: true });
 const emit = defineEmits<Emits>();
 
-let lfoCounter = 1;
+let lfoCounter = 0;
+
+function initLfoCounter() {
+  for (const lfo of lfos.value) {
+    const match = /^lfo-(\d+)$/.exec(lfo.id);
+    if (match) lfoCounter = Math.max(lfoCounter, Number(match[1]));
+  }
+}
+
+initLfoCounter();
+
+function nextLfoId(): string {
+  return `lfo-${++lfoCounter}`;
+}
 
 function addLfo() {
   const existingColors = lfos.value.map((l) => l.color);
-  const id = `lfo-${++lfoCounter}`;
+  const id = nextLfoId();
   lfos.value.push({
     id,
     label: `LFO ${lfos.value.length + 1}`,
@@ -55,7 +68,7 @@ function selectLfo(id: string) {
       title="Add LFO"
       @click="addLfo"
     >
-      <PlusIcon class="size-3.5" />
+      <PlusIcon class="size-4" />
     </button>
   </div>
 </template>

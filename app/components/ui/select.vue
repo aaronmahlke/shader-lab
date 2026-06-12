@@ -10,7 +10,7 @@ import {
   SelectItemIndicator,
   SelectItemText,
 } from "reka-ui";
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-vue-next";
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "@heroicons/vue/16/solid";
 
 type Props = {
   options: { value: string | number; label: string }[];
@@ -34,8 +34,8 @@ const open = ref(false);
         :class="disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-edge hover:bg-surface-1'"
       >
         <SelectValue :placeholder="placeholder" />
-        <ChevronDownIcon v-if="!open" class="ml-2 size-3.5 text-tertiary" />
-        <ChevronUpIcon v-else class="ml-2 size-3.5 text-tertiary" />
+        <ChevronDownIcon v-if="!open" class="ml-2 size-4 text-tertiary" />
+        <ChevronUpIcon v-else class="ml-2 size-4 text-tertiary" />
       </SelectTrigger>
 
       <SelectPortal>
@@ -45,7 +45,7 @@ const open = ref(false);
           align="start"
           :side-offset="4"
           :collision-padding="12"
-          class="z-[9999] w-[var(--reka-select-trigger-width)] rounded-xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl"
+          class="floating-content-enter z-[9999] w-[var(--reka-select-trigger-width)] origin-[var(--reka-select-content-transform-origin)] rounded-xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl"
         >
           <SelectViewport class="max-h-48 overflow-auto p-1">
             <SelectItem
@@ -58,7 +58,7 @@ const open = ref(false);
                 {{ option.label }}
               </SelectItemText>
               <SelectItemIndicator>
-                <CheckIcon class="ml-2 size-3.5 text-secondary" />
+                <CheckIcon class="ml-2 size-4 text-secondary" />
               </SelectItemIndicator>
             </SelectItem>
           </SelectViewport>

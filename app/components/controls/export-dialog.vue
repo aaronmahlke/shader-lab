@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
-import { DownloadIcon, XIcon } from "lucide-vue-next";
+import { ArrowDownTrayIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import {
   EXPORT_SCALE_MULTIPLIERS,
   scaledExportSize,
@@ -135,7 +135,7 @@ async function handleVideoExport() {
           <DialogTitle class="text-copy-sm text-primary">
             Export
           </DialogTitle>
-          <UiButton variant="ghost" size="sm" :icon-left="XIcon" @click="open = false" />
+          <UiButton variant="ghost" size="sm" :icon-left="XMarkIcon" @click="open = false" />
         </div>
 
         <div class="p-4">
@@ -191,7 +191,7 @@ async function handleVideoExport() {
               </span>
             </div>
 
-            <UiButton variant="action" :icon-left="DownloadIcon" @click="handleImageExport">
+            <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleImageExport">
               Download PNG
             </UiButton>
           </div>
@@ -267,7 +267,7 @@ async function handleVideoExport() {
                 </div>
               </div>
 
-              <UiButton variant="action" :icon-left="DownloadIcon" @click="handleVideoExport">
+              <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleVideoExport">
                 Render MP4
               </UiButton>
             </div>

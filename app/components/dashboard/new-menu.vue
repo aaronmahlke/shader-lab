@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverPortal } from "reka-ui";
-import { ChevronDownIcon, PlusIcon } from "lucide-vue-next";
+import { ChevronDownIcon, PlusIcon } from "@heroicons/vue/16/solid";
 import { SHADER_PRESETS } from "#shared/editor/shader-presets";
 import { ARTWORK_PRESETS } from "#shared/editor/artwork-presets";
 

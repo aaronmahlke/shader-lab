@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import { EyeIcon, EyeOffIcon, Trash2Icon, ImageIcon, TypeIcon, LayersIcon, VideoIcon } from "lucide-vue-next";
+import {
+  EyeIcon,
+  EyeSlashIcon,
+  TrashIcon,
+  PhotoIcon,
+  DocumentTextIcon,
+  RectangleStackIcon,
+  VideoCameraIcon,
+} from "@heroicons/vue/16/solid";
 import type { ArtworkLayer } from "#shared/types/artwork";
 
 type Props = {
@@ -19,10 +27,10 @@ const emit = defineEmits<{
 }>();
 
 const typeIcon = computed<Component>(() => {
-  if (layer.type === "shader") return LayersIcon;
-  if (layer.type === "text") return TypeIcon;
-  if (layer.type === "video") return VideoIcon;
-  return ImageIcon;
+  if (layer.type === "shader") return RectangleStackIcon;
+  if (layer.type === "text") return DocumentTextIcon;
+  if (layer.type === "video") return VideoCameraIcon;
+  return PhotoIcon;
 });
 </script>
 
@@ -38,8 +46,8 @@ const typeIcon = computed<Component>(() => {
     @click="emit('select')"
   >
     <component
-      :is="layer.enabled ? typeIcon : EyeOffIcon"
-      class="size-3.5 shrink-0 text-tertiary"
+      :is="layer.enabled ? typeIcon : EyeSlashIcon"
+      class="size-4 shrink-0 text-tertiary"
     />
 
     <span
@@ -55,8 +63,8 @@ const typeIcon = computed<Component>(() => {
       title="Toggle visibility"
       @click.stop="emit('toggle-enabled')"
     >
-      <EyeIcon v-if="layer.enabled" class="size-3.5" />
-      <EyeOffIcon v-else class="size-3.5" />
+      <EyeIcon v-if="layer.enabled" class="size-4" />
+      <EyeSlashIcon v-else class="size-4" />
     </button>
 
     <button
@@ -65,7 +73,7 @@ const typeIcon = computed<Component>(() => {
       title="Remove layer"
       @click.stop="emit('remove')"
     >
-      <Trash2Icon class="size-3.5" />
+      <TrashIcon class="size-4" />
     </button>
   </div>
 </template>

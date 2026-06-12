@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
-import { XIcon } from "lucide-vue-next";
+import { XMarkIcon } from "@heroicons/vue/16/solid";
 import { COMPOSITION_PRESETS } from "#shared/editor/composition-presets";
 
 const open = defineModel<boolean>("open", { default: false });
@@ -26,7 +26,7 @@ function choose(presetId: string) {
           <DialogTitle class="text-copy-sm text-primary">
             New composition
           </DialogTitle>
-          <UiButton variant="ghost" size="sm" :icon-left="XIcon" @click="open = false" />
+          <UiButton variant="ghost" size="sm" :icon-left="XMarkIcon" @click="open = false" />
         </div>
 
         <div class="overflow-y-auto p-4">

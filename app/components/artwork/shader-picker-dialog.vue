@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
-import { XIcon } from "lucide-vue-next";
+import { XMarkIcon } from "@heroicons/vue/16/solid";
 import type { ShaderDocument } from "#shared/types/artwork";
 
 type ShaderRow = {
@@ -69,7 +69,7 @@ function pick(id: string) {
           <DialogTitle class="text-copy-sm text-primary">
             {{ title }}
           </DialogTitle>
-          <UiButton variant="ghost" size="sm" :icon-left="XIcon" @click="open = false" />
+          <UiButton variant="ghost" size="sm" :icon-left="XMarkIcon" @click="open = false" />
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">

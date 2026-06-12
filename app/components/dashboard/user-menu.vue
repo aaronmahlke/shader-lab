@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverPortal } from "reka-ui";
-import { LogOutIcon } from "lucide-vue-next";
+import { ArrowRightStartOnRectangleIcon } from "@heroicons/vue/16/solid";
 
 const { user, clear } = useUserSession();
 
@@ -42,7 +42,7 @@ async function logout() {
           class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-copy-sm text-secondary transition-colors duration-150 hover:bg-surface-1 hover:text-primary"
           @click="logout"
         >
-          <LogOutIcon class="size-3.5" />
+          <ArrowRightStartOnRectangleIcon class="size-4" />
           Log out
         </button>
       </PopoverContent>

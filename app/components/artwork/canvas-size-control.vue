@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDownIcon } from "lucide-vue-next";
+import { ChevronDownIcon } from "@heroicons/vue/16/solid";
 import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverPortal } from "reka-ui";
 import { ARTWORK_PRESETS } from "#shared/editor/artwork-presets";
 import type { ArtworkCanvas } from "#shared/types/artwork";
@@ -63,7 +63,7 @@ function applyCustom() {
         title="Canvas size"
       >
         <span class="select-none tabular-nums">{{ displayLabel }}</span>
-        <ChevronDownIcon class="size-3" />
+        <ChevronDownIcon class="size-4" />
       </button>
     </PopoverTrigger>
     <PopoverPortal>

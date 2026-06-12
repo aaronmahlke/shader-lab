@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { CollapsibleRoot, CollapsibleTrigger, CollapsibleContent } from "reka-ui";
-import { ChevronRightIcon, DicesIcon, RotateCcwIcon } from "lucide-vue-next";
 import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource } from "#shared/types/editor";
 import type { GradientStop } from "#shared/types";
 import type { MeshPoint } from "#shared/types/mesh";
@@ -24,17 +22,10 @@ type Emits = {
 const { layer, template, assignments, lfos, draggingLfoId } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
-const settingsOpen = ref(true);
-
 function getAssignment(paramName: string): ModulationAssignment | undefined {
   return assignments.find((a) => a.layerId === layer.id && a.paramName === paramName);
 }
 
-function getLfoColor(sourceId: string): string | undefined {
-  return lfos.find((l) => l.id === sourceId)?.color;
-}
-
-// Injected LFO values for live indicator
 const lfoValues = inject<Ref<Record<string, number>>>("lfoValues", ref({}));
 
 function getLiveValue(def: LayerUniformDef): number | undefined {
@@ -51,6 +42,10 @@ function getModulatedFloat(paramName: string, fallback: number): number {
   return applyModulation(base, paramName, lfoValue, assignment.depth);
 }
 
+function getLfoColor(sourceId: string): string | undefined {
+  return lfos.find((l) => l.id === sourceId)?.color;
+}
+
 function getModInfo(def: LayerUniformDef): { color: string; depth: number } | null {
   const assignment = getAssignment(def.name);
   if (!assignment) return null;
@@ -64,8 +59,6 @@ function onDepthUpdate(def: LayerUniformDef, depth: number) {
   if (!assignment) return;
   emit("update-depth", assignment.sourceId, def.name, depth);
 }
-
-// --- Randomize ---
 
 function hslToHex(h: number, s: number, l: number): string {
   h = ((h % 360) + 360) % 360;
@@ -124,7 +117,11 @@ function resetToDefaults() {
   }
 }
 
-// --- Value accessors ---
+function randomize() {
+  randomizeUniforms(template.uniforms, layer.values);
+}
+
+defineExpose({ randomize, reset: resetToDefaults });
 
 function getFloat(def: LayerUniformDef, target: Record<string, unknown>): number {
   return (target[def.name] as number) ?? (def.default as number);
@@ -192,168 +189,119 @@ function resetUniform(def: LayerUniformDef) {
   layer.values[def.name] = def.default;
 }
 
-// Distortion layer: conditionally show params based on wave type and coord mode
 const isDistortion = computed(() => layer.type === "distortion");
 const currentWaveType = computed(() => (layer.values.waveType as number) ?? 0);
 const currentCoordMode = computed(() => (layer.values.coordMode as number) ?? 0);
 
 function isUniformVisible(def: LayerUniformDef): boolean {
   if (!isDistortion.value) return true;
-  // Sharpness + pulseWidth only for square (1)
   if (def.name === "sharpness" || def.name === "pulseWidth") return currentWaveType.value === 1;
-  // Skew only for triangle (2)
   if (def.name === "skew") return currentWaveType.value === 2;
-  // Direction only in linear mode (0)
   if (def.name === "direction") return currentCoordMode.value === 0;
-  // Center X/Y only in radial mode (1)
   if (def.name === "centerX" || def.name === "centerY") return currentCoordMode.value === 1;
   return true;
 }
 </script>
 
 <template>
-  <aside class="flex h-full min-h-0 w-full flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="flex shrink-0 items-center justify-between border-b border-edge px-3 py-2.5">
-      <div class="flex flex-col">
-        <span class="text-copy-sm text-primary select-none">{{ layer.name ?? template.label }}</span>
-        <span class="text-copy-sm text-tertiary select-none">{{ template.description }}</span>
-      </div>
-      <div class="flex items-center gap-0.5">
-        <UiButton variant="ghost" size="sm" :icon-left="DicesIcon" title="Randomize" @click="randomizeUniforms(template.uniforms, layer.values)" />
-        <UiButton variant="ghost" size="sm" :icon-left="RotateCcwIcon" title="Reset to defaults" @click="resetToDefaults" />
-      </div>
+  <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div v-if="isDistortion" class="border-b border-neutral px-3 py-3">
+      <EditorWavePreview
+        :wave-type="currentWaveType"
+        :freq="getModulatedFloat('freq', 3)"
+        :amplitude="getModulatedFloat('amplitude', 0.5)"
+        :sharpness="getModulatedFloat('sharpness', 6.7)"
+        :pulse-width="getModulatedFloat('pulseWidth', 0)"
+        :skew="getModulatedFloat('skew', 0)"
+      />
     </div>
 
-    <!-- Scrollable content -->
-    <div class="flex flex-1 flex-col overflow-y-auto">
-      <!-- Wave preview for distortion layers -->
-      <div v-if="isDistortion" class="border-b border-edge px-3 py-3">
-        <EditorWavePreview
-          :wave-type="currentWaveType"
-          :freq="getModulatedFloat('freq', 3)"
-          :amplitude="getModulatedFloat('amplitude', 0.5)"
-          :sharpness="getModulatedFloat('sharpness', 6.7)"
-          :pulse-width="getModulatedFloat('pulseWidth', 0)"
-          :skew="getModulatedFloat('skew', 0)"
-        />
-      </div>
-
-      <!-- Settings section -->
-      <CollapsibleRoot v-model:open="settingsOpen">
-        <div class="flex w-full items-center justify-between pr-2">
-          <CollapsibleTrigger
-            class="flex flex-1 cursor-default items-center gap-1.5 px-3 py-2 text-copy-sm text-secondary transition-colors duration-150 select-none hover:text-primary"
-          >
-            <ChevronRightIcon
-              :class="[
-                'size-3.5 text-tertiary transition-transform duration-150 ease-out-expo',
-                settingsOpen && 'rotate-90',
-              ]"
-            />
-            Settings
-          </CollapsibleTrigger>
-        </div>
-        <CollapsibleContent class="overflow-hidden data-[state=closed]:animate-collapse data-[state=open]:animate-expand">
-          <div class="flex flex-col gap-2.5 px-3 pb-3">
-            <template v-for="def in template.uniforms" :key="def.name">
-              <template v-if="isUniformVisible(def)">
-              <!-- Float / Int -->
-              <UiContextMenu v-if="def.type === 'float' || def.type === 'int'">
-                <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
-                  <UiSliderField
-                    :model-value="getFloat(def, layer.values)"
-                    :label="def.label"
-                    :min="def.min"
-                    :max="def.max"
-                    :step="def.step ?? (def.type === 'int' ? 1 : 0.01)"
-                    :mod-color="getModInfo(def)?.color"
-                    :mod-depth="getModInfo(def)?.depth"
-                    :mod-live-value="getLiveValue(def)"
-                    :is-drop-target="draggingLfoId !== null"
-                    @update:model-value="setFloat(def, layer.values, $event)"
-                    @update:mod-depth="onDepthUpdate(def, $event)"
-                  />
-                </div>
-                <template #menu>
-                  <UiContextMenuItem @click="resetUniform(def)">Reset to default</UiContextMenuItem>
-                  <template v-if="getAssignment(def.name)">
-                    <UiContextMenuSeparator />
-                    <UiContextMenuItem @click="emit('remove-assignment', getAssignment(def.name)!.sourceId, def.name)">
-                      <span class="size-2 rounded-full" :style="{ backgroundColor: getLfoColor(getAssignment(def.name)!.sourceId) }" />
-                      Remove {{ lfos.find(l => l.id === getAssignment(def.name)!.sourceId)?.label }}
-                    </UiContextMenuItem>
-                  </template>
-                </template>
-              </UiContextMenu>
-              <!-- Color -->
-              <UiColorField
-                v-else-if="def.type === 'color'"
-                :model-value="getColor(def, layer.values)"
+    <div class="flex flex-col gap-2.5 p-3">
+      <template v-for="def in template.uniforms" :key="def.name">
+        <template v-if="isUniformVisible(def)">
+          <UiContextMenu v-if="def.type === 'float' || def.type === 'int'">
+            <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
+              <UiSliderField
+                :model-value="getFloat(def, layer.values)"
                 :label="def.label"
-                @update:model-value="setColor(def, layer.values, $event)"
+                :min="def.min"
+                :max="def.max"
+                :step="def.step ?? (def.type === 'int' ? 1 : 0.01)"
+                :mod-color="getModInfo(def)?.color"
+                :mod-depth="getModInfo(def)?.depth"
+                :mod-live-value="getLiveValue(def)"
+                :is-drop-target="draggingLfoId !== null"
+                @update:model-value="setFloat(def, layer.values, $event)"
+                @update:mod-depth="onDepthUpdate(def, $event)"
               />
-              <!-- Bool -->
-              <UiToggle
-                v-else-if="def.type === 'bool'"
-                :model-value="getBool(def, layer.values)"
-                :label="def.label"
-                @update:model-value="setBool(def, layer.values, $event)"
-              />
-              <!-- Gradient -->
-              <UiGradientField
-                v-else-if="def.type === 'gradient'"
-                :model-value="getGradient(def, layer.values)"
-                :label="def.label"
-                @update:model-value="setGradient(def, layer.values, $event)"
-              />
-              <!-- Mesh points -->
-              <EditorMeshPointsField
-                v-else-if="def.type === 'meshPoints'"
-                :model-value="getMeshPoints(def, layer.values)"
-                :layer-id="layer.id"
-                :assignments="assignments"
-                :lfos="lfos"
-                :dragging-lfo-id="draggingLfoId"
-                @update:model-value="setMeshPoints(def, layer.values, $event)"
-                @assign-lfo="emit('assign-lfo', $event)"
-                @remove-assignment="(sid, pname) => emit('remove-assignment', sid, pname)"
-                @update-depth="(sid, pname, depth) => emit('update-depth', sid, pname, depth)"
-              />
-              <!-- Select -->
-              <UiSelect
-                v-else-if="def.type === 'select'"
-                :model-value="getSelect(def, layer.values) as string | number"
-                :options="def.options ?? []"
-                :label="def.label"
-                @update:model-value="setSelect(def, layer.values, $event as string | number)"
-              />
-              <!-- Vec2 -->
-              <div v-else-if="def.type === 'vec2'" class="flex flex-col gap-2 rounded-xl bg-surface-1 p-2.5">
-                <UiSliderField
-                  :model-value="getVec2(def, layer.values)[0]"
-                  :label="`${def.label} X`"
-                  :min="def.min"
-                  :max="def.max"
-                  :step="def.step ?? 0.01"
-                  @update:model-value="setVec2X(def, layer.values, $event)"
-                />
-                <UiSliderField
-                  :model-value="getVec2(def, layer.values)[1]"
-                  :label="`${def.label} Y`"
-                  :min="def.min"
-                  :max="def.max"
-                  :step="def.step ?? 0.01"
-                  @update:model-value="setVec2Y(def, layer.values, $event)"
-                />
-              </div>
+            </div>
+            <template #menu>
+              <UiContextMenuItem @click="resetUniform(def)">Reset to default</UiContextMenuItem>
+              <template v-if="getAssignment(def.name)">
+                <UiContextMenuSeparator />
+                <UiContextMenuItem @click="emit('remove-assignment', getAssignment(def.name)!.sourceId, def.name)">
+                  Remove {{ lfos.find(l => l.id === getAssignment(def.name)!.sourceId)?.label }}
+                </UiContextMenuItem>
               </template>
             </template>
+          </UiContextMenu>
+          <UiColorField
+            v-else-if="def.type === 'color'"
+            :model-value="getColor(def, layer.values)"
+            :label="def.label"
+            @update:model-value="setColor(def, layer.values, $event)"
+          />
+          <UiToggle
+            v-else-if="def.type === 'bool'"
+            :model-value="getBool(def, layer.values)"
+            :label="def.label"
+            @update:model-value="setBool(def, layer.values, $event)"
+          />
+          <UiGradientField
+            v-else-if="def.type === 'gradient'"
+            :model-value="getGradient(def, layer.values)"
+            :label="def.label"
+            @update:model-value="setGradient(def, layer.values, $event)"
+          />
+          <EditorMeshPointsField
+            v-else-if="def.type === 'meshPoints'"
+            :model-value="getMeshPoints(def, layer.values)"
+            :layer-id="layer.id"
+            :assignments="assignments"
+            :lfos="lfos"
+            :dragging-lfo-id="draggingLfoId"
+            @update:model-value="setMeshPoints(def, layer.values, $event)"
+            @assign-lfo="emit('assign-lfo', $event)"
+            @remove-assignment="(sid, pname) => emit('remove-assignment', sid, pname)"
+            @update-depth="(sid, pname, depth) => emit('update-depth', sid, pname, depth)"
+          />
+          <UiSelect
+            v-else-if="def.type === 'select'"
+            :model-value="getSelect(def, layer.values) as string | number"
+            :options="def.options ?? []"
+            :label="def.label"
+            @update:model-value="setSelect(def, layer.values, $event as string | number)"
+          />
+          <div v-else-if="def.type === 'vec2'" class="flex flex-col gap-2.5">
+            <UiSliderField
+              :model-value="getVec2(def, layer.values)[0]"
+              :label="`${def.label} X`"
+              :min="def.min"
+              :max="def.max"
+              :step="def.step ?? 0.01"
+              @update:model-value="setVec2X(def, layer.values, $event)"
+            />
+            <UiSliderField
+              :model-value="getVec2(def, layer.values)[1]"
+              :label="`${def.label} Y`"
+              :min="def.min"
+              :max="def.max"
+              :step="def.step ?? 0.01"
+              @update:model-value="setVec2Y(def, layer.values, $event)"
+            />
           </div>
-        </CollapsibleContent>
-      </CollapsibleRoot>
-
-    
+        </template>
+      </template>
     </div>
-  </aside>
+  </div>
 </template>

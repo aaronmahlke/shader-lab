@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { CameraIcon, DicesIcon, RotateCcwIcon, SettingsIcon, ShareIcon, XIcon } from "lucide-vue-next";
+import {
+  CameraIcon,
+  CubeIcon,
+  ArrowPathIcon,
+  Cog6ToothIcon,
+  ShareIcon,
+  XMarkIcon,
+} from "@heroicons/vue/16/solid";
 import type { Experiment, GradientStop, UniformValue } from "#shared/types";
 
 type ShaderControls = {
@@ -153,7 +160,7 @@ function randomize() {
       :shader="shader"
     />
     <UiTooltip :label="panelOpen ? 'Close settings' : 'Settings'">
-      <UiButton variant="toolbar" :icon-left="panelOpen ? XIcon : SettingsIcon" @click="panelOpen = !panelOpen" />
+      <UiButton variant="toolbar" :icon-left="panelOpen ? XMarkIcon : Cog6ToothIcon" @click="panelOpen = !panelOpen" />
     </UiTooltip>
   </div>
 
@@ -176,8 +183,8 @@ function randomize() {
             <span class="text-copy-sm text-tertiary">{{ experiment.description }}</span>
           </div>
           <div class="flex items-center gap-0.5">
-            <UiButton variant="ghost" size="sm" :icon-left="DicesIcon" title="Randomize" @click="randomize" />
-            <UiButton variant="ghost" size="sm" :icon-left="RotateCcwIcon" title="Reset to defaults" @click="resetToDefaults" />
+            <UiButton variant="ghost" size="sm" :icon-left="CubeIcon" title="Randomize" @click="randomize" />
+            <UiButton variant="ghost" size="sm" :icon-left="ArrowPathIcon" title="Reset to defaults" @click="resetToDefaults" />
           </div>
         </div>
 

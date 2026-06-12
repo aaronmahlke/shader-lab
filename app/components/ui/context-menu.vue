@@ -8,7 +8,10 @@ import { ContextMenuRoot, ContextMenuTrigger, ContextMenuPortal, ContextMenuCont
       <slot />
     </ContextMenuTrigger>
     <ContextMenuPortal>
-      <ContextMenuContent :collision-padding="12" class="z-[9999] min-w-40 rounded-xl border border-edge bg-base-1 p-1 shadow-2xl backdrop-blur-xl">
+      <ContextMenuContent
+        :collision-padding="12"
+        class="floating-content-enter z-[9999] min-w-40 origin-[var(--reka-context-menu-content-transform-origin)] rounded-xl border border-edge bg-base-1 p-1 shadow-2xl backdrop-blur-xl"
+      >
         <slot name="menu" />
       </ContextMenuContent>
     </ContextMenuPortal>
