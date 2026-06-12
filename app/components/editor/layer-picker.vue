@@ -17,6 +17,7 @@ type CategoryGroup = {
 const categories = computed<CategoryGroup[]>(() => {
   const map: Record<LayerCategory, CategoryGroup> = {
     generator: { key: "generator", label: "Generators", items: [] },
+    composite: { key: "composite", label: "Composite", items: [] },
     distortion: { key: "distortion", label: "Distortions", items: [] },
     effect: { key: "effect", label: "Effects", items: [] },
   };

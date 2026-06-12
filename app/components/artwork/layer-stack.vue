@@ -13,6 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   addText: [];
   addImage: [];
+  addVideo: [];
   pickShader: [];
   removeLayer: [id: string];
 }>();
@@ -72,6 +73,13 @@ function toggleEnabled(layer: ArtworkLayer) {
               >
                 Image
               </button>
+              <button
+                type="button"
+                class="rounded-lg px-2 py-1.5 text-left text-copy-sm text-primary hover:bg-surface-1"
+                @click="emit('addVideo'); pickerOpen = false"
+              >
+                Video
+              </button>
             </PopoverContent>
           </PopoverPortal>
         </PopoverRoot>
@@ -85,7 +93,7 @@ function toggleEnabled(layer: ArtworkLayer) {
           v-if="layers.length === 0"
           class="px-2 py-6 text-center text-copy-sm text-tertiary"
         >
-          No layers yet. Use + to add a shader, text, or image.
+          No layers yet. Use + to add a shader, text, image, or video.
         </p>
         <ArtworkLayerRow
           v-for="(layer, i) in layers"

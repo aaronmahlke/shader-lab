@@ -11,12 +11,13 @@ const copied = ref(false);
 
 const params = reactive({
   grainMix: 0.41,
-  edgeWidth: 0.74,
-  edgeBg: 0.44,
-  edgePale: 0.38,
+  dissolveReach: 4,
+  edgeWidth: 0.37,
+  edgeBg: 0.6,
+  edgePale: 0.44,
   edgeLime: 0.42,
-  edgeBlue: 0.3,
-  edgeBlack: 0.3,
+  edgeBlue: 0.26,
+  edgeBlack: 0.35,
   edgeBlue2: 0.56,
   edgeBlack2: 0.69,
   dotSize: 1.5,
@@ -50,6 +51,7 @@ const params = reactive({
 
 const PARAM_RANGES = {
   grainMix: { min: 0, max: 1, step: 0.01 },
+  dissolveReach: { min: 1, max: 4, step: 0.05 },
   edgeWidth: { min: 0.1, max: 0.9, step: 0.01 },
   edgeSeam: { min: 0.02, max: 1, step: 0.01 },
   dotSize: { min: 1, max: 4, step: 0.25 },
@@ -62,6 +64,7 @@ const PARAM_RANGES = {
 
 const UNIFORM_MAP: Record<keyof typeof params, string> = {
   grainMix: "u_grainMix",
+  dissolveReach: "u_dissolveReach",
   edgeWidth: "u_edge",
   edgeBg: "u_edgeBg",
   edgePale: "u_edgePale",
@@ -401,7 +404,7 @@ onUnmounted(disposeRenderer);
           Hybrid dissolve
         </p>
         <p class="mb-2 text-copy-sm leading-relaxed text-white/40">
-          Top bg unchanged. Bottom: one sine cycle per layer, flat shelves at −1 outside it. Painted back → front: blue → pale → black → lime → blue 2 → black 2.
+          Each layer has an internal color gradient (not flat fill). Hybrid dissolve: cs = smooth edge, cd = stipple.
         </p>
         <p
           v-if="metrics"
@@ -416,6 +419,13 @@ onUnmounted(disposeRenderer);
             :min="PARAM_RANGES.grainMix.min"
             :max="PARAM_RANGES.grainMix.max"
             :step="PARAM_RANGES.grainMix.step"
+          />
+          <UiSliderField
+            v-model="params.dissolveReach"
+            label="dissolveReach"
+            :min="PARAM_RANGES.dissolveReach.min"
+            :max="PARAM_RANGES.dissolveReach.max"
+            :step="PARAM_RANGES.dissolveReach.step"
           />
           <UiSliderField
             v-model="params.edgeWidth"

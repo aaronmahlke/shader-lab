@@ -21,7 +21,7 @@ function applyPreset(key: string) {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-lg rounded-xl border border-edge bg-surface-1/50">
+  <div class="mx-auto w-full max-w-lg rounded-xl border border-edge bg-base-1">
     <div class="flex flex-col gap-3 p-3">
       <div class="flex items-center justify-between px-1">
         <div class="flex min-w-0 flex-1 items-center gap-2">

@@ -18,6 +18,7 @@ const pickerOpen = ref(false);
 const { containerRef, draggingIndex } = useDragReorder(layers);
 
 function toggleEnabled(layer: LayerInstance) {
+  selectedLayerId.value = layer.id;
   layer.enabled = !layer.enabled;
 }
 

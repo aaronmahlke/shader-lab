@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
 import { DownloadIcon, XIcon } from "lucide-vue-next";
+import {
+  EXPORT_SCALE_MULTIPLIERS,
+  scaledExportSize,
+  type DesignCanvas,
+} from "#shared/editor/export-scale";
 
 type ShaderControls = {
   capture: (width: number, height: number) => Promise<void>;
@@ -9,69 +14,105 @@ type ShaderControls = {
   getCanvas: () => HTMLCanvasElement | null;
   configureRenderer: (width: number, height: number) => void;
   restoreRenderer: () => void;
-  renderFrame: (time: number) => void;
+  renderFrame: (time: number) => void | Promise<void>;
 };
+
+/** Fixed presets when no design canvas is provided (shader-only editor). */
+const LEGACY_RESOLUTIONS = [
+  { label: "1080p", width: 1920, height: 1080 },
+  { label: "4K", width: 3840, height: 2160 },
+] as const;
 
 type Props = {
   experimentId: string;
   shader: ShaderControls | null;
+  /** Artwork design canvas — enables 1× / 2× / 4× export */
+  designCanvas?: DesignCanvas;
+  canvasVideoDuration?: number;
+  beforeExport?: () => void | Promise<void>;
 };
 
-const { experimentId, shader } = defineProps<Props>();
+const { experimentId, shader, designCanvas, canvasVideoDuration = 0, beforeExport } = defineProps<Props>();
 
 const open = defineModel<boolean>("open", { default: false });
 
 const tab = ref<"image" | "video">("image");
 
-// Image export settings
-const imageResolutions = [
-  { label: "1080p", width: 1920, height: 1080 },
-  { label: "4K", width: 3840, height: 2160 },
-  { label: "5K", width: 5120, height: 2880 },
-] as const;
+const useScaleExport = computed(() => !!designCanvas);
 
-const selectedImageResolution = ref(0);
+const selectedScale = ref(0);
+const selectedLegacyResolution = ref(0);
 
-// Video export settings
-const videoResolutions = [
-  { label: "1080p", width: 1920, height: 1080 },
-  { label: "2K", width: 2560, height: 1440 },
-  { label: "4K", width: 3840, height: 2160 },
-] as const;
+const exportSize = computed(() => {
+  if (designCanvas) {
+    const mult = EXPORT_SCALE_MULTIPLIERS[selectedScale.value]!.multiplier;
+    return scaledExportSize(designCanvas, mult);
+  }
+  const leg = LEGACY_RESOLUTIONS[selectedLegacyResolution.value]!;
+  return { width: leg.width, height: leg.height };
+});
 
-const durations = [
+const fixedDurations = [
   { label: "5s", value: 5 },
   { label: "10s", value: 10 },
   { label: "30s", value: 30 },
 ] as const;
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+const durationOptions = computed(() => {
+  const opts: { label: string; value: number }[] = [];
+  if (canvasVideoDuration > 0.05) {
+    opts.push({
+      label: `Canvas video (${formatDuration(canvasVideoDuration)})`,
+      value: canvasVideoDuration,
+    });
+  }
+  for (const d of fixedDurations) opts.push({ label: d.label, value: d.value });
+  return opts;
+});
 
 const fpsOptions = [
   { label: "30", value: 30 },
   { label: "60", value: 60 },
 ] as const;
 
-const selectedVideoResolution = ref(0);
 const selectedDuration = ref(0);
 const selectedFps = ref(0);
+
+watch(
+  () => canvasVideoDuration,
+  (d) => {
+    if (d > 0.05) selectedDuration.value = 0;
+  },
+  { immediate: true },
+);
 
 const { state: videoState, exportVideo, abort } = useVideoExport();
 
 async function handleImageExport() {
   if (!shader) return;
-  const res = imageResolutions[selectedImageResolution.value]!;
+  await beforeExport?.();
+  const { width, height } = exportSize.value;
   open.value = false;
-  await shader.capture(res.width, res.height);
+  await shader.capture(width, height);
 }
 
 async function handleVideoExport() {
   if (!shader) return;
-  const res = videoResolutions[selectedVideoResolution.value]!;
-  const dur = durations[selectedDuration.value]!;
+  await beforeExport?.();
+  const { width, height } = exportSize.value;
+  const dur = durationOptions.value[selectedDuration.value]!;
   const fps = fpsOptions[selectedFps.value]!;
 
   await exportVideo(shader, {
-    width: res.width,
-    height: res.height,
+    width,
+    height,
     fps: fps.value,
     duration: dur.value,
     experimentId,
@@ -112,21 +153,41 @@ async function handleVideoExport() {
 
           <div v-if="tab === 'image'" class="mt-4 flex flex-col gap-4">
             <div class="flex flex-col gap-2">
-              <span class="text-copy-sm text-tertiary">Resolution</span>
-              <div class="flex gap-1.5">
+              <span class="text-copy-sm text-tertiary">
+                {{ useScaleExport ? "Scale" : "Resolution" }}
+              </span>
+              <div v-if="useScaleExport" class="flex gap-1.5">
                 <UiButton
-                  v-for="(res, i) in imageResolutions"
+                  v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
+                  :key="preset.label"
+                  variant="option"
+                  :active="selectedScale === i"
+                  class="flex-1"
+                  @click="selectedScale = i"
+                >
+                  {{ preset.label }}
+                </UiButton>
+              </div>
+              <div v-else class="flex gap-1.5">
+                <UiButton
+                  v-for="(res, i) in LEGACY_RESOLUTIONS"
                   :key="res.label"
                   variant="option"
-                  :active="selectedImageResolution === i"
+                  :active="selectedLegacyResolution === i"
                   class="flex-1"
-                  @click="selectedImageResolution = i"
+                  @click="selectedLegacyResolution = i"
                 >
                   {{ res.label }}
                 </UiButton>
               </div>
               <span class="text-copy-sm text-tertiary">
-                {{ imageResolutions[selectedImageResolution]!.width }} x {{ imageResolutions[selectedImageResolution]!.height }}
+                <template v-if="useScaleExport && designCanvas">
+                  {{ designCanvas.width }}×{{ designCanvas.height }} design →
+                  {{ exportSize.width }}×{{ exportSize.height }} export
+                </template>
+                <template v-else>
+                  {{ exportSize.width }} × {{ exportSize.height }}
+                </template>
               </span>
             </div>
 
@@ -138,30 +199,51 @@ async function handleVideoExport() {
           <div v-if="tab === 'video'" class="mt-4 flex flex-col gap-4">
             <div v-if="!videoState.exporting" class="flex flex-col gap-4">
               <div class="flex flex-col gap-2">
-                <span class="text-copy-sm text-tertiary">Resolution</span>
-                <div class="flex gap-1.5">
+                <span class="text-copy-sm text-tertiary">
+                  {{ useScaleExport ? "Scale" : "Resolution" }}
+                </span>
+                <div v-if="useScaleExport" class="flex gap-1.5">
                   <UiButton
-                    v-for="(res, i) in videoResolutions"
+                    v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
+                    :key="preset.label"
+                    variant="option"
+                    :active="selectedScale === i"
+                    class="flex-1"
+                    @click="selectedScale = i"
+                  >
+                    {{ preset.label }}
+                  </UiButton>
+                </div>
+                <div v-else class="flex gap-1.5">
+                  <UiButton
+                    v-for="(res, i) in LEGACY_RESOLUTIONS"
                     :key="res.label"
                     variant="option"
-                    :active="selectedVideoResolution === i"
+                    :active="selectedLegacyResolution === i"
                     class="flex-1"
-                    @click="selectedVideoResolution = i"
+                    @click="selectedLegacyResolution = i"
                   >
                     {{ res.label }}
                   </UiButton>
                 </div>
+                <span
+                  v-if="useScaleExport && designCanvas"
+                  class="text-copy-sm text-tertiary"
+                >
+                  {{ designCanvas.width }}×{{ designCanvas.height }} →
+                  {{ exportSize.width }}×{{ exportSize.height }}
+                </span>
               </div>
 
               <div class="flex flex-col gap-2">
                 <span class="text-copy-sm text-tertiary">Duration</span>
-                <div class="flex gap-1.5">
+                <div class="flex flex-wrap gap-1.5">
                   <UiButton
-                    v-for="(dur, i) in durations"
+                    v-for="(dur, i) in durationOptions"
                     :key="dur.label"
                     variant="option"
                     :active="selectedDuration === i"
-                    class="flex-1"
+                    class="min-w-0 flex-1"
                     @click="selectedDuration = i"
                   >
                     {{ dur.label }}

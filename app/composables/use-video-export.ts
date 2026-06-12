@@ -1,4 +1,5 @@
-import { Output, Mp4OutputFormat, BufferTarget, CanvasSource, QUALITY_HIGH } from "mediabunny";
+import { Output, Mp4OutputFormat, BufferTarget, CanvasSource } from "mediabunny";
+import { canvasVideoEncodingConfig } from "#shared/editor/video-encoding";
 
 type ExportOptions = {
   width: number;
@@ -14,7 +15,7 @@ type ShaderControls = {
   getCanvas: () => HTMLCanvasElement | null;
   configureRenderer: (width: number, height: number) => void;
   restoreRenderer: () => void;
-  renderFrame: (time: number) => void;
+  renderFrame: (time: number) => void | Promise<void>;
 };
 
 type ExportState = {
@@ -68,10 +69,10 @@ export function useVideoExport() {
         target: new BufferTarget(),
       });
 
-      const videoSource = new CanvasSource(canvas, {
-        codec: "avc",
-        bitrate: QUALITY_HIGH,
-      });
+      const videoSource = new CanvasSource(
+        canvas,
+        canvasVideoEncodingConfig(width, height, fps),
+      );
 
       output.addVideoTrack(videoSource);
       await output.start();
@@ -81,7 +82,7 @@ export function useVideoExport() {
         if (aborted) break;
 
         const time = startTime + i * frameDuration;
-        shader.renderFrame(time);
+        await Promise.resolve(shader.renderFrame(time));
 
         await videoSource.add(i * frameDuration, frameDuration);
 

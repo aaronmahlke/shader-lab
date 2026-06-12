@@ -35,6 +35,10 @@ const shaderCache = ref<Record<string, ShaderDocument & { name?: string }>>({});
 const shaderNames = ref<Record<string, string>>({});
 const bootstrapDone = ref(!!routeId);
 const exportOpen = ref(false);
+
+watch(exportOpen, (open) => {
+  if (open) loadArtworkMedia();
+});
 const shaderPickerOpen = ref(false);
 const shaderPickerMode = ref<"add" | "swap">("add");
 const shaderSwapLayerId = ref<string | null>(null);
@@ -115,14 +119,22 @@ const {
   getDisplayCanvas,
   rendererControls,
   sampleLfosAtTime,
+  layerCaches,
   imageCache,
+  videoCache,
+  loadArtworkMedia,
 } = useArtworkPreview(canvasRef, artworkDoc, shaderCache, textEdit.editingLayerId);
 
-const { getExportControls } = useArtworkExport(
+const {
+  getExportControls,
+  canvasVideoDuration,
+  ensureMediaLoaded,
+} = useArtworkExport(
   artworkDoc,
   shaderCache,
   rendererControls,
   sampleLfosAtTime,
+  { imageCache, videoCache },
 );
 
 const exportControls = computed(() =>
@@ -155,6 +167,7 @@ function layerLabel(layer: ArtworkLayer): string {
     return name ? `Shader · ${name}` : "Shader";
   }
   if (layer.type === "text") return "Text";
+  if (layer.type === "video") return "Video";
   return "Image";
 }
 
@@ -193,6 +206,23 @@ function addImageLayer() {
     scale: 1,
     borderRadius: 0,
     opacity: 1,
+  });
+  selectedLayerId.value = id;
+}
+
+function addVideoLayer() {
+  const id = `video-${Date.now()}`;
+  artworkDoc.value.layers.unshift({
+    id,
+    type: "video",
+    enabled: true,
+    src: "",
+    x: 0.5,
+    y: 0.5,
+    scale: 1,
+    borderRadius: 0,
+    opacity: 1,
+    loop: true,
   });
   selectedLayerId.value = id;
 }
@@ -302,6 +332,7 @@ function createNewShaderFromArtwork() {
         :layer-label="layerLabel"
         @add-text="addTextLayer"
         @add-image="addImageLayer"
+        @add-video="addVideoLayer"
         @pick-shader="openShaderPickerAdd"
         @remove-layer="removeLayer"
       />
@@ -312,8 +343,9 @@ function createNewShaderFromArtwork() {
         <ArtworkCanvasStage
           v-model:selected-layer-id="selectedLayerId"
           :artwork="artworkDoc"
-          :image-cache="imageCache"
+          :layer-caches="layerCaches"
           class="max-h-full max-w-full"
+          @delete-layer="removeLayer"
         >
           <canvas
             ref="canvasRef"
@@ -348,6 +380,10 @@ function createNewShaderFromArtwork() {
             v-else-if="selectedLayer.type === 'image'"
             :layer="selectedLayer"
           />
+          <ArtworkVideoInspector
+            v-else-if="selectedLayer.type === 'video'"
+            :layer="selectedLayer"
+          />
         </div>
       </div>
       <div
@@ -373,5 +409,8 @@ function createNewShaderFromArtwork() {
     v-model:open="exportOpen"
     :experiment-id="artworkId ?? 'artwork'"
     :shader="exportControls"
+    :design-canvas="artworkDoc.canvas"
+    :canvas-video-duration="canvasVideoDuration"
+    :before-export="ensureMediaLoaded"
   />
 </template>

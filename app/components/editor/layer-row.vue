@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import { EyeIcon, EyeOffIcon, Trash2Icon, SparklesIcon, WavesIcon, SlidersHorizontalIcon } from "lucide-vue-next";
+import { EyeIcon, EyeOffIcon, Trash2Icon, SparklesIcon, WavesIcon, SlidersHorizontalIcon, LayersIcon } from "lucide-vue-next";
 import type { LayerInstance, LayerCategory } from "#shared/types/editor";
 import LAYER_TEMPLATES from "#shared/editor/layer-templates";
 
@@ -29,6 +29,7 @@ const displayName = computed({
 
 const categoryIcons: Record<LayerCategory, Component> = {
   generator: SparklesIcon,
+  composite: LayersIcon,
   distortion: WavesIcon,
   effect: SlidersHorizontalIcon,
 };

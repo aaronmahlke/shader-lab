@@ -1,13 +1,17 @@
-export type LayerCategory = "generator" | "distortion" | "effect";
+export type LayerCategory = "generator" | "composite" | "distortion" | "effect";
 
 export type LayerType =
   | "gradient"
   | "mesh"
   | "solid"
   | "noise"
+  | "waveFill"
+  | "bandFill"
   | "distortion"
   | "dither"
   | "grain"
+  | "seam"
+  | "hybridDissolve"
   | "vignette";
 
 export type LayerUniformDef = {
@@ -42,6 +46,8 @@ export type RenderPass = {
   layerType: LayerType | "resolve" | "blit";
   uniforms: Record<string, unknown>;
   inputLayerId: string | null;
+  /** Stipple accumulator input (dual-buffer composite pipeline). */
+  stippleInputLayerId?: string | null;
   colorSourceLayerId?: string | null;  // for resolve pass: which layer has the color texture
   isOutput: boolean;
 };

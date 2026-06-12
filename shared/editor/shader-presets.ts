@@ -7,6 +7,16 @@ import {
   cloneMeshPoints,
   meshParamName,
 } from "./mesh-uniforms";
+import {
+  BAND_GRADIENT_ABOVE,
+  BAND_GRADIENT_BELOW,
+  WAVE_GRADIENT_BLACK,
+  WAVE_GRADIENT_BLACK2,
+  WAVE_GRADIENT_BLUE,
+  WAVE_GRADIENT_BLUE2,
+  WAVE_GRADIENT_LIME,
+  WAVE_GRADIENT_PALE,
+} from "./composite-defaults";
 
 import type { ShaderDocument } from "../types/artwork";
 
@@ -192,6 +202,121 @@ const PRESET_DATA: Record<string, ShaderDocument> = {
       { sourceId: "lfo-4", layerId: "distortion-1", paramName: "direction", depth: 12 },
     ],
   },
+  "grainy-dither-v4": {
+    version: 1,
+    layers: [
+      {
+        id: "hybrid-1",
+        type: "hybridDissolve",
+        enabled: true,
+        values: {
+          grainMix: 0.41,
+          dissolveReach: 4,
+          edgeWidth: 0.37,
+          dotSize: 1.5,
+          seed: 0,
+        },
+      },
+      {
+        id: "wave-black2",
+        type: "waveFill",
+        enabled: true,
+        name: "Black 2",
+        values: {
+          centerY: 0.29,
+          amplitude: 0.325,
+          cycleWidth: 1.67,
+          cycleX: 1.15,
+          edge: 0.69,
+          u_gradient: WAVE_GRADIENT_BLACK2.map((s) => ({ ...s })),
+        },
+      },
+      {
+        id: "wave-blue2",
+        type: "waveFill",
+        enabled: true,
+        name: "Blue 2",
+        values: {
+          centerY: 0.31,
+          amplitude: 0.075,
+          cycleWidth: 1.2,
+          cycleX: 0.18,
+          edge: 0.56,
+          u_gradient: WAVE_GRADIENT_BLUE2.map((s) => ({ ...s })),
+        },
+      },
+      {
+        id: "wave-lime",
+        type: "waveFill",
+        enabled: true,
+        name: "Lime",
+        values: {
+          centerY: 0.28,
+          amplitude: 0.17,
+          cycleWidth: 1.53,
+          cycleX: 0.99,
+          edge: 0.42,
+          u_gradient: WAVE_GRADIENT_LIME.map((s) => ({ ...s })),
+        },
+      },
+      {
+        id: "wave-black",
+        type: "waveFill",
+        enabled: true,
+        name: "Black",
+        values: {
+          centerY: 0.56,
+          amplitude: 0.325,
+          cycleWidth: 2,
+          cycleX: -0.08,
+          edge: 0.35,
+          u_gradient: WAVE_GRADIENT_BLACK.map((s) => ({ ...s })),
+        },
+      },
+      {
+        id: "wave-pale",
+        type: "waveFill",
+        enabled: true,
+        name: "Pale",
+        values: {
+          centerY: 0.43,
+          amplitude: 0.215,
+          cycleWidth: 0.86,
+          cycleX: 0.97,
+          edge: 0.44,
+          u_gradient: WAVE_GRADIENT_PALE.map((s) => ({ ...s })),
+        },
+      },
+      {
+        id: "wave-blue",
+        type: "waveFill",
+        enabled: true,
+        name: "Blue",
+        values: {
+          centerY: 0.74,
+          amplitude: 0.145,
+          cycleWidth: 1.41,
+          cycleX: 0.14,
+          edge: 0.26,
+          u_gradient: WAVE_GRADIENT_BLUE.map((s) => ({ ...s })),
+        },
+      },
+      {
+        id: "band-1",
+        type: "bandFill",
+        enabled: true,
+        name: "Band",
+        values: {
+          bandY: 0.88,
+          edge: 0.6,
+          u_gradientBelow: BAND_GRADIENT_BELOW.map((s) => ({ ...s })),
+          u_gradientAbove: BAND_GRADIENT_ABOVE.map((s) => ({ ...s })),
+        },
+      },
+    ],
+    lfos: [],
+    assignments: [],
+  },
   "wave-distort": {
     version: 1,
     layers: [
@@ -238,6 +363,11 @@ export const SHADER_PRESETS: ShaderPreset[] = [
     id: "blank",
     name: "Blank",
     description: "Empty canvas — add layers with + in the stack.",
+  },
+  {
+    id: "grainy-dither-v4",
+    name: "Grainy dither v4",
+    description: "Wave stack + band bg with hybrid dissolve (dual-buffer compositing).",
   },
   {
     id: "grainy-dither-field",

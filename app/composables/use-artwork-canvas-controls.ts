@@ -1,14 +1,17 @@
-import type { ArtworkDocument, ArtworkImageLayer, ArtworkTextLayer } from "#shared/types/artwork";
-import type { ArtworkImageCache } from "#shared/artwork/draw-artwork";
+import type { ArtworkDocument, ArtworkTextLayer } from "#shared/types/artwork";
 import {
   applySnapToRect,
   type PxRect,
   type SnapOverlay,
 } from "#shared/artwork/canvas-snap";
+import { setUniformMediaScale } from "#shared/artwork/media-scale";
 import {
+  type ArtworkLayerCaches,
   type ArtworkRect,
   type HandleId,
+  type TransformableLayer,
   hitTestHandle,
+  isCornerHandle,
   isTransformableLayer,
   measureLayerPx,
   pickTransformableLayer,
@@ -28,9 +31,10 @@ export function useArtworkCanvasControls(
   stageRef: Ref<HTMLElement | null>,
   artwork: Ref<ArtworkDocument>,
   selectedLayerId: Ref<string | null>,
-  imageCache: Ref<ArtworkImageCache>,
+  layerCaches: Ref<ArtworkLayerCaches>,
   options?: {
     editingLayerId?: Ref<string | null>;
+    onDeleteLayer?: (layerId: string) => void;
   },
 ) {
   const measureCtx = shallowRef<CanvasRenderingContext2D | null>(null);
@@ -51,7 +55,7 @@ export function useArtworkCanvasControls(
     const layer = selectedLayer.value;
     const ctx = measureCtx.value;
     if (!layer || !ctx) return null;
-    const px = measureLayerPx(ctx, artwork.value.canvas, layer, imageCache.value);
+    const px = measureLayerPx(ctx, artwork.value.canvas, layer, layerCaches.value);
     if (!px) return null;
     return pxRectToNormalized(px, artwork.value.canvas);
   });
@@ -85,17 +89,17 @@ export function useArtworkCanvasControls(
     for (const layer of artwork.value.layers) {
       if (!layer.enabled || !isTransformableLayer(layer)) continue;
       if (excludeId && layer.id === excludeId) continue;
-      if (layer.type === "image" && !layer.src) continue;
-      const px = measureLayerPx(ctx, artwork.value.canvas, layer, imageCache.value);
+      if ((layer.type === "image" || layer.type === "video") && !layer.src) continue;
+      const px = measureLayerPx(ctx, artwork.value.canvas, layer, layerCaches.value);
       if (px) out.push({ id: layer.id, rect: px });
     }
     return out;
   }
 
-  function measureLayerRect(layer: ArtworkTextLayer | ArtworkImageLayer): PxRect | null {
+  function measureLayerRect(layer: TransformableLayer): PxRect | null {
     const ctx = measureCtx.value;
     if (!ctx) return null;
-    return measureLayerPx(ctx, artwork.value.canvas, layer, imageCache.value);
+    return measureLayerPx(ctx, artwork.value.canvas, layer, layerCaches.value);
   }
 
   const snapOverlay = ref<SnapOverlay | null>(null);
@@ -109,11 +113,14 @@ export function useArtworkCanvasControls(
   const dragLayerId = ref<string | null>(null);
   let pointerStart = { x: 0, y: 0 };
   let scaleStart = 1;
+  let scaleStartX = 1;
+  let scaleStartY = 1;
+  let intrinsicSize = { w: 1, h: 1 };
   let rectStart: ArtworkRect | null = null;
   let dragRectStart: PxRect | null = null;
 
   function applyMoveWithSnap(
-    layer: ArtworkTextLayer | ArtworkImageLayer,
+    layer: TransformableLayer,
     norm: { x: number; y: number },
   ) {
     const ctx = measureCtx.value;
@@ -143,7 +150,7 @@ export function useArtworkCanvasControls(
   }
 
   function nudgeLayer(
-    layer: ArtworkTextLayer | ArtworkImageLayer,
+    layer: TransformableLayer,
     dxPx: number,
     dyPx: number,
   ) {
@@ -179,7 +186,7 @@ export function useArtworkCanvasControls(
       artwork.value.layers,
       norm.x,
       norm.y,
-      imageCache.value,
+      layerCaches.value,
     );
   }
 
@@ -207,6 +214,15 @@ export function useArtworkCanvasControls(
           scaleStart = selectedLayer.value.fontSize;
         } else {
           scaleStart = selectedLayer.value.scale;
+          scaleStartX = selectedLayer.value.scaleX ?? selectedLayer.value.scale;
+          scaleStartY = selectedLayer.value.scaleY ?? selectedLayer.value.scale;
+          const measured = measureLayerRect(selectedLayer.value);
+          if (measured) {
+            intrinsicSize = {
+              w: measured.width / scaleStartX,
+              h: measured.height / scaleStartY,
+            };
+          }
         }
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         e.preventDefault();
@@ -220,7 +236,7 @@ export function useArtworkCanvasControls(
       artwork.value.layers,
       norm.x,
       norm.y,
-      imageCache.value,
+      layerCaches.value,
     );
 
     if (picked) {
@@ -241,15 +257,16 @@ export function useArtworkCanvasControls(
     clearSnapOverlay();
   }
 
-  function applyScale(layer: ArtworkTextLayer | ArtworkImageLayer, norm: { x: number; y: number }) {
+  function normToTopLeft(norm: { x: number; y: number }) {
+    return { x: norm.x, y: 1 - norm.y };
+  }
+
+  function applyCornerScale(layer: TransformableLayer, cur: { x: number; y: number }) {
     if (!rectStart) return;
 
     const cx = rectStart.x + rectStart.width / 2;
     const cy = rectStart.y + rectStart.height / 2;
-
-    const toTopLeft = (p: { x: number; y: number }) => ({ x: p.x, y: 1 - p.y });
-    const cur = toTopLeft(norm);
-    const start = toTopLeft(pointerStart);
+    const start = normToTopLeft(pointerStart);
     const center = { x: cx, y: cy };
 
     const startDist = Math.hypot(start.x - center.x, start.y - center.y);
@@ -259,8 +276,67 @@ export function useArtworkCanvasControls(
 
     if (layer.type === "text") {
       layer.fontSize = Math.max(8, Math.round(scaleStart * clamped));
+      return;
+    }
+
+    const s = Math.max(0.05, scaleStart * clamped);
+    setUniformMediaScale(layer, s);
+  }
+
+  function applyEdgeScale(layer: TransformableLayer, handle: HandleId, cur: { x: number; y: number }) {
+    if (!rectStart || !activeHandle) return;
+
+    const west0 = rectStart.x;
+    const east0 = rectStart.x + rectStart.width;
+    const north0 = rectStart.y;
+    const south0 = rectStart.y + rectStart.height;
+
+    let west = west0;
+    let east = east0;
+    let north = north0;
+    let south = south0;
+
+    if (handle.includes("w")) west = Math.min(cur.x, east0 - 0.005);
+    if (handle.includes("e")) east = Math.max(cur.x, west0 + 0.005);
+    if (handle.includes("n")) north = Math.min(cur.y, south0 - 0.005);
+    if (handle.includes("s")) south = Math.max(cur.y, north0 + 0.005);
+
+    const newWidth = Math.max(0.005, east - west);
+    const newHeight = Math.max(0.005, south - north);
+    const widthRatio = newWidth / Math.max(rectStart.width, 0.001);
+    const heightRatio = newHeight / Math.max(rectStart.height, 0.001);
+
+    const centerX = west + newWidth / 2;
+    const centerY = north + newHeight / 2;
+    layer.x = centerX;
+    layer.y = 1 - centerY;
+
+    if (layer.type === "text") {
+      if (handle === "e" || handle === "w") {
+        layer.fontSize = Math.max(8, Math.round(scaleStart * widthRatio));
+      } else {
+        layer.fontSize = Math.max(8, Math.round(scaleStart * heightRatio));
+      }
+      return;
+    }
+
+    const { width: cw, height: ch } = artwork.value.canvas;
+    const newWidthPx = newWidth * cw;
+    const newHeightPx = newHeight * ch;
+
+    if (handle === "e" || handle === "w") {
+      setUniformMediaScale(layer, Math.max(0.05, newWidthPx / intrinsicSize.w));
     } else {
-      layer.scale = Math.max(0.05, scaleStart * clamped);
+      setUniformMediaScale(layer, Math.max(0.05, newHeightPx / intrinsicSize.h));
+    }
+  }
+
+  function applyResize(layer: TransformableLayer, norm: { x: number; y: number }) {
+    const cur = normToTopLeft(norm);
+    if (activeHandle && isCornerHandle(activeHandle)) {
+      applyCornerScale(layer, cur);
+    } else if (activeHandle) {
+      applyEdgeScale(layer, activeHandle, cur);
     }
   }
 
@@ -273,7 +349,7 @@ export function useArtworkCanvasControls(
     if (dragMode.value === "move") {
       applyMoveWithSnap(layer, norm);
     } else {
-      applyScale(layer, norm);
+      applyResize(layer, norm);
     }
   }
 
@@ -295,6 +371,17 @@ export function useArtworkCanvasControls(
 
   function onKeyDown(e: KeyboardEvent) {
     if (isEditableTarget(e.target)) return;
+    if (options?.editingLayerId?.value) return;
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+      const id = selectedLayerId.value;
+      if (id && options?.onDeleteLayer) {
+        e.preventDefault();
+        options.onDeleteLayer(id);
+      }
+      return;
+    }
+
     const layer = selectedLayer.value;
     if (!layer) return;
 
@@ -358,8 +445,12 @@ export function useArtworkCanvasControls(
     if (!r) return [];
     const positions: { id: HandleId; left: string; top: string }[] = [
       { id: "nw", left: "0%", top: "0%" },
+      { id: "n", left: "50%", top: "0%" },
       { id: "ne", left: "100%", top: "0%" },
+      { id: "w", left: "0%", top: "50%" },
+      { id: "e", left: "100%", top: "50%" },
       { id: "sw", left: "0%", top: "100%" },
+      { id: "s", left: "50%", top: "100%" },
       { id: "se", left: "100%", top: "100%" },
     ];
     return positions.map((p) => ({

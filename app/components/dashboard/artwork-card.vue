@@ -2,6 +2,7 @@
 import type { ArtworkDocument, ShaderDocument } from "#shared/types/artwork";
 import type { LayerInstance, LFOSource, ModulationAssignment } from "#shared/types/editor";
 import { drawArtworkLayers, type ArtworkImageCache } from "#shared/artwork/draw-artwork";
+import { loadArtworkVideo, type ArtworkVideoCache } from "#shared/artwork/video-layer";
 
 const props = defineProps<{
   id: string;
@@ -21,6 +22,7 @@ const displayCanvasRef = ref<HTMLCanvasElement | null>(null);
 const isHovered = ref(false);
 const shaderCache = ref<Record<string, ShaderDocument>>({});
 const imageCache = ref<ArtworkImageCache>(new Map());
+const videoCache = ref<ArtworkVideoCache>(new Map());
 
 const relativeTime = computed(() => {
   const now = Date.now();
@@ -94,6 +96,14 @@ async function loadShaders() {
         img.src = layer.src;
       });
     }
+    if (layer.type === "video" && layer.src && !videoCache.value.has(layer.src)) {
+      const video = await loadArtworkVideo(layer.src);
+      if (video) {
+        video.loop = layer.loop !== false;
+        videoCache.value.set(layer.src, video);
+        video.play().catch(() => {});
+      }
+    }
   }
 }
 
@@ -124,7 +134,15 @@ function compositeDisplay() {
   }
   ctx.save();
   ctx.scale(dw / width, dh / height);
-  drawArtworkLayers(ctx, width, height, props.data.layers, imageCache.value);
+  for (const layer of props.data.layers) {
+    if (layer.type !== "video" || !layer.src) continue;
+    const video = videoCache.value.get(layer.src);
+    if (video?.paused) video.play().catch(() => {});
+  }
+  drawArtworkLayers(ctx, width, height, props.data.layers, {
+    imageCache: imageCache.value,
+    videoCache: videoCache.value,
+  });
   ctx.restore();
 }
 

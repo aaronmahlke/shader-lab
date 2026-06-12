@@ -1,6 +1,12 @@
 import type { ArtworkDocument } from "#shared/types/artwork";
 import type { LayerInstance, LFOSource, ModulationAssignment } from "#shared/types/editor";
 import { drawArtworkLayers, type ArtworkImageCache } from "#shared/artwork/draw-artwork";
+import {
+  getMaxCanvasVideoDuration,
+  loadArtworkVideo,
+  syncVideosAtTimeAndWait,
+  type ArtworkVideoCache,
+} from "#shared/artwork/video-layer";
 
 type ShaderCache = Record<string, {
   layers: LayerInstance[];
@@ -14,7 +20,12 @@ type ExportControls = {
   getCanvas: () => HTMLCanvasElement | null;
   configureRenderer: (width: number, height: number) => void;
   restoreRenderer: () => void;
-  renderFrame: (time: number) => void;
+  renderFrame: (time: number) => void | Promise<void>;
+};
+
+type MediaCaches = {
+  imageCache: Ref<ArtworkImageCache>;
+  videoCache: Ref<ArtworkVideoCache>;
 };
 
 export function useArtworkExport(
@@ -22,8 +33,11 @@ export function useArtworkExport(
   shaderCache: Ref<ShaderCache>,
   shaderControls: ExportControls,
   sampleLfosAtTime: (time: number) => void,
+  mediaCaches?: MediaCaches,
 ) {
-  const imageCache = ref<ArtworkImageCache>(new Map());
+  const imageCache = mediaCaches?.imageCache ?? ref<ArtworkImageCache>(new Map());
+  const videoCache = mediaCaches?.videoCache ?? ref<ArtworkVideoCache>(new Map());
+  let exportMediaReady = false;
 
   async function ensureImagesLoaded() {
     const cache = new Map(imageCache.value);
@@ -44,55 +58,112 @@ export function useArtworkExport(
     imageCache.value = cache;
   }
 
+  async function ensureVideosLoaded() {
+    const cache = new Map(videoCache.value);
+    for (const layer of artwork.value.layers) {
+      if (layer.type === "video" && layer.src && !cache.has(layer.src)) {
+        const video = await loadArtworkVideo(layer.src);
+        if (video) {
+          video.loop = layer.loop !== false;
+          cache.set(layer.src, video);
+        }
+      }
+    }
+    videoCache.value = cache;
+  }
+
+  async function ensureMediaLoaded() {
+    await Promise.all([ensureImagesLoaded(), ensureVideosLoaded()]);
+    exportMediaReady = true;
+  }
+
+  async function ensureMediaLoadedOnce() {
+    if (!exportMediaReady) await ensureMediaLoaded();
+  }
+
+  const canvasVideoDuration = computed(() =>
+    getMaxCanvasVideoDuration(artwork.value.layers, videoCache.value),
+  );
+
+  const hasVideoLayers = computed(() =>
+    artwork.value.layers.some((l) => l.type === "video" && l.enabled && l.src),
+  );
+
   async function compositeToCanvas(
     target: HTMLCanvasElement,
     shaderCanvas: HTMLCanvasElement | null,
+    timeSeconds: number,
+    width: number,
+    height: number,
   ) {
-    const { width, height } = artwork.value.canvas;
     target.width = width;
     target.height = height;
     const ctx = target.getContext("2d");
     if (!ctx) return;
 
+    await syncVideosAtTimeAndWait(artwork.value.layers, videoCache.value, timeSeconds);
+
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(0, 0, width, height);
 
-    if (shaderCanvas) {
-      ctx.drawImage(shaderCanvas, 0, 0, width, height);
+    if (shaderCanvas && shaderCanvas.width > 0 && shaderCanvas.height > 0) {
+      ctx.drawImage(
+        shaderCanvas,
+        0,
+        0,
+        shaderCanvas.width,
+        shaderCanvas.height,
+        0,
+        0,
+        width,
+        height,
+      );
     }
 
-    drawArtworkLayers(ctx, width, height, artwork.value.layers, imageCache.value);
+    drawArtworkLayers(ctx, width, height, artwork.value.layers, {
+      imageCache: imageCache.value,
+      videoCache: videoCache.value,
+      designCanvas: artwork.value.canvas,
+    });
+  }
+
+  function ensureShaderRenderedAtSize(
+    exportWidth: number,
+    exportHeight: number,
+    timeSeconds: number,
+  ): HTMLCanvasElement | null {
+    shaderControls.configureRenderer(exportWidth, exportHeight);
+    shaderControls.renderFrame(timeSeconds);
+    const shaderCanvas = shaderControls.getCanvas();
+    if (
+      !shaderCanvas ||
+      (shaderCanvas.width === exportWidth && shaderCanvas.height === exportHeight)
+    ) {
+      return shaderCanvas;
+    }
+    shaderControls.configureRenderer(exportWidth, exportHeight);
+    shaderControls.renderFrame(timeSeconds);
+    return shaderControls.getCanvas();
   }
 
   async function capturePng(exportWidth: number, exportHeight: number, filename: string) {
-    await ensureImagesLoaded();
-
-    const { width, height } = artwork.value.canvas;
-    const scaleX = exportWidth / width;
-    const scaleY = exportHeight / height;
+    await ensureMediaLoadedOnce();
 
     shaderControls.pause();
-    shaderControls.configureRenderer(width, height);
-    shaderControls.renderFrame(performance.now() / 1000);
-
-    const shaderCanvas = shaderControls.getCanvas();
+    const timeSeconds = performance.now() / 1000;
+    const shaderCanvas = ensureShaderRenderedAtSize(
+      exportWidth,
+      exportHeight,
+      timeSeconds,
+    );
     const composite = document.createElement("canvas");
-    composite.width = width;
-    composite.height = height;
-    await compositeToCanvas(composite, shaderCanvas);
+    await compositeToCanvas(composite, shaderCanvas, 0, exportWidth, exportHeight);
 
     shaderControls.restoreRenderer();
     shaderControls.resume();
 
-    const out = document.createElement("canvas");
-    out.width = exportWidth;
-    out.height = exportHeight;
-    const ctx = out.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(composite, 0, 0, exportWidth, exportHeight);
-
     const blob = await new Promise<Blob | null>((resolve) => {
-      out.toBlob(resolve, "image/png");
+      composite.toBlob(resolve, "image/png");
     });
     if (!blob) return;
 
@@ -114,30 +185,21 @@ export function useArtworkExport(
     videoCanvas.value = null;
   });
 
-  function compositeFrameSync(time: number, outWidth: number, outHeight: number) {
+  async function compositeFrameSync(time: number, outWidth: number, outHeight: number) {
+    await ensureMediaLoadedOnce();
     sampleLfosAtTime(time);
-    shaderControls.renderFrame(time);
+    const shaderCanvas = ensureShaderRenderedAtSize(outWidth, outHeight, time);
     const vc = videoCanvas.value;
     if (!vc) return;
 
-    const { width, height } = artwork.value.canvas;
     const composite = document.createElement("canvas");
-    composite.width = width;
-    composite.height = height;
-    const ctx = composite.getContext("2d");
-    if (!ctx) return;
+    await compositeToCanvas(composite, shaderCanvas, time, outWidth, outHeight);
 
-    ctx.fillStyle = "#0a0a0a";
-    ctx.fillRect(0, 0, width, height);
-    const shaderCanvas = shaderControls.getCanvas();
-    if (shaderCanvas) {
-      ctx.drawImage(shaderCanvas, 0, 0, width, height);
-    }
-    drawArtworkLayers(ctx, width, height, artwork.value.layers, imageCache.value);
-
+    vc.width = outWidth;
+    vc.height = outHeight;
     const vctx = vc.getContext("2d");
     if (!vctx) return;
-    vctx.drawImage(composite, 0, 0, outWidth, outHeight);
+    vctx.drawImage(composite, 0, 0);
   }
 
   function getExportControls(artifactId: string): ExportControls & { capture: (w: number, h: number) => Promise<void> } {
@@ -150,8 +212,7 @@ export function useArtworkExport(
       configureRenderer: (w, h) => {
         outW = w;
         outH = h;
-        const { width, height } = artwork.value.canvas;
-        shaderControls.configureRenderer(width, height);
+        shaderControls.configureRenderer(w, h);
         if (videoCanvas.value) {
           videoCanvas.value.width = w;
           videoCanvas.value.height = h;
@@ -161,7 +222,6 @@ export function useArtworkExport(
       getCanvas: () => videoCanvas.value,
       renderFrame: (time: number) => compositeFrameSync(time, outW, outH),
       capture: async (w: number, h: number) => {
-        await ensureImagesLoaded();
         await capturePng(w, h, `${artifactId}-${w}x${h}.png`);
       },
     };
@@ -170,6 +230,8 @@ export function useArtworkExport(
   return {
     capturePng,
     getExportControls,
-    ensureImagesLoaded,
+    ensureMediaLoaded,
+    canvasVideoDuration,
+    hasVideoLayers,
   };
 }

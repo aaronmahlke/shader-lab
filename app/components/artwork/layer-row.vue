@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Component } from "vue";
-import { EyeIcon, EyeOffIcon, Trash2Icon, ImageIcon, TypeIcon, LayersIcon } from "lucide-vue-next";
+import { EyeIcon, EyeOffIcon, Trash2Icon, ImageIcon, TypeIcon, LayersIcon, VideoIcon } from "lucide-vue-next";
 import type { ArtworkLayer } from "#shared/types/artwork";
 
 type Props = {
@@ -21,6 +21,7 @@ const emit = defineEmits<{
 const typeIcon = computed<Component>(() => {
   if (layer.type === "shader") return LayersIcon;
   if (layer.type === "text") return TypeIcon;
+  if (layer.type === "video") return VideoIcon;
   return ImageIcon;
 });
 </script>

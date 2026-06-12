@@ -19,6 +19,8 @@ const emit = defineEmits<{
   <div
     class="flex flex-wrap items-center gap-1 rounded-lg border border-edge bg-surface-1 p-1"
     :class="!hasSelection && 'opacity-50'"
+    data-keeps-text-edit
+    @mousedown.prevent
   >
     <button
       type="button"

@@ -13,6 +13,7 @@ node_modules
 *.log
 
 # Misc
+.tmp-venv
 .DS_Store
 .fleet
 .idea

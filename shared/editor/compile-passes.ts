@@ -1,6 +1,12 @@
 import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
 import { expandMeshUniforms } from "./mesh-uniforms";
+import {
+  COMPOSITE_LAYER_TYPES,
+  getHybridContext,
+  stippleLayerId,
+  usesDualPipeline,
+} from "./hybrid-pipeline";
 
 export type ModulationFn = (
   layerId: string,
@@ -32,6 +38,25 @@ export function buildLayerUniforms(
   return uniforms;
 }
 
+function compositeUniforms(
+  layer: LayerInstance,
+  modFn: ModulationFn | null,
+  hybrid: ReturnType<typeof getHybridContext>,
+  passMode: 0 | 1,
+  stippleSeed: number,
+): Record<string, unknown> {
+  const shapeType = layer.type === "bandFill" ? 1 : 0;
+  return {
+    ...buildLayerUniforms(layer, modFn),
+    dissolveReach: hybrid.dissolveReach,
+    edgeWidth: hybrid.edgeWidth,
+    dotSize: hybrid.dotSize,
+    shapeType,
+    passMode,
+    stippleSeed,
+  };
+}
+
 /** Exclusive end index of a contiguous distortion run starting at `start`. */
 function distortionRunEnd(enabled: LayerInstance[], start: number): number {
   let i = start;
@@ -53,6 +78,41 @@ function isDistortionRunInert(
   return run.every((layer) => Math.abs(effectiveAmplitude(layer, modFn)) < 1e-6);
 }
 
+function pushEffectPass(
+  result: RenderPass[],
+  layer: LayerInstance,
+  modFn: ModulationFn | null,
+  inputLayerId: string | null,
+  layerIdOverride?: string,
+) {
+  result.push({
+    layerId: layerIdOverride ?? layer.id,
+    layerType: layer.type,
+    uniforms: buildLayerUniforms(layer, modFn),
+    inputLayerId,
+    isOutput: false,
+  });
+}
+
+/** Every pass renders to an RT; blit the final accumulator to the screen. */
+function finishWithScreenBlit(
+  passes: RenderPass[],
+  sourceLayerId: string | null,
+): RenderPass[] {
+  if (!sourceLayerId || passes.length === 0) return passes;
+
+  return [
+    ...passes.map((p) => ({ ...p, isOutput: false as const })),
+    {
+      layerId: "blit-out",
+      layerType: "blit" as const,
+      uniforms: {},
+      inputLayerId: sourceLayerId,
+      isOutput: true,
+    },
+  ];
+}
+
 /**
  * Compile layers (UI order top → bottom) into render passes (bottom → top).
  * Contiguous distortion layers form one run: accumulate displacement, then resolve.
@@ -64,8 +124,13 @@ export function compilePasses(
   const enabled = [...layers].reverse().filter((l) => l.enabled);
   if (enabled.length === 0) return [];
 
+  const dual = usesDualPipeline(layers);
+  const hybrid = getHybridContext(layers);
+
   const result: RenderPass[] = [];
   let previousLayerId: string | null = null;
+  let previousStippleId: string | null = null;
+  let stippleSeedCounter = 1;
 
   for (let i = 0; i < enabled.length; ) {
     const layer = enabled[i]!;
@@ -75,19 +140,86 @@ export function compilePasses(
       continue;
     }
 
+    if (layer.type === "hybridDissolve") {
+      if (!previousLayerId) {
+        i++;
+        continue;
+      }
+
+      if (!dual || !previousStippleId) {
+        result.push({
+          layerId: layer.id,
+          layerType: "blit",
+          uniforms: {},
+          inputLayerId: previousLayerId,
+          isOutput: false,
+        });
+        previousLayerId = layer.id;
+        i++;
+        continue;
+      }
+
+      result.push({
+        layerId: layer.id,
+        layerType: "hybridDissolve",
+        uniforms: buildLayerUniforms(layer, modFn),
+        inputLayerId: previousLayerId,
+        stippleInputLayerId: previousStippleId,
+        isOutput: false,
+      });
+      previousLayerId = layer.id;
+      i++;
+      continue;
+    }
+
+    if (COMPOSITE_LAYER_TYPES.has(layer.type)) {
+      const seed = stippleSeedCounter++;
+      if (dual) {
+        result.push({
+          layerId: layer.id,
+          layerType: layer.type,
+          uniforms: compositeUniforms(layer, modFn, hybrid, 0, seed),
+          inputLayerId: previousLayerId,
+          stippleInputLayerId: previousStippleId,
+          isOutput: false,
+        });
+        result.push({
+          layerId: stippleLayerId(layer.id),
+          layerType: layer.type,
+          uniforms: compositeUniforms(layer, modFn, hybrid, 1, seed),
+          inputLayerId: previousLayerId,
+          stippleInputLayerId: previousStippleId,
+          isOutput: false,
+        });
+        previousLayerId = layer.id;
+        previousStippleId = stippleLayerId(layer.id);
+      } else {
+        result.push({
+          layerId: layer.id,
+          layerType: layer.type,
+          uniforms: compositeUniforms(layer, modFn, hybrid, 0, seed),
+          inputLayerId: previousLayerId,
+          stippleInputLayerId: null,
+          isOutput: false,
+        });
+        previousLayerId = layer.id;
+      }
+      i++;
+      continue;
+    }
+
     if (layer.type === "distortion") {
       const runEnd = distortionRunEnd(enabled, i);
       const runLayers = enabled.slice(i, runEnd);
 
       if (isDistortionRunInert(runLayers, modFn)) {
-        // Distort is a no-op; blit the layer below to screen if it was the stack top
         if (runEnd === enabled.length && previousLayerId) {
           result.push({
             layerId: `blit-${previousLayerId}`,
             layerType: "blit",
             uniforms: {},
             inputLayerId: previousLayerId,
-            isOutput: true,
+            isOutput: false,
           });
           previousLayerId = `blit-${previousLayerId}`;
         }
@@ -125,29 +257,74 @@ export function compilePasses(
         uniforms: {},
         inputLayerId: prevDisplacementLayerId,
         colorSourceLayerId,
-        isOutput: runEnd === enabled.length,
+        isOutput: false,
       });
 
       previousLayerId = resolveId;
+      if (dual) {
+        result.push({
+          layerId: stippleLayerId(resolveId),
+          layerType: "blit",
+          uniforms: {},
+          inputLayerId: resolveId,
+          isOutput: false,
+        });
+        previousStippleId = stippleLayerId(resolveId);
+      }
       i = runEnd;
       continue;
     }
 
-    const isLast = i === enabled.length - 1;
     const isGenerator = template.category === "generator";
     const uniforms = buildLayerUniforms(layer, modFn);
+
+    if (dual && isGenerator) {
+      result.push({
+        layerId: layer.id,
+        layerType: layer.type,
+        uniforms,
+        inputLayerId: null,
+        isOutput: false,
+      });
+      result.push({
+        layerId: stippleLayerId(layer.id),
+        layerType: "blit",
+        uniforms: {},
+        inputLayerId: layer.id,
+        isOutput: false,
+      });
+      previousLayerId = layer.id;
+      previousStippleId = stippleLayerId(layer.id);
+      i++;
+      continue;
+    }
+
+    if (dual && template.category === "effect") {
+      pushEffectPass(result, layer, modFn, previousLayerId);
+      pushEffectPass(
+        result,
+        layer,
+        modFn,
+        previousStippleId,
+        stippleLayerId(layer.id),
+      );
+      previousLayerId = layer.id;
+      previousStippleId = stippleLayerId(layer.id);
+      i++;
+      continue;
+    }
 
     result.push({
       layerId: layer.id,
       layerType: layer.type,
       uniforms,
       inputLayerId: isGenerator ? null : previousLayerId,
-      isOutput: isLast,
+      isOutput: false,
     });
 
     previousLayerId = layer.id;
     i++;
   }
 
-  return result;
+  return finishWithScreenBlit(result, previousLayerId);
 }

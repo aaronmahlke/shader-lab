@@ -52,12 +52,35 @@ export type ArtworkImageLayer = {
   x: number;
   y: number;
   scale: number;
+  /** Non-uniform scale; defaults to `scale` when omitted */
+  scaleX?: number;
+  scaleY?: number;
   /** Corner radius in design px (1080-tall reference), like fontSize */
   borderRadius?: number;
   opacity: number;
 };
 
-export type ArtworkLayer = ArtworkShaderLayer | ArtworkTextLayer | ArtworkImageLayer;
+export type ArtworkVideoLayer = {
+  id: string;
+  type: "video";
+  enabled: boolean;
+  src: string;
+  x: number;
+  y: number;
+  scale: number;
+  scaleX?: number;
+  scaleY?: number;
+  borderRadius?: number;
+  opacity: number;
+  /** Loop during preview and export (default true) */
+  loop?: boolean;
+};
+
+export type ArtworkLayer =
+  | ArtworkShaderLayer
+  | ArtworkTextLayer
+  | ArtworkImageLayer
+  | ArtworkVideoLayer;
 
 export type ArtworkDocument = {
   version: 1;

@@ -12,20 +12,28 @@ import noiseFrag from "#shared/shaders/layers/noise.frag";
 import distortionFrag from "#shared/shaders/layers/distortion.frag";
 import ditherFrag from "#shared/shaders/layers/dither.frag";
 import grainFrag from "#shared/shaders/layers/grain.frag";
+import seamFrag from "#shared/shaders/layers/seam.frag";
 import vignetteFrag from "#shared/shaders/layers/vignette.frag";
+import compositeFillFrag from "#shared/shaders/layers/composite-fill.frag";
+import hybridDissolveFrag from "#shared/shaders/layers/hybrid-dissolve.frag";
 import resolveFrag from "#shared/shaders/layers/resolve.frag";
 import outputFrag from "#shared/shaders/layers/output.frag";
 
-const FRAG_SHADERS: Record<LayerType | "resolve", string> = {
+const FRAG_SHADERS: Record<LayerType | "resolve" | "blit", string> = {
   gradient: gradientFrag,
   mesh: meshFrag,
   solid: solidFrag,
   noise: noiseFrag,
+  waveFill: compositeFillFrag,
+  bandFill: compositeFillFrag,
   distortion: distortionFrag,
   dither: ditherFrag,
   grain: grainFrag,
+  seam: seamFrag,
+  hybridDissolve: hybridDissolveFrag,
   vignette: vignetteFrag,
   resolve: resolveFrag,
+  blit: outputFrag,
 };
 
 const RAW_VERT = `
@@ -177,7 +185,14 @@ function createFBO(gl: WebGLRenderingContext, width: number, height: number) {
 
 // --- Set uniforms for a render pass ---
 
-const INT_UNIFORMS = new Set(["waveType", "shape", "coordMode", "u_pointCount"]);
+const INT_UNIFORMS = new Set([
+  "waveType",
+  "shape",
+  "coordMode",
+  "u_pointCount",
+  "shapeType",
+  "passMode",
+]);
 
 function setPassUniforms(
   gl: WebGLRenderingContext,
@@ -187,6 +202,7 @@ function setPassUniforms(
   height: number,
   time: number,
   inputTexture: WebGLTexture | null,
+  stippleTexture: WebGLTexture | null,
   colorTexture: WebGLTexture | null,
   gradientTextures: Map<string, WebGLTexture>,
 ) {
@@ -228,6 +244,22 @@ function setPassUniforms(
       gl.activeTexture(gl.TEXTURE0 + texUnit);
       gl.bindTexture(gl.TEXTURE_2D, colorTexture);
       gl.uniform1i(uColor, texUnit);
+      texUnit++;
+    }
+  }
+
+  const uHasInput = gl.getUniformLocation(program, "u_hasInput");
+  if (uHasInput) gl.uniform1i(uHasInput, inputTexture ? 1 : 0);
+
+  const uHasStippleInput = gl.getUniformLocation(program, "u_hasStippleInput");
+  if (uHasStippleInput) gl.uniform1i(uHasStippleInput, stippleTexture ? 1 : 0);
+
+  if (stippleTexture) {
+    const uStipple = gl.getUniformLocation(program, "u_stipple");
+    if (uStipple) {
+      gl.activeTexture(gl.TEXTURE0 + texUnit);
+      gl.bindTexture(gl.TEXTURE_2D, stippleTexture);
+      gl.uniform1i(uStipple, texUnit);
       texUnit++;
     }
   }
@@ -346,7 +378,7 @@ export async function renderComposition(
     const programs = new Map<RenderPass["layerType"], WebGLProgram>();
     for (const pass of passes) {
       if (programs.has(pass.layerType)) continue;
-      const fragSrc = FRAG_SHADERS[pass.layerType as LayerType | "resolve"];
+      const fragSrc = FRAG_SHADERS[pass.layerType as LayerType | "resolve" | "blit"];
       if (!fragSrc) continue;
       const program = createProgram(gl, RAW_VERT, fragSrc);
       if (program) programs.set(pass.layerType, program);
@@ -386,13 +418,30 @@ export async function renderComposition(
         if (inputFbo) inputTexture = inputFbo.texture;
       }
 
+      let stippleTexture: WebGLTexture | null = null;
+      if (pass.stippleInputLayerId) {
+        const stippleFbo = fbos.get(pass.stippleInputLayerId);
+        if (stippleFbo) stippleTexture = stippleFbo.texture;
+      }
+
       let colorTexture: WebGLTexture | null = null;
       if (pass.colorSourceLayerId) {
         const colorFbo = fbos.get(pass.colorSourceLayerId);
         if (colorFbo) colorTexture = colorFbo.texture;
       }
 
-      setPassUniforms(gl, program, pass, width, height, time, inputTexture, colorTexture, gradientTextures);
+      setPassUniforms(
+        gl,
+        program,
+        pass,
+        width,
+        height,
+        time,
+        inputTexture,
+        stippleTexture,
+        colorTexture,
+        gradientTextures,
+      );
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
       // Clean up quad buffer

@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import type { ArtworkDocument } from "#shared/types/artwork";
-import type { ArtworkImageCache } from "#shared/artwork/draw-artwork";
+import type { ArtworkLayerCaches } from "#shared/artwork/layer-bounds";
 import { ArtworkTextEditKey, type ArtworkTextEditApi } from "~/composables/use-artwork-text-edit";
 
 const props = defineProps<{
   artwork: ArtworkDocument;
-  imageCache: ArtworkImageCache;
+  layerCaches: ArtworkLayerCaches;
+}>();
+
+const emit = defineEmits<{
+  deleteLayer: [id: string];
 }>();
 
 const selectedLayerId = defineModel<string | null>("selectedLayerId", { required: true });
@@ -28,8 +32,8 @@ const {
   stageRef,
   artworkRef,
   selectedLayerId,
-  computed(() => props.imageCache),
-  { editingLayerId: textEdit.editingLayerId },
+  computed(() => props.layerCaches),
+  { editingLayerId: textEdit.editingLayerId, onDeleteLayer: (id) => emit("deleteLayer", id) },
 );
 
 const stageScale = ref(1);
@@ -115,6 +119,8 @@ const showSelectionChrome = computed(
         :class="{
           'cursor-nwse-resize': h.id === 'nw' || h.id === 'se',
           'cursor-nesw-resize': h.id === 'ne' || h.id === 'sw',
+          'cursor-ns-resize': h.id === 'n' || h.id === 's',
+          'cursor-ew-resize': h.id === 'e' || h.id === 'w',
         }"
         :style="h.style"
       />

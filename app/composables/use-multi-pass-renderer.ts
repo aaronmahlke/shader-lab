@@ -3,7 +3,16 @@ import type { RenderPass, LayerInstance } from "#shared/types/editor";
 import type { GradientStop } from "#shared/types";
 import { buildLayerUniforms, type ModulationFn } from "#shared/editor/compile-passes";
 
-const INT_UNIFORMS = new Set(["waveType", "shape", "coordMode", "u_pointCount"]);
+const INT_UNIFORMS = new Set([
+  "waveType",
+  "shape",
+  "coordMode",
+  "u_pointCount",
+  "shapeType",
+  "passMode",
+]);
+
+const GRADIENT_UNIFORM_NAMES = /^u_gradient/;
 
 type RendererOptions = {
   layers?: Ref<LayerInstance[]>;
@@ -24,7 +33,10 @@ import noiseFrag from "#shared/shaders/layers/noise.frag";
 import distortionFrag from "#shared/shaders/layers/distortion.frag";
 import ditherFrag from "#shared/shaders/layers/dither.frag";
 import grainFrag from "#shared/shaders/layers/grain.frag";
+import seamFrag from "#shared/shaders/layers/seam.frag";
 import vignetteFrag from "#shared/shaders/layers/vignette.frag";
+import compositeFillFrag from "#shared/shaders/layers/composite-fill.frag";
+import hybridDissolveFrag from "#shared/shaders/layers/hybrid-dissolve.frag";
 import resolveFrag from "#shared/shaders/layers/resolve.frag";
 import outputFrag from "#shared/shaders/layers/output.frag";
 import fullscreenVert from "#shared/shaders/layers/fullscreen.vert";
@@ -34,11 +46,16 @@ const FRAG_SHADERS: Record<string, string> = {
   mesh: meshFrag,
   solid: solidFrag,
   noise: noiseFrag,
+  waveFill: compositeFillFrag,
+  bandFill: compositeFillFrag,
   distortion: distortionFrag,
   dither: ditherFrag,
   grain: grainFrag,
+  seam: seamFrag,
+  hybridDissolve: hybridDissolveFrag,
   vignette: vignetteFrag,
   resolve: resolveFrag,
+  blit: outputFrag,
 };
 
 const GRADIENT_RESOLUTION = 256;
@@ -114,8 +131,6 @@ export function useMultiPassRenderer(
     pixelRatio: number;
     bufferWidth: number;
     bufferHeight: number;
-    cssWidth: number;
-    cssHeight: number;
   } | null = null;
 
   const sampleLfosAtTime = options.sampleLfosAtTime;
@@ -136,6 +151,7 @@ export function useMultiPassRenderer(
 
   // Zero displacement encoded as RG=(0.5, 0.5), alpha=1 — bound when distort has no prior map
   let neutralDisplacementTexture: THREE.DataTexture | null = null;
+  let blackTexture: THREE.DataTexture | null = null;
 
   function getNeutralDisplacementTexture(): THREE.DataTexture {
     if (!neutralDisplacementTexture) {
@@ -153,6 +169,19 @@ export function useMultiPassRenderer(
       neutralDisplacementTexture.needsUpdate = true;
     }
     return neutralDisplacementTexture;
+  }
+
+  function getBlackTexture(): THREE.DataTexture {
+    if (!blackTexture) {
+      const data = new Uint8Array([0, 0, 0, 255]);
+      blackTexture = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+      blackTexture.minFilter = THREE.LinearFilter;
+      blackTexture.magFilter = THREE.LinearFilter;
+      blackTexture.wrapS = THREE.ClampToEdgeWrapping;
+      blackTexture.wrapT = THREE.ClampToEdgeWrapping;
+      blackTexture.needsUpdate = true;
+    }
+    return blackTexture;
   }
 
   // ── Gradient texture management ─────────────────────────────────
@@ -183,16 +212,44 @@ export function useMultiPassRenderer(
     return texture;
   }
 
-  function resolveUniformValues(pass: RenderPass): Record<string, unknown> {
-    if (pass.layerType === "resolve") return {};
+  function findLayerForPass(pass: RenderPass): LayerInstance | undefined {
+    if (!layersRef?.value) return undefined;
+    const direct = layersRef.value.find((l) => l.id === pass.layerId);
+    if (direct) return direct;
+    const baseId = pass.layerId.replace(/:stipple$/, "");
+    if (baseId !== pass.layerId) {
+      return layersRef.value.find((l) => l.id === baseId);
+    }
+    return undefined;
+  }
 
-    const layer = layersRef?.value.find((l) => l.id === pass.layerId);
-    if (layer) {
-      const modFn = getModulatedValue?.value ?? null;
-      return buildLayerUniforms(layer, modFn);
+  const COMPILED_UNIFORM_KEYS = [
+    "shapeType",
+    "passMode",
+    "dissolveReach",
+    "edgeWidth",
+    "dotSize",
+    "stippleSeed",
+  ] as const;
+
+  function resolveUniformValues(pass: RenderPass): Record<string, unknown> {
+    if (pass.layerType === "resolve") return pass.uniforms;
+
+    const layer = findLayerForPass(pass);
+    const merged = layer
+      ? {
+          ...buildLayerUniforms(layer, getModulatedValue?.value ?? null),
+          ...pass.uniforms,
+        }
+      : { ...pass.uniforms };
+
+    for (const key of COMPILED_UNIFORM_KEYS) {
+      if (pass.uniforms[key] !== undefined) {
+        merged[key] = pass.uniforms[key];
+      }
     }
 
-    return pass.uniforms;
+    return merged;
   }
 
   // ── Build uniforms for a single pass ────────────────────────────
@@ -213,7 +270,7 @@ export function useMultiPassRenderer(
     };
 
     for (const [key, val] of Object.entries(uniformValues)) {
-      if (key === "u_gradient" && Array.isArray(val)) {
+      if (GRADIENT_UNIFORM_NAMES.test(key) && Array.isArray(val)) {
         uniforms[key] = {
           value: getOrUpdateGradientTexture(
             pass.layerId,
@@ -239,12 +296,22 @@ export function useMultiPassRenderer(
       uniforms.u_input = { value: getNeutralDisplacementTexture() };
     } else if (pass.inputLayerId) {
       const inputRT = renderTargets.get(pass.inputLayerId);
-      if (inputRT) {
-        uniforms.u_input = { value: inputRT.texture };
-        if (pass.layerType === "resolve") {
-          uniforms.u_displacement = { value: inputRT.texture };
-        }
+      uniforms.u_input = { value: inputRT?.texture ?? getBlackTexture() };
+      if (pass.layerType === "resolve" && inputRT) {
+        uniforms.u_displacement = { value: inputRT.texture };
       }
+    }
+
+    uniforms.u_hasInput = { value: !!pass.inputLayerId };
+
+    if (pass.stippleInputLayerId) {
+      const stippleRT = renderTargets.get(pass.stippleInputLayerId);
+      uniforms.u_hasStippleInput = { value: !!stippleRT };
+      if (stippleRT) {
+        uniforms.u_stipple = { value: stippleRT.texture };
+      }
+    } else {
+      uniforms.u_hasStippleInput = { value: false };
     }
 
     if (pass.layerType === "resolve" && pass.colorSourceLayerId) {
@@ -277,19 +344,27 @@ export function useMultiPassRenderer(
 
     // Grain/dither use pixel-sized blocks (ditherScale * u_scale). Match shader-editor
     // density when rendering at a fixed artwork resolution smaller than the viewport.
+    // Use design width (not export width) so 2×/4× exports keep the same grain density.
     let scaleUniform = dpr;
     if (fixedBufferSize) {
       const refWidth = Math.max(1, window.innerWidth);
-      scaleUniform = width / refWidth;
+      const designWidth = Math.max(1, fixedBufferSize.value.width);
+      scaleUniform = designWidth / refWidth;
     }
 
     const currentPasses = passes.value;
-    if (currentPasses.length === 0) return;
+    if (currentPasses.length === 0) {
+      renderer.setRenderTarget(null);
+      renderer.setClearColor(0x000000, 1);
+      renderer.clear();
+      return;
+    }
 
     for (const pass of currentPasses) {
       // Ensure render target exists for non-output passes
       if (!pass.isOutput) {
         let rt = renderTargets.get(pass.layerId);
+        const created = !rt;
         if (!rt) {
           rt = new THREE.WebGLRenderTarget(width, height, {
             minFilter: THREE.LinearFilter,
@@ -301,6 +376,11 @@ export function useMultiPassRenderer(
           rt.texture.wrapS = THREE.ClampToEdgeWrapping;
           rt.texture.wrapT = THREE.ClampToEdgeWrapping;
           renderTargets.set(pass.layerId, rt);
+        }
+        if (created) {
+          renderer!.setRenderTarget(rt);
+          renderer!.setClearColor(0x000000, 1);
+          renderer!.clear();
         }
       }
 
@@ -476,6 +556,8 @@ export function useMultiPassRenderer(
 
     neutralDisplacementTexture?.dispose();
     neutralDisplacementTexture = null;
+    blackTexture?.dispose();
+    blackTexture = null;
 
     // Dispose shared geometry
     geometry?.dispose();
@@ -492,7 +574,29 @@ export function useMultiPassRenderer(
 
   // Watch for canvas ref becoming available (needed because <ClientOnly>
   // defers rendering, so the canvas isn't in the DOM at onMounted time)
+  function passGraphSignature(activePasses: RenderPass[]): string {
+    return activePasses
+      .map((p) => `${p.layerId}:${p.layerType}:${p.inputLayerId}:${p.stippleInputLayerId}`)
+      .join("|");
+  }
+
+  let lastPassGraphSignature = "";
+
   function pruneUnusedPassResources(activePasses: RenderPass[]) {
+    const signature = passGraphSignature(activePasses);
+    if (signature !== lastPassGraphSignature) {
+      for (const rt of renderTargets.values()) {
+        rt.dispose();
+      }
+      renderTargets.clear();
+      for (const material of materials.values()) {
+        material.dispose();
+      }
+      materials.clear();
+      materialLayerTypes.clear();
+      lastPassGraphSignature = signature;
+    }
+
     const activeIds = new Set(activePasses.map((p) => p.layerId));
 
     for (const [id, rt] of renderTargets) {
@@ -512,7 +616,7 @@ export function useMultiPassRenderer(
   }
 
   watch(
-    () => passes.value.map((p) => `${p.layerId}:${p.layerType}:${p.isOutput}`).join("|"),
+    () => passGraphSignature(passes.value),
     () => pruneUnusedPassResources(passes.value),
   );
 
@@ -544,37 +648,42 @@ export function useMultiPassRenderer(
 
   function configureRenderer(width: number, height: number) {
     if (!renderer) return;
-    const canvas = renderer.domElement;
-    savedExportState = {
-      pixelRatio: renderer.getPixelRatio(),
-      bufferWidth: canvas.width,
-      bufferHeight: canvas.height,
-      cssWidth: canvas.clientWidth,
-      cssHeight: canvas.clientHeight,
-    };
+    if (!savedExportState) {
+      const canvas = renderer.domElement;
+      savedExportState = {
+        pixelRatio: renderer.getPixelRatio(),
+        bufferWidth: canvas.width,
+        bufferHeight: canvas.height,
+      };
+    }
     renderer.setPixelRatio(1);
     renderer.setSize(width, height, false);
-    const rtWidth = renderer.domElement.width;
-    const rtHeight = renderer.domElement.height;
-    for (const rt of renderTargets.values()) {
-      rt.setSize(rtWidth, rtHeight);
-    }
+    resizeRenderTargets();
   }
 
   function restoreRenderer() {
     if (!renderer || !savedExportState) return;
-    renderer.setPixelRatio(savedExportState.pixelRatio);
-    renderer.setSize(
-      savedExportState.cssWidth,
-      savedExportState.cssHeight,
-      false,
-    );
-    const rtWidth = renderer.domElement.width;
-    const rtHeight = renderer.domElement.height;
-    for (const rt of renderTargets.values()) {
-      rt.setSize(rtWidth, rtHeight);
+    const fixed = fixedBufferSize?.value;
+    if (fixed && fixed.width >= 1 && fixed.height >= 1) {
+      renderer.setPixelRatio(1);
+      renderer.setSize(fixed.width, fixed.height, false);
+    } else if (
+      savedExportState.bufferWidth >= 1 &&
+      savedExportState.bufferHeight >= 1
+    ) {
+      renderer.setPixelRatio(savedExportState.pixelRatio);
+      renderer.setSize(
+        savedExportState.bufferWidth,
+        savedExportState.bufferHeight,
+        false,
+      );
+    } else {
+      renderer.setPixelRatio(savedExportState.pixelRatio);
+      resize();
     }
+    resizeRenderTargets();
     savedExportState = null;
+    render();
   }
 
   function renderFrame(time: number) {

@@ -49,13 +49,11 @@ export async function renderArtwork(
     }
   }
 
-  drawArtworkLayers(
-    ctx,
-    width,
-    height,
-    input.artwork.layers,
-    imageCache as Parameters<typeof drawArtworkLayers>[4],
-  );
+  drawArtworkLayers(ctx, width, height, input.artwork.layers, {
+    imageCache: imageCache as Map<string, CanvasImageSource>,
+    timeSeconds: time,
+    designCanvas: input.artwork.canvas,
+  });
 
   return canvas.toBuffer("image/png");
 }

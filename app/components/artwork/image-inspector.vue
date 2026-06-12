@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import type { ArtworkImageLayer } from "#shared/types/artwork";
+import { mediaScaleX, setUniformMediaScale } from "#shared/artwork/media-scale";
 
 const { layer } = defineProps<{ layer: ArtworkImageLayer }>();
+
+const uniformScale = computed({
+  get: () => mediaScaleX(layer),
+  set: (v: number) => setUniformMediaScale(layer, v),
+});
 
 const borderRadius = computed({
   get: () => layer.borderRadius ?? 0,
@@ -47,7 +53,7 @@ async function onFileChange(e: Event) {
     </label>
     <UiSliderField v-model="layer.x" label="X" :min="0" :max="1" :step="0.01" />
     <UiSliderField v-model="layer.y" label="Y" :min="0" :max="1" :step="0.01" />
-    <UiSliderField v-model="layer.scale" label="Scale" :min="0.1" :max="3" :step="0.05" />
+    <UiSliderField v-model="uniformScale" label="Scale" :min="0.1" :max="3" :step="0.05" />
     <UiSliderField
       v-model="borderRadius"
       label="Corner radius"

@@ -8,11 +8,9 @@ const { layer } = defineProps<{ layer: ArtworkTextLayer }>();
 
 const textEdit = inject(ArtworkTextEditKey, null);
 
-const hasSelection = computed(() => {
-  if (!textEdit) return false;
-  const { start, end } = textEdit.selection.value;
-  return start !== end;
-});
+const canFormat = computed(() =>
+  textEdit ? textEdit.canFormatLayer(layer.id) : false,
+);
 
 function onContentInput(value: string) {
   setLayerRuns(layer, [{ text: value }]);
@@ -51,7 +49,10 @@ function syncTextareaSelection(e: Event) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div
+    class="flex flex-col gap-3"
+    data-keeps-text-edit
+  >
     <p class="text-copy-sm text-tertiary">
       Double-click text on the canvas to edit inline. Select words, then use the toolbar for bold, italic, or color.
     </p>
@@ -59,11 +60,11 @@ function syncTextareaSelection(e: Event) {
     <ArtworkTextStyleToolbar
       v-if="textEdit"
       :layer="layer"
-      :has-selection="hasSelection"
+      :has-selection="canFormat"
       @bold="textEdit.toggleBold(layer)"
       @italic="textEdit.toggleItalic(layer)"
       @underline="textEdit.toggleUnderline(layer)"
-      @color="hasSelection ? textEdit.setSelectionColor($event, layer) : (layer.color = $event)"
+      @color="canFormat ? textEdit.setSelectionColor($event, layer) : (layer.color = $event)"
     />
 
     <label class="flex flex-col gap-1">

@@ -8,6 +8,16 @@ import {
   getShaderPreset,
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
+import {
+  normalizeCompositeLayers,
+  offsetDuplicatedWave,
+} from "#shared/editor/normalize-composite-layers";
+import {
+  WAVE_AMPLITUDE,
+  WAVE_CYCLE_WIDTH,
+  WAVE_POS_X,
+  WAVE_POS_Y,
+} from "#shared/editor/wave-position";
 import type { GradientStop } from "#shared/types";
 import type { MeshPoint } from "#shared/types/mesh";
 
@@ -40,6 +50,7 @@ const shaderName = ref(
   routeId ? "Untitled" : (getShaderPreset(presetId)?.name ?? "Untitled"),
 );
 const layers = ref<LayerInstance[]>(initialDoc.layers);
+normalizeCompositeLayers(layers.value);
 const lfos = ref<LFOSource[]>(initialDoc.lfos);
 const assignments = ref<ModulationAssignment[]>(initialDoc.assignments);
 
@@ -54,6 +65,7 @@ if (routeId) {
     shaderId.value = comp.id;
     shaderName.value = comp.name;
     layers.value = comp.data.layers;
+    normalizeCompositeLayers(layers.value);
     lfos.value = comp.data.lfos;
     assignments.value = comp.data.assignments;
   }
@@ -157,6 +169,13 @@ function addLayer(type: LayerType) {
     }
   }
 
+  if (type === "waveFill") {
+    offsetDuplicatedWave(
+      values,
+      layers.value.filter((l) => l.type === "waveFill").length,
+    );
+  }
+
   layers.value.unshift({ id, type, enabled: true, values });
   selectedLayerId.value = id;
 }
@@ -175,11 +194,18 @@ function duplicateLayer(id: string) {
   const source = layers.value.find((l) => l.id === id);
   if (!source) return;
   const newId = `${source.type}-${++layerCounter}`;
+  const values = JSON.parse(JSON.stringify(source.values)) as Record<string, unknown>;
+  if (source.type === "waveFill") {
+    offsetDuplicatedWave(
+      values,
+      layers.value.filter((l) => l.type === "waveFill").length,
+    );
+  }
   const clone: LayerInstance = {
     id: newId,
     type: source.type,
     enabled: source.enabled,
-    values: JSON.parse(JSON.stringify(source.values)),
+    values,
   };
   const idx = layers.value.findIndex((l) => l.id === id);
   layers.value.splice(idx, 0, clone);
@@ -286,6 +312,32 @@ const selectedLayerAssignments = computed(() => {
   if (!selectedLayer.value) return [];
   return assignments.value.filter((a) => a.layerId === selectedLayer.value!.id);
 });
+
+const waveFillTemplate = LAYER_TEMPLATES.waveFill;
+const wavePosXDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_X)!;
+const wavePosYDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_Y)!;
+const waveAmpDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_AMPLITUDE)!;
+const waveWidthDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_CYCLE_WIDTH)!;
+
+const showWavePositionGizmo = computed(
+  () => selectedLayer.value?.type === "waveFill" && selectedLayer.value.enabled,
+);
+
+function getWaveFloat(
+  layer: LayerInstance,
+  key: typeof WAVE_POS_X | typeof WAVE_POS_Y | typeof WAVE_AMPLITUDE | typeof WAVE_CYCLE_WIDTH,
+  fallback: number,
+) {
+  return (layer.values[key] as number) ?? fallback;
+}
+
+function setWaveFloat(
+  layer: LayerInstance,
+  key: typeof WAVE_POS_X | typeof WAVE_POS_Y | typeof WAVE_AMPLITUDE | typeof WAVE_CYCLE_WIDTH,
+  value: number,
+) {
+  layer.values[key] = value;
+}
 </script>
 
 <template>
@@ -318,21 +370,46 @@ const selectedLayerAssignments = computed(() => {
     </template>
 
     <ClientOnly>
-      <div class="relative size-full min-h-0 overflow-hidden">
+      <div class="relative size-full min-h-0 overflow-hidden touch-none select-none">
         <canvas
           ref="canvasRef"
           class="absolute inset-0 size-full"
         />
+        <EditorWavePositionGizmo
+          v-if="showWavePositionGizmo && selectedLayer"
+          :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
+          :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
+          :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
+          :cycle-width="getWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, waveWidthDef.default as number)"
+          :x-min="wavePosXDef.min ?? -1"
+          :x-max="wavePosXDef.max ?? 2"
+          :y-min="wavePosYDef.min ?? -1"
+          :y-max="wavePosYDef.max ?? 2"
+          :amp-min="waveAmpDef.min ?? 0"
+          :amp-max="waveAmpDef.max ?? 0.4"
+          :width-min="waveWidthDef.min ?? 0.08"
+          :width-max="waveWidthDef.max ?? 2"
+          @update:cycle-x="setWaveFloat(selectedLayer, WAVE_POS_X, $event)"
+          @update:center-y="setWaveFloat(selectedLayer, WAVE_POS_Y, $event)"
+          @update:amplitude="setWaveFloat(selectedLayer, WAVE_AMPLITUDE, $event)"
+          @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
+        />
+
+        <div
+          v-if="selectedLfo"
+          class="pointer-events-none absolute inset-x-4 bottom-4 z-20 flex justify-center"
+        >
+          <EditorLfoConfig
+            class="pointer-events-auto shadow-2xl"
+            :lfo="selectedLfo"
+            :cursor-position="selectedLfoCursorPosition"
+            @delete="deleteLfo(selectedLfo!.id)"
+          />
+        </div>
       </div>
     </ClientOnly>
 
     <template #footer>
-      <EditorLfoConfig
-        v-if="selectedLfo"
-        :lfo="selectedLfo"
-        :cursor-position="selectedLfoCursorPosition"
-        @delete="deleteLfo(selectedLfo!.id)"
-      />
       <EditorLfoRack
         v-model:lfos="lfos"
         v-model:selected-lfo-id="selectedLfoId"

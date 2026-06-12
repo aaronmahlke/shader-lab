@@ -1,9 +1,13 @@
 import type { ArtworkDocument } from "#shared/types/artwork";
 import type { LayerInstance, LFOSource, ModulationAssignment } from "#shared/types/editor";
 import { drawArtworkLayers, type ArtworkImageCache } from "#shared/artwork/draw-artwork";
+import {
+  loadArtworkVideo,
+  type ArtworkVideoCache,
+} from "#shared/artwork/video-layer";
 
 /**
- * Composites linked shader(s) + text/image layers into a display canvas.
+ * Composites linked shader(s) + text/image/video layers into a display canvas.
  */
 export function useArtworkPreview(
   displayCanvasRef: Ref<HTMLCanvasElement | null>,
@@ -40,6 +44,11 @@ export function useArtworkPreview(
   });
 
   const imageCache = ref<ArtworkImageCache>(new Map());
+  const videoCache = ref<ArtworkVideoCache>(new Map());
+  const layerCaches = computed(() => ({
+    imageCache: imageCache.value,
+    videoCache: videoCache.value,
+  }));
 
   async function loadArtworkImages() {
     if (import.meta.server) return;
@@ -62,11 +71,46 @@ export function useArtworkPreview(
     imageCache.value = cache;
   }
 
+  async function loadArtworkVideos() {
+    if (import.meta.server) return;
+
+    const cache = new Map(videoCache.value);
+    for (const layer of artwork.value.layers) {
+      if (layer.type === "video" && layer.src && !cache.has(layer.src)) {
+        const video = await loadArtworkVideo(layer.src);
+        if (video) {
+          video.loop = layer.loop !== false;
+          cache.set(layer.src, video);
+          video.play().catch(() => {});
+        }
+      }
+    }
+    videoCache.value = cache;
+  }
+
+  async function loadArtworkMedia() {
+    await Promise.all([loadArtworkImages(), loadArtworkVideos()]);
+  }
+
   watch(
-    () => artwork.value.layers.map((l) => (l.type === "image" ? l.src : "")).join("|"),
-    () => loadArtworkImages(),
+    () => artwork.value.layers.map((l) => {
+      if (l.type === "image") return `i:${l.src}`;
+      if (l.type === "video") return `v:${l.src}`;
+      return "";
+    }).join("|"),
+    () => loadArtworkMedia(),
     { immediate: import.meta.client },
   );
+
+  function ensureVideosPlaying() {
+    for (const layer of artwork.value.layers) {
+      if (layer.type !== "video" || !layer.src) continue;
+      const video = videoCache.value.get(layer.src);
+      if (!video) continue;
+      video.loop = layer.loop !== false;
+      if (video.paused) video.play().catch(() => {});
+    }
+  }
 
   onMounted(() => {
     offscreenShaderCanvas.value = document.createElement("canvas");
@@ -74,6 +118,12 @@ export function useArtworkPreview(
 
   onUnmounted(() => {
     offscreenShaderCanvas.value = null;
+    for (const video of videoCache.value.values()) {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    }
+    videoCache.value = new Map();
   });
 
   function resizeDisplayCanvas() {
@@ -105,6 +155,7 @@ export function useArtworkPreview(
     const dw = display.width;
     const dh = display.height;
     const { width, height } = artwork.value.canvas;
+    ensureVideosPlaying();
 
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(0, 0, dw, dh);
@@ -119,7 +170,10 @@ export function useArtworkPreview(
     const layers = skipId
       ? artwork.value.layers.filter((l) => l.id !== skipId)
       : artwork.value.layers;
-    drawArtworkLayers(ctx, width, height, layers, imageCache.value);
+    drawArtworkLayers(ctx, width, height, layers, {
+      imageCache: imageCache.value,
+      videoCache: videoCache.value,
+    });
     ctx.restore();
   }
 
@@ -154,6 +208,8 @@ export function useArtworkPreview(
     rendererControls,
     sampleLfosAtTime,
     imageCache,
-    loadArtworkImages,
+    videoCache,
+    layerCaches,
+    loadArtworkMedia,
   };
 }

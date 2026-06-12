@@ -7,6 +7,7 @@ precision highp float;
 uniform vec2 u_resolution;
 uniform float u_grainMix;
 uniform float u_edge;
+uniform float u_dissolveReach;
 uniform float u_edgeBg;
 uniform float u_edgePale;
 uniform float u_edgeLime;
@@ -105,58 +106,107 @@ float bumpLine(float x, float centerY, float amp, float cycleWidth, float cycleX
   return centerY + amp * oneCycleWithShelves(x, cycleX, cycleWidth);
 }
 
-float waveBelow(float lineY, float py, float edgeScale) {
-  float soft = seamSoft(edgeScale);
-  return shapeAt(smoothstep(lineY + soft, lineY - soft, py), edgeScale);
+float coverageMask(float lineY, float py, float edgeScale, float reach) {
+  float soft = seamSoft(edgeScale) * reach;
+  return smoothstep(lineY + soft, lineY - soft, py);
 }
 
-float layerBelow(float x, float py, float centerY, float amp, float cycleWidth, float cycleX, float edgeScale) {
-  return waveBelow(bumpLine(x, centerY, amp, cycleWidth, cycleX), py, edgeScale);
+// Smooth geometric edge (red line) vs wider dissolve falloff (green grain zone).
+vec2 layerMasks(float x, float py, float centerY, float amp, float cycleWidth, float cycleX, float edgeScale) {
+  float lineY = bumpLine(x, centerY, amp, cycleWidth, cycleX);
+  float mSmooth = shapeAt(coverageMask(lineY, py, edgeScale, 1.0), edgeScale);
+  float mDissolve = coverageMask(lineY, py, edgeScale, u_dissolveReach);
+  return vec2(mSmooth, mDissolve);
+}
+
+float stippleReveal(vec2 fc, float k, float mDissolve, float edgeScale) {
+  return step(fine(fc, k), shapeAt(mDissolve, edgeScale));
+}
+
+// Internal gradients per shape (reference uses color fields, not flat fills).
+vec3 bgBeige(vec2 p) {
+  return mix(vec3(0.98, 0.97, 0.86), vec3(0.95, 0.93, 0.71), smoothstep(0.45, 1.0, p.y));
+}
+
+vec3 bgPink(vec2 p) {
+  return mix(vec3(0.98, 0.72, 0.92), vec3(0.86, 0.42, 0.76), smoothstep(0.3, 0.95, p.y));
+}
+
+vec3 paleColor(vec2 p) {
+  float t = smoothstep(0.15, 0.9, p.y);
+  return mix(vec3(0.99, 0.98, 0.93), vec3(0.93, 0.90, 0.76), t);
+}
+
+vec3 limeColor(vec2 p) {
+  float glow = smoothstep(0.15, 0.85, p.x) * smoothstep(0.95, 0.25, p.y);
+  return mix(vec3(0.76, 0.84, 0.42), vec3(0.93, 0.97, 0.64), glow);
+}
+
+vec3 blueColor(vec2 p) {
+  float gx = smoothstep(0.0, 1.0, p.x);
+  float gy = smoothstep(0.15, 0.9, 1.0 - p.y);
+  vec3 deep = vec3(0.12, 0.10, 0.58);
+  vec3 bright = vec3(0.50, 0.40, 0.94);
+  return mix(mix(deep, bright, gx), vec3(0.34, 0.28, 0.84), gy * 0.45);
+}
+
+vec3 blackColor(vec2 p) {
+  float t = clamp(p.y * 0.7 + p.x * 0.35, 0.0, 1.0);
+  return mix(vec3(0.10, 0.08, 0.09), vec3(0.22, 0.18, 0.17), smoothstep(0.0, 1.0, t));
+}
+
+vec3 blue2Color(vec2 p) {
+  return mix(vec3(0.16, 0.14, 0.52), vec3(0.38, 0.32, 0.80), smoothstep(0.0, 1.0, p.x + (1.0 - p.y) * 0.25));
+}
+
+vec3 black2Color(vec2 p) {
+  float t = smoothstep(0.0, 1.0, p.y * 0.85 + p.x * 0.2);
+  return mix(vec3(0.14, 0.11, 0.12), vec3(0.26, 0.21, 0.20), t);
 }
 
 void main() {
   vec2 fc = gl_FragCoord.xy;
   vec2 p = fc / u_resolution;
 
-  vec3 beigeC = vec3(0.952941, 0.933333, 0.713725); // #F3EEB6 top cap
-  vec3 pinkC = vec3(0.937255, 0.541176, 0.768627);  // #EF8AC4
+  // --- Top: two bands with internal gradients ---
+  float mPinkBg = shapeAt(coverageMask(u_bgBandY, p.y, u_edgeBg, 1.0), u_edgeBg);
+  float mPinkBgD = coverageMask(u_bgBandY, p.y, u_edgeBg, u_dissolveReach);
+  vec3 beigeAt = bgBeige(p);
+  vec3 pinkAt = bgPink(p);
 
-  // --- Top (unchanged): two flat bands ---
-  float bgSoft = seamSoft(u_edgeBg);
-  float mPinkBg = shapeAt(smoothstep(u_bgBandY + bgSoft, u_bgBandY - bgSoft, p.y), u_edgeBg);
-
-  vec3 cs = mix(beigeC, pinkC, mPinkBg);
-  vec3 cd = mix(beigeC, pinkC, step(fine(fc, 1.0), mPinkBg));
+  vec3 cs = mix(beigeAt, pinkAt, mPinkBg);
+  vec3 cd = mix(beigeAt, pinkAt, stippleReveal(fc, 1.0, mPinkBgD, u_edgeBg));
 
   // --- Bottom stack (back → front): blue → pale → black → lime → blue2 → black2 ---
-  vec3 paleC = vec3(0.97, 0.95, 0.86);
-  vec3 limeC = vec3(0.82, 0.88, 0.48);
-  vec3 blueC = mix(vec3(0.14, 0.12, 0.62), vec3(0.42, 0.34, 0.88), p.x);
-  vec3 blackC = vec3(0.184314, 0.145098, 0.141176); // #2F2524
+  vec2 mBlue = layerMasks(p.x, p.y, u_blueBase, u_blueAmp, u_blueFreq, u_bluePhase, u_edgeBlue);
+  vec3 blueAt = blueColor(p);
+  cs = mix(cs, blueAt, mBlue.x);
+  cd = mix(cd, blueAt, stippleReveal(fc, 2.0, mBlue.y, u_edgeBlue));
 
-  float mBlue = layerBelow(p.x, p.y, u_blueBase, u_blueAmp, u_blueFreq, u_bluePhase, u_edgeBlue);
-  cs = mix(cs, blueC, mBlue);
-  cd = mix(cd, blueC, step(fine(fc, 2.0), mBlue));
+  vec2 mPale = layerMasks(p.x, p.y, u_paleBase, u_paleAmp, u_paleFreq, u_palePhase, u_edgePale);
+  vec3 paleAt = paleColor(p);
+  cs = mix(cs, paleAt, mPale.x);
+  cd = mix(cd, paleAt, stippleReveal(fc, 3.0, mPale.y, u_edgePale));
 
-  float mPale = layerBelow(p.x, p.y, u_paleBase, u_paleAmp, u_paleFreq, u_palePhase, u_edgePale);
-  cs = mix(cs, paleC, mPale);
-  cd = mix(cd, paleC, step(fine(fc, 3.0), mPale));
+  vec2 mBlack = layerMasks(p.x, p.y, u_blackBase, u_blackAmp, u_blackFreq, u_blackPhase, u_edgeBlack);
+  vec3 blackAt = blackColor(p);
+  cs = mix(cs, blackAt, mBlack.x);
+  cd = mix(cd, blackAt, stippleReveal(fc, 4.0, mBlack.y, u_edgeBlack));
 
-  float mBlack = layerBelow(p.x, p.y, u_blackBase, u_blackAmp, u_blackFreq, u_blackPhase, u_edgeBlack);
-  cs = mix(cs, blackC, mBlack);
-  cd = mix(cd, blackC, step(fine(fc, 4.0), mBlack));
+  vec2 mLime = layerMasks(p.x, p.y, u_limeBase, u_limeAmp, u_limeFreq, u_limePhase, u_edgeLime);
+  vec3 limeAt = limeColor(p);
+  cs = mix(cs, limeAt, mLime.x);
+  cd = mix(cd, limeAt, stippleReveal(fc, 5.0, mLime.y, u_edgeLime));
 
-  float mLime = layerBelow(p.x, p.y, u_limeBase, u_limeAmp, u_limeFreq, u_limePhase, u_edgeLime);
-  cs = mix(cs, limeC, mLime);
-  cd = mix(cd, limeC, step(fine(fc, 5.0), mLime));
+  vec2 mBlue2 = layerMasks(p.x, p.y, u_blue2Base, u_blue2Amp, u_blue2Freq, u_blue2Phase, u_edgeBlue2);
+  vec3 blue2At = blue2Color(p);
+  cs = mix(cs, blue2At, mBlue2.x);
+  cd = mix(cd, blue2At, stippleReveal(fc, 6.0, mBlue2.y, u_edgeBlue2));
 
-  float mBlue2 = layerBelow(p.x, p.y, u_blue2Base, u_blue2Amp, u_blue2Freq, u_blue2Phase, u_edgeBlue2);
-  cs = mix(cs, blueC, mBlue2);
-  cd = mix(cd, blueC, step(fine(fc, 6.0), mBlue2));
-
-  float mBlack2 = layerBelow(p.x, p.y, u_black2Base, u_black2Amp, u_black2Freq, u_black2Phase, u_edgeBlack2);
-  cs = mix(cs, blackC, mBlack2);
-  cd = mix(cd, blackC, step(fine(fc, 7.0), mBlack2));
+  vec2 mBlack2 = layerMasks(p.x, p.y, u_black2Base, u_black2Amp, u_black2Freq, u_black2Phase, u_edgeBlack2);
+  vec3 black2At = black2Color(p);
+  cs = mix(cs, black2At, mBlack2.x);
+  cd = mix(cd, black2At, stippleReveal(fc, 7.0, mBlack2.y, u_edgeBlack2));
 
   vec3 col = mix(cs, cd, u_grainMix);
   col *= 0.96 + 0.08 * h21(fc * 0.731);
