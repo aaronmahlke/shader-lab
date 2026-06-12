@@ -175,11 +175,35 @@ function createFullscreenQuad(gl: WebGLRenderingContext, program: WebGLProgram) 
   return buffer;
 }
 
-function createFBO(gl: WebGLRenderingContext, width: number, height: number) {
+function createFBO(gl: WebGLRenderingContext, width: number, height: number, useFloat = false) {
   const framebuffer = gl.createFramebuffer()!;
   const texture = gl.createTexture()!;
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+  if (useFloat) {
+    const halfFloatExt = gl.getExtension("OES_texture_half_float");
+    const floatExt = gl.getExtension("OES_texture_float");
+    if (halfFloatExt) {
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA,
+        width,
+        height,
+        0,
+        gl.RGBA,
+        halfFloatExt.HALF_FLOAT_OES,
+        null,
+      );
+    } else if (floatExt) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.FLOAT, null);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  }
+
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -412,7 +436,7 @@ export async function renderComposition(
     const fbos = new Map<string, { framebuffer: WebGLFramebuffer; texture: WebGLTexture }>();
     for (const pass of passes) {
       if (!pass.isOutput) {
-        fbos.set(pass.layerId, createFBO(gl, width, height));
+        fbos.set(pass.layerId, createFBO(gl, width, height, pass.layerType === "distortion"));
       }
     }
 

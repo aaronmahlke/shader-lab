@@ -139,6 +139,7 @@ export function useMultiPassRenderer(
   const sampleLfosAtTime = options.sampleLfosAtTime;
 
   const renderTargets = new Map<string, THREE.WebGLRenderTarget>();
+  const renderTargetIsFloat = new Map<string, boolean>();
   const materials = new Map<string, THREE.ShaderMaterial>();
 
   // Cache gradient textures to avoid recreating every frame.
@@ -180,12 +181,13 @@ export function useMultiPassRenderer(
 
   function getNeutralDisplacementTexture(): THREE.DataTexture {
     if (!neutralDisplacementTexture) {
-      const data = new Uint8Array([128, 128, 255, 255]);
+      const data = new Float32Array([0.5, 0.5, 1.0, 1.0]);
       neutralDisplacementTexture = new THREE.DataTexture(
         data,
         1,
         1,
         THREE.RGBAFormat,
+        THREE.FloatType,
       );
       neutralDisplacementTexture.minFilter = THREE.LinearFilter;
       neutralDisplacementTexture.magFilter = THREE.LinearFilter;
@@ -357,6 +359,40 @@ export function useMultiPassRenderer(
     return uniforms;
   }
 
+  function wantsFloatTarget(pass: RenderPass): boolean {
+    return pass.layerType === "distortion";
+  }
+
+  function ensureRenderTarget(pass: RenderPass, width: number, height: number): THREE.WebGLRenderTarget {
+    const useFloat = wantsFloatTarget(pass);
+    let rt = renderTargets.get(pass.layerId);
+    const wasFloat = renderTargetIsFloat.get(pass.layerId) ?? false;
+
+    if (rt && useFloat !== wasFloat) {
+      rt.dispose();
+      renderTargets.delete(pass.layerId);
+      renderTargetIsFloat.delete(pass.layerId);
+      rt = undefined;
+    }
+
+    if (!rt) {
+      rt = new THREE.WebGLRenderTarget(width, height, {
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        format: THREE.RGBAFormat,
+        type: useFloat ? THREE.HalfFloatType : THREE.UnsignedByteType,
+        wrapS: THREE.ClampToEdgeWrapping,
+        wrapT: THREE.ClampToEdgeWrapping,
+      });
+      rt.texture.wrapS = THREE.ClampToEdgeWrapping;
+      rt.texture.wrapT = THREE.ClampToEdgeWrapping;
+      renderTargets.set(pass.layerId, rt);
+      renderTargetIsFloat.set(pass.layerId, useFloat);
+    }
+
+    return rt;
+  }
+
   // ── Core render loop ────────────────────────────────────────────
 
   function render() {
@@ -396,20 +432,8 @@ export function useMultiPassRenderer(
     for (const pass of currentPasses) {
       // Ensure render target exists for non-output passes
       if (!pass.isOutput) {
-        let rt = renderTargets.get(pass.layerId);
-        const created = !rt;
-        if (!rt) {
-          rt = new THREE.WebGLRenderTarget(width, height, {
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            format: THREE.RGBAFormat,
-            wrapS: THREE.ClampToEdgeWrapping,
-            wrapT: THREE.ClampToEdgeWrapping,
-          });
-          rt.texture.wrapS = THREE.ClampToEdgeWrapping;
-          rt.texture.wrapT = THREE.ClampToEdgeWrapping;
-          renderTargets.set(pass.layerId, rt);
-        }
+        const created = !renderTargets.has(pass.layerId);
+        const rt = ensureRenderTarget(pass, width, height);
         if (created) {
           renderer!.setRenderTarget(rt);
           renderer!.setClearColor(0x000000, 1);
@@ -573,6 +597,7 @@ export function useMultiPassRenderer(
       rt.dispose();
     }
     renderTargets.clear();
+    renderTargetIsFloat.clear();
 
     // Dispose materials
     for (const material of materials.values()) {
@@ -624,6 +649,7 @@ export function useMultiPassRenderer(
         rt.dispose();
       }
       renderTargets.clear();
+      renderTargetIsFloat.clear();
       for (const material of materials.values()) {
         material.dispose();
       }
@@ -638,6 +664,7 @@ export function useMultiPassRenderer(
       if (!activeIds.has(id)) {
         rt.dispose();
         renderTargets.delete(id);
+        renderTargetIsFloat.delete(id);
       }
     }
 
