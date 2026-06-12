@@ -9,6 +9,8 @@ export type HybridContext = {
   dissolveReach: number;
   edgeWidth: number;
   dotSize: number;
+  dissolveSpeed: number;
+  dissolveSeed: number;
 };
 
 export function stippleLayerId(layerId: string): string {
@@ -27,6 +29,8 @@ export function getHybridContext(layers: LayerInstance[]): HybridContext {
     dissolveReach: (hybrid?.values.dissolveReach as number) ?? 4,
     edgeWidth: (hybrid?.values.edgeWidth as number) ?? 0.37,
     dotSize: (hybrid?.values.dotSize as number) ?? 1.5,
+    dissolveSpeed: (hybrid?.values.dissolveSpeed as number) ?? 0.35,
+    dissolveSeed: (hybrid?.values.seed as number) ?? 0,
   };
 }
 

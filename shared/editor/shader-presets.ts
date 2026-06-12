@@ -215,6 +215,7 @@ const PRESET_DATA: Record<string, ShaderDocument> = {
           edgeWidth: 0.37,
           dotSize: 1.5,
           seed: 0,
+          dissolveSpeed: 0.35,
         },
       },
       {

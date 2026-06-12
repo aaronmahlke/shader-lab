@@ -2,6 +2,9 @@ import * as THREE from "three";
 import type { RenderPass, LayerInstance } from "#shared/types/editor";
 import type { GradientStop } from "#shared/types";
 import { buildLayerUniforms, type ModulationFn } from "#shared/editor/compile-passes";
+import { STBN_TEXTURE_PATH, stbnFrameIndex } from "#shared/editor/stbn";
+
+const STBN_LAYER_TYPES = new Set(["waveFill", "bandFill", "hybridDissolve"]);
 
 const INT_UNIFORMS = new Set([
   "waveType",
@@ -152,6 +155,28 @@ export function useMultiPassRenderer(
   // Zero displacement encoded as RG=(0.5, 0.5), alpha=1 — bound when distort has no prior map
   let neutralDisplacementTexture: THREE.DataTexture | null = null;
   let blackTexture: THREE.DataTexture | null = null;
+  let stbnTexture: THREE.Texture | null = null;
+
+  function getStbnTexture(): THREE.Texture {
+    if (stbnTexture) return stbnTexture;
+    const data = new Uint8Array([128, 128, 128, 255]);
+    stbnTexture = new THREE.DataTexture(data, 1, 1, THREE.RGBAFormat);
+    stbnTexture.wrapS = THREE.RepeatWrapping;
+    stbnTexture.wrapT = THREE.RepeatWrapping;
+    stbnTexture.minFilter = THREE.NearestFilter;
+    stbnTexture.magFilter = THREE.NearestFilter;
+    stbnTexture.needsUpdate = true;
+
+    new THREE.TextureLoader().load(STBN_TEXTURE_PATH, (tex) => {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.minFilter = THREE.NearestFilter;
+      tex.magFilter = THREE.NearestFilter;
+      stbnTexture?.dispose();
+      stbnTexture = tex;
+    });
+    return stbnTexture;
+  }
 
   function getNeutralDisplacementTexture(): THREE.DataTexture {
     if (!neutralDisplacementTexture) {
@@ -229,6 +254,8 @@ export function useMultiPassRenderer(
     "dissolveReach",
     "edgeWidth",
     "dotSize",
+    "dissolveSpeed",
+    "dissolveSeed",
     "stippleSeed",
   ] as const;
 
@@ -319,6 +346,12 @@ export function useMultiPassRenderer(
       if (colorRT) {
         uniforms.u_color = { value: colorRT.texture };
       }
+    }
+
+    if (STBN_LAYER_TYPES.has(pass.layerType)) {
+      const speed = (uniformValues.dissolveSpeed as number) ?? 0.35;
+      uniforms.u_stbn = { value: getStbnTexture() };
+      uniforms.u_stbnFrame = { value: stbnFrameIndex(time, speed) };
     }
 
     return uniforms;
@@ -558,6 +591,8 @@ export function useMultiPassRenderer(
     neutralDisplacementTexture = null;
     blackTexture?.dispose();
     blackTexture = null;
+    stbnTexture?.dispose();
+    stbnTexture = null;
 
     // Dispose shared geometry
     geometry?.dispose();

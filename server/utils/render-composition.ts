@@ -3,6 +3,14 @@ import type { LayerInstance, LFOSource, ModulationAssignment, RenderPass, LayerT
 import type { GradientStop } from "#shared/types";
 import { compilePasses } from "#shared/editor/compile-passes";
 import { applyModulation } from "#shared/editor/modulation";
+import { stbnFrameIndex } from "#shared/editor/stbn";
+import { createStbnGlTexture } from "./stbn-texture";
+
+const STBN_LAYER_TYPES = new Set<LayerType | "hybridDissolve">([
+  "waveFill",
+  "bandFill",
+  "hybridDissolve",
+]);
 
 // Import shader sources as strings — these are bundled by vite-plugin-glsl on the server via rollup
 import gradientFrag from "#shared/shaders/layers/gradient.frag";
@@ -205,6 +213,7 @@ function setPassUniforms(
   stippleTexture: WebGLTexture | null,
   colorTexture: WebGLTexture | null,
   gradientTextures: Map<string, WebGLTexture>,
+  stbnTexture: WebGLTexture | null,
 ) {
   let texUnit = 0;
 
@@ -261,6 +270,21 @@ function setPassUniforms(
       gl.bindTexture(gl.TEXTURE_2D, stippleTexture);
       gl.uniform1i(uStipple, texUnit);
       texUnit++;
+    }
+  }
+
+  if (stbnTexture && STBN_LAYER_TYPES.has(pass.layerType)) {
+    const uStbn = gl.getUniformLocation(program, "u_stbn");
+    if (uStbn) {
+      gl.activeTexture(gl.TEXTURE0 + texUnit);
+      gl.bindTexture(gl.TEXTURE_2D, stbnTexture);
+      gl.uniform1i(uStbn, texUnit);
+      texUnit++;
+    }
+    const uStbnFrame = gl.getUniformLocation(program, "u_stbnFrame");
+    if (uStbnFrame) {
+      const speed = (pass.uniforms.dissolveSpeed as number) ?? 0.35;
+      gl.uniform1f(uStbnFrame, stbnFrameIndex(time, speed));
     }
   }
 
@@ -393,6 +417,7 @@ export async function renderComposition(
     }
 
     const gradientTextures = new Map<string, WebGLTexture>();
+    const stbnTexture = await createStbnGlTexture(gl);
 
     // Render each pass
     for (const pass of passes) {
@@ -441,6 +466,7 @@ export async function renderComposition(
         stippleTexture,
         colorTexture,
         gradientTextures,
+        stbnTexture,
       );
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -459,6 +485,7 @@ export async function renderComposition(
       gl.deleteTexture(fbo.texture);
     }
     for (const [, tex] of gradientTextures) gl.deleteTexture(tex);
+    gl.deleteTexture(stbnTexture);
     try { gl.getExtension("STACKGL_destroy_context")?.destroy(); } catch {}
 
     // Convert pixels to PNG using @napi-rs/canvas

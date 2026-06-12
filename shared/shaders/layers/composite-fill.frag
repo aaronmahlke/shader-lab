@@ -3,6 +3,7 @@ precision highp float;
 #endif
 
 uniform vec2 u_resolution;
+uniform float u_time;
 uniform float u_scale;
 uniform sampler2D u_input;
 uniform sampler2D u_stipple;
@@ -13,6 +14,8 @@ uniform float passMode;
 uniform float shapeType;
 uniform float edgeWidth;
 uniform float dissolveReach;
+uniform float dissolveSpeed;
+uniform float dissolveSeed;
 uniform float edge;
 uniform float stippleSeed;
 uniform float dotSize;
@@ -26,21 +29,65 @@ uniform float bandY;
 uniform sampler2D u_gradient;
 uniform sampler2D u_gradientBelow;
 uniform sampler2D u_gradientAbove;
+uniform sampler2D u_stbn;
+uniform float u_stbnFrame;
+
+const float STBN_TILE = 128.0;
+const float STBN_ATLAS = 1024.0;
+const float STBN_COLS = 8.0;
 
 const float TAU = 6.2831853;
 const float HALF_PI = 1.57079632;
 
+vec2 seedOffset() {
+  return vec2(dissolveSeed * 12.9898, dissolveSeed * 78.233);
+}
+
 float h21(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
+  p = fract(p * vec2(123.34, 456.21) + dot(seedOffset(), vec2(127.1, 311.7)));
   p += dot(p, p + 45.32);
   return fract(p.x * p.y);
 }
 
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x),
+    mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x),
+    f.y
+  );
+}
+
+float sampleStbn(vec2 pixelCoord) {
+  float frame = mod(floor(u_stbnFrame), 64.0);
+  float col = mod(frame, STBN_COLS);
+  float row = floor(frame / STBN_COLS);
+  vec2 local = mod(pixelCoord, STBN_TILE);
+  vec2 atlasUv = (local + vec2(col, row) * STBN_TILE + 0.5) / STBN_ATLAS;
+  return texture2D(u_stbn, atlasUv).r;
+}
+
 float fine(vec2 fc, float k, float dotSize) {
-  vec2 o = vec2(k * 31.7, k * 57.3);
-  float n1 = h21(floor((fc + o) / dotSize));
-  float n2 = h21(floor((fc + o) / (dotSize * 2.0)) + 9.0);
-  return clamp(n1 * 0.8 + n2 * 0.2, 0.0, 1.0);
+  vec2 o = vec2(k * 31.7, k * 57.3) + seedOffset();
+  vec2 p = fc + o;
+
+  if (dissolveSpeed > 0.001) {
+    vec2 cell1 = floor(p / dotSize);
+    vec2 cell2 = floor(p / (dotSize * 2.0));
+    float n1 = sampleStbn(cell1 * dotSize);
+    float n2 = sampleStbn(cell2 * dotSize * 2.0 + vec2(9.0, 0.0));
+    float n = n1 * 0.8 + n2 * 0.2;
+    n += (vnoise(p / 70.0) - 0.5) * 0.12;
+    return clamp(n, 0.0, 1.0);
+  }
+
+  float n1 = h21(floor(p / dotSize));
+  float n2 = h21(floor(p / (dotSize * 2.0)) + vec2(9.0, 0.0));
+  float n = n1 * 0.8 + n2 * 0.2;
+  n += (vnoise(p / 70.0) - 0.5) * 0.12;
+  return clamp(n, 0.0, 1.0);
 }
 
 float shapeAt(float m, float edgeScale) {

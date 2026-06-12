@@ -51,6 +51,8 @@ function compositeUniforms(
     dissolveReach: hybrid.dissolveReach,
     edgeWidth: hybrid.edgeWidth,
     dotSize: hybrid.dotSize,
+    dissolveSpeed: hybrid.dissolveSpeed,
+    dissolveSeed: hybrid.dissolveSeed,
     shapeType,
     passMode,
     stippleSeed,
