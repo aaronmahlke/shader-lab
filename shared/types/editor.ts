@@ -1,4 +1,4 @@
-export type LayerCategory = "generator" | "composite" | "distortion" | "effect";
+export type LayerCategory = "generator" | "distortion" | "effect";
 
 export type LayerType =
   | "gradient"

@@ -18,9 +18,13 @@ import {
   WAVE_POS_X,
   WAVE_POS_Y,
 } from "#shared/editor/wave-position";
+import { BAND_EDGE, BAND_Y } from "#shared/editor/band-position";
+import { getHybridContext } from "#shared/editor/hybrid-pipeline";
+import { cloneMeshPoints } from "#shared/editor/mesh-uniforms";
 import { SignalIcon, CubeIcon, ArrowPathIcon } from "@heroicons/vue/16/solid";
 import type { GradientStop } from "#shared/types";
 import type { MeshPoint } from "#shared/types/mesh";
+import { MESH_MAX_POINTS } from "#shared/types/mesh";
 
 useHead({ title: "Shader — Shader Lab" });
 
@@ -340,6 +344,59 @@ function setWaveFloat(
 ) {
   layer.values[key] = value;
 }
+
+const meshTemplate = LAYER_TEMPLATES.mesh;
+const meshPointsDef = meshTemplate.uniforms.find((u) => u.type === "meshPoints")!;
+
+const meshSelectedPointIndex = ref(0);
+
+watch(selectedLayerId, () => {
+  meshSelectedPointIndex.value = 0;
+});
+
+const showMeshPointsGizmo = computed(
+  () => selectedLayer.value?.type === "mesh" && selectedLayer.value.enabled,
+);
+
+function getMeshPoints(layer: LayerInstance): MeshPoint[] {
+  const raw = layer.values[meshPointsDef.name] as MeshPoint[] | undefined;
+  const base = raw?.length
+    ? cloneMeshPoints(raw)
+    : cloneMeshPoints(meshPointsDef.default as MeshPoint[]);
+  while (base.length < MESH_MAX_POINTS) {
+    base.push({ x: 0.5, y: 0.5, color: "#808080", radius: 0.5 });
+  }
+  return base.slice(0, MESH_MAX_POINTS);
+}
+
+function setMeshPoints(layer: LayerInstance, points: MeshPoint[]) {
+  layer.values[meshPointsDef.name] = points;
+}
+
+const bandFillTemplate = LAYER_TEMPLATES.bandFill;
+const bandYDef = bandFillTemplate.uniforms.find((u) => u.name === BAND_Y)!;
+const bandEdgeDef = bandFillTemplate.uniforms.find((u) => u.name === BAND_EDGE)!;
+const hybridEdgeWidth = computed(() => getHybridContext(layers.value).edgeWidth);
+
+const showBandPositionGizmo = computed(
+  () => selectedLayer.value?.type === "bandFill" && selectedLayer.value.enabled,
+);
+
+function getBandFloat(
+  layer: LayerInstance,
+  key: typeof BAND_Y | typeof BAND_EDGE,
+  fallback: number,
+) {
+  return (layer.values[key] as number) ?? fallback;
+}
+
+function setBandFloat(
+  layer: LayerInstance,
+  key: typeof BAND_Y | typeof BAND_EDGE,
+  value: number,
+) {
+  layer.values[key] = value;
+}
 </script>
 
 <template>
@@ -353,7 +410,6 @@ function setWaveFloat(
         v-model:selected-lfo-id="selectedLfoId"
         :home-to="fromArtworkId ? `/artwork/${fromArtworkId}` : '/'"
         :lfo-cursor-position="selectedLfoCursorPosition"
-        @add-layer="addLayer"
         @duplicate-layer="duplicateLayer"
         @remove-layer="removeLayer"
         @drag-start="onDragStart"
@@ -363,34 +419,62 @@ function setWaveFloat(
       />
     </template>
 
-    <ClientOnly>
-      <div class="relative size-full min-h-0 overflow-hidden touch-none select-none">
-        <canvas
-          ref="canvasRef"
-          class="absolute inset-0 size-full"
-        />
-        <EditorWavePositionGizmo
-          v-if="showWavePositionGizmo && selectedLayer"
-          :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
-          :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
-          :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
-          :cycle-width="getWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, waveWidthDef.default as number)"
-          :x-min="wavePosXDef.min ?? -1"
-          :x-max="wavePosXDef.max ?? 2"
-          :y-min="wavePosYDef.min ?? -1"
-          :y-max="wavePosYDef.max ?? 2"
-          :amp-min="waveAmpDef.min ?? 0"
-          :amp-max="waveAmpDef.max ?? 0.4"
-          :width-min="waveWidthDef.min ?? 0.08"
-          :width-max="waveWidthDef.max ?? 2"
-          @update:cycle-x="setWaveFloat(selectedLayer, WAVE_POS_X, $event)"
-          @update:center-y="setWaveFloat(selectedLayer, WAVE_POS_Y, $event)"
-          @update:amplitude="setWaveFloat(selectedLayer, WAVE_AMPLITUDE, $event)"
-          @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
-        />
+    <div class="relative min-h-0 min-w-0 flex-1">
+      <ClientOnly>
+        <div class="size-full min-h-0 select-none">
+          <div class="absolute inset-0 overflow-hidden">
+            <canvas
+              ref="canvasRef"
+              class="pointer-events-none size-full"
+            />
+            <EditorWavePositionGizmo
+              v-if="showWavePositionGizmo && selectedLayer"
+              :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
+              :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
+              :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
+              :cycle-width="getWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, waveWidthDef.default as number)"
+              :x-min="wavePosXDef.min ?? -1"
+              :x-max="wavePosXDef.max ?? 2"
+              :y-min="wavePosYDef.min ?? -1"
+              :y-max="wavePosYDef.max ?? 2"
+              :amp-min="waveAmpDef.min ?? 0"
+              :amp-max="waveAmpDef.max ?? 0.4"
+              :width-min="waveWidthDef.min ?? 0.08"
+              :width-max="waveWidthDef.max ?? 2"
+              @update:cycle-x="setWaveFloat(selectedLayer, WAVE_POS_X, $event)"
+              @update:center-y="setWaveFloat(selectedLayer, WAVE_POS_Y, $event)"
+              @update:amplitude="setWaveFloat(selectedLayer, WAVE_AMPLITUDE, $event)"
+              @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
+            />
+            <EditorMeshPointsGizmo
+              v-if="showMeshPointsGizmo && selectedLayer"
+              :points="getMeshPoints(selectedLayer)"
+              :selected-index="meshSelectedPointIndex"
+              :radius-min="0.15"
+              :radius-max="1.5"
+              @update:points="setMeshPoints(selectedLayer, $event)"
+              @update:selected-index="meshSelectedPointIndex = $event"
+            />
+            <EditorBandPositionGizmo
+              v-if="showBandPositionGizmo && selectedLayer"
+              :band-y="getBandFloat(selectedLayer, BAND_Y, bandYDef.default as number)"
+              :edge="getBandFloat(selectedLayer, BAND_EDGE, bandEdgeDef.default as number)"
+              :global-edge-width="hybridEdgeWidth"
+              :y-min="bandYDef.min ?? 0"
+              :y-max="bandYDef.max ?? 1"
+              :edge-min="bandEdgeDef.min ?? 0.02"
+              :edge-max="bandEdgeDef.max ?? 1"
+              @update:band-y="setBandFloat(selectedLayer, BAND_Y, $event)"
+              @update:edge="setBandFloat(selectedLayer, BAND_EDGE, $event)"
+            />
+          </div>
+        </div>
+      </ClientOnly>
 
+      <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center">
+        <EditorLayerAddBar class="pointer-events-auto" @select="addLayer" />
       </div>
-    </ClientOnly>
+    </div>
 
     <template #right>
       <div class="flex h-full min-h-0 flex-col">
@@ -426,6 +510,8 @@ function setWaveFloat(
           :assignments="selectedLayerAssignments"
           :lfos="lfos"
           :dragging-lfo-id="draggingLfoId"
+          :mesh-selected-point-index="meshSelectedPointIndex"
+          @update:mesh-selected-point-index="meshSelectedPointIndex = $event"
           @assign-lfo="assignLfo"
           @remove-assignment="removeAssignment"
           @update-depth="updateDepth"

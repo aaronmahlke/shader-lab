@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { PlusIcon, ChevronRightIcon } from "@heroicons/vue/16/solid";
-import { PopoverRoot, PopoverTrigger, PopoverContent, PopoverPortal } from "reka-ui";
-import type { LayerInstance, LayerType, LFOSource } from "#shared/types/editor";
+import { ChevronRightIcon } from "@heroicons/vue/16/solid";
+import type { LayerInstance, LFOSource } from "#shared/types/editor";
 
 type Emits = {
-  "add-layer": [type: LayerType];
   "remove-layer": [id: string];
   "duplicate-layer": [id: string];
   "drag-start": [lfoId: string, x: number, y: number];
@@ -26,18 +24,11 @@ const { homeTo = "/", lfoCursorPosition } = defineProps<{
 
 const emit = defineEmits<Emits>();
 
-const pickerOpen = ref(false);
-
 const { containerRef, draggingIndex } = useDragReorder(layers);
 
 function toggleEnabled(layer: LayerInstance) {
   selectedLayerId.value = layer.id;
   layer.enabled = !layer.enabled;
-}
-
-function handleAddLayer(type: LayerType) {
-  pickerOpen.value = false;
-  emit("add-layer", type);
 }
 </script>
 
@@ -59,27 +50,13 @@ function handleAddLayer(type: LayerType) {
         fill
         class="min-w-0 flex-1 text-copy-sm text-neutral-strong"
       />
-      <PopoverRoot v-model:open="pickerOpen">
-        <PopoverTrigger as-child>
-          <UiButton variant="ghost" :icon-left="PlusIcon" title="Add layer" />
-        </PopoverTrigger>
-        <PopoverPortal>
-          <PopoverContent
-            side="right"
-            :side-offset="12"
-            :collision-padding="12"
-            class="floating-content-enter z-50 origin-[var(--reka-popover-content-transform-origin)] rounded-xl border border-neutral bg-layer-1 shadow-panel backdrop-blur-xl"
-          >
-            <EditorLayerPicker @select="handleAddLayer" />
-          </PopoverContent>
-        </PopoverPortal>
-      </PopoverRoot>
     </div>
 
     <!-- Layer list -->
     <div
       ref="containerRef"
       class="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1"
+      @click="selectedLayerId = null"
     >
       <EditorLayerRow
         v-for="(layer, i) in layers"

@@ -11,15 +11,24 @@ type Props = {
   assignments: ModulationAssignment[];
   lfos: LFOSource[];
   draggingLfoId: string | null;
+  meshSelectedPointIndex?: number;
 };
 
 type Emits = {
   "assign-lfo": [paramName: string];
   "remove-assignment": [sourceId: string, paramName: string];
   "update-depth": [sourceId: string, paramName: string, depth: number];
+  "update:meshSelectedPointIndex": [index: number];
 };
 
-const { layer, template, assignments, lfos, draggingLfoId } = defineProps<Props>();
+const {
+  layer,
+  template,
+  assignments,
+  lfos,
+  draggingLfoId,
+  meshSelectedPointIndex = 0,
+} = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
 function getAssignment(paramName: string): ModulationAssignment | undefined {
@@ -266,11 +275,13 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           <EditorMeshPointsField
             v-else-if="def.type === 'meshPoints'"
             :model-value="getMeshPoints(def, layer.values)"
+            :selected-index="meshSelectedPointIndex"
             :layer-id="layer.id"
             :assignments="assignments"
             :lfos="lfos"
             :dragging-lfo-id="draggingLfoId"
             @update:model-value="setMeshPoints(def, layer.values, $event)"
+            @update:selected-index="emit('update:meshSelectedPointIndex', $event)"
             @assign-lfo="emit('assign-lfo', $event)"
             @remove-assignment="(sid, pname) => emit('remove-assignment', sid, pname)"
             @update-depth="(sid, pname, depth) => emit('update-depth', sid, pname, depth)"

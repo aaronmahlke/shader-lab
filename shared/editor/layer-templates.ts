@@ -245,7 +245,7 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
   waveFill: {
     type: "waveFill",
     label: "Wave fill",
-    category: "composite",
+    category: "generator",
     description: "Sine-shelf shape composited over layers below",
     uniforms: [
       {
@@ -305,7 +305,7 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
   bandFill: {
     type: "bandFill",
     label: "Band fill",
-    category: "composite",
+    category: "generator",
     description: "Two-tone horizontal band background",
     uniforms: [
       {
@@ -313,7 +313,7 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         type: "float",
         label: "Band Y",
         default: 0.88,
-        min: 0.5,
+        min: 0,
         max: 1,
         step: 0.01,
       },

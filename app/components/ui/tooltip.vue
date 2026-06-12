@@ -5,14 +5,24 @@ type Props = {
   label: string;
   side?: "top" | "bottom" | "left" | "right";
   forceOpen?: boolean;
+  disableClosingTrigger?: boolean;
 };
 
-const { label, side = "bottom", forceOpen = false } = defineProps<Props>();
+const {
+  label,
+  side = "bottom",
+  forceOpen = false,
+  disableClosingTrigger = false,
+} = defineProps<Props>();
 </script>
 
 <template>
   <!-- When forceOpen is true, use controlled mode to keep it open -->
-  <TooltipRoot v-if="forceOpen" :open="true">
+  <TooltipRoot
+    v-if="forceOpen"
+    :open="true"
+    :disable-closing-trigger="disableClosingTrigger"
+  >
     <TooltipTrigger as-child>
       <slot />
     </TooltipTrigger>
@@ -29,7 +39,7 @@ const { label, side = "bottom", forceOpen = false } = defineProps<Props>();
   </TooltipRoot>
 
   <!-- Default: uncontrolled, reka-ui handles hover state -->
-  <TooltipRoot v-else>
+  <TooltipRoot v-else :disable-closing-trigger="disableClosingTrigger">
     <TooltipTrigger as-child>
       <slot />
     </TooltipTrigger>

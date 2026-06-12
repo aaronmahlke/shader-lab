@@ -4,9 +4,8 @@ import {
   EyeIcon,
   EyeSlashIcon,
   SparklesIcon,
-  SpeakerWaveIcon,
+  ArrowsPointingOutIcon,
   AdjustmentsHorizontalIcon,
-  RectangleStackIcon,
 } from "@heroicons/vue/16/solid";
 import type { LayerInstance, LayerCategory } from "#shared/types/editor";
 import LAYER_TEMPLATES from "#shared/editor/layer-templates";
@@ -36,8 +35,7 @@ const displayName = computed({
 
 const categoryIcons: Record<LayerCategory, Component> = {
   generator: SparklesIcon,
-  composite: RectangleStackIcon,
-  distortion: SpeakerWaveIcon,
+  distortion: ArrowsPointingOutIcon,
   effect: AdjustmentsHorizontalIcon,
 };
 
@@ -63,7 +61,7 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
       <div
         class="flex h-9 cursor-default items-center gap-2 p-2 outline-none select-none"
         :class="selected ? 'text-neutral-strong' : 'text-neutral-subtle group-hover/h:text-neutral-strong'"
-        @click="!isEditing && emit('select')"
+        @click.stop="!isEditing && emit('select')"
       >
         <span
           v-if="categoryIcon"
@@ -84,10 +82,10 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
           :class="!layer.enabled && 'text-neutral-weak'"
         />
 
-        <div class="relative grid min-w-0 flex-1 grid-cols-1 grid-rows-1 items-center justify-items-end">
+        <div class="relative flex min-w-0 flex-1 items-center justify-end">
           <span
             v-if="layer.enabled"
-            class="pointer-events-none col-start-1 row-start-1 w-full truncate text-right text-sm leading-none text-neutral-subtle group-hover/h:opacity-0"
+            class="pointer-events-none absolute right-0 max-w-full truncate text-copy-sm text-neutral-subtle group-hover/h:opacity-0"
           >
             {{ template?.label }}
           </span>
@@ -97,8 +95,8 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
             :icon-left="visibilityIcon"
             title="Toggle visibility"
             data-drag-exclude
-            class="col-start-1 row-start-1 !size-6"
-            :class="layer.enabled && 'pointer-events-none opacity-0 group-hover/h:pointer-events-auto group-hover/h:opacity-100'"
+            class="relative z-10 !size-6"
+            :class="layer.enabled && 'opacity-0 group-hover/h:opacity-100'"
             @click.stop="emit('toggle-enabled')"
           />
         </div>
