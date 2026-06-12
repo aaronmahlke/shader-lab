@@ -54,7 +54,12 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
 
 <template>
   <UiContextMenu>
-    <UiHover :active="selected" full-width :class="dragging && 'scale-[1.02] shadow-lg'">
+    <UiHover
+      :active="selected || dragging"
+      :class-name="dragging ? 'bg-control' : 'bg-tint'"
+      full-width
+      :class="dragging && 'scale-[1.02] shadow-lg'"
+    >
       <div
         class="flex h-9 cursor-default items-center gap-2 p-2 outline-none select-none"
         :class="selected ? 'text-neutral-strong' : 'text-neutral-subtle group-hover/h:text-neutral-strong'"
@@ -91,6 +96,7 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
             size="sm"
             :icon-left="visibilityIcon"
             title="Toggle visibility"
+            data-drag-exclude
             class="col-start-1 row-start-1 !size-6"
             :class="layer.enabled && 'pointer-events-none opacity-0 group-hover/h:pointer-events-auto group-hover/h:opacity-100'"
             @click.stop="emit('toggle-enabled')"

@@ -11,9 +11,9 @@ type DragReorderOptions = {
  * const { containerRef, draggingIndex } = useDragReorder(items)
  * ```
  *
- * Bind `containerRef` to the list wrapper element.
+ * Bind `containerRef` to a plain wrapper element.
  * Each direct child of that element becomes a draggable item.
- * `draggingIndex` is reactive — use it to style the dragged row.
+ * Mark interactive controls with `data-drag-exclude`.
  */
 export function useDragReorder<T>(
   list: Ref<T[]>,
@@ -23,19 +23,30 @@ export function useDragReorder<T>(
   const containerRef = ref<HTMLElement | null>(null);
   const draggingIndex = ref<number | null>(null);
 
-  // Easing matching the project's ease-out-expo
+  function resolveEl(): HTMLElement | null {
+    if (import.meta.server) return null;
+    const v = containerRef.value;
+    if (!v) return null;
+    if (typeof HTMLElement !== "undefined" && v instanceof HTMLElement) return v;
+    if ((v as { $el?: HTMLElement }).$el instanceof HTMLElement) {
+      return (v as { $el: HTMLElement }).$el;
+    }
+    return null;
+  }
+
   const easing = "cubic-bezier(0.19, 1, 0.22, 1)";
 
-  // Internal drag state (not reactive — perf-critical, updated every pointermove)
   let startY = 0;
   let dragFrom = -1;
   let currentTarget = -1;
   let rowRects: { top: number; height: number; midY: number }[] = [];
   let active = false;
+  let didDrag = false;
 
   function getChildren(): HTMLElement[] {
-    if (!containerRef.value) return [];
-    return Array.from(containerRef.value.children) as HTMLElement[];
+    const el = resolveEl();
+    if (!el) return [];
+    return Array.from(el.children) as HTMLElement[];
   }
 
   function cacheRects() {
@@ -47,19 +58,13 @@ export function useDragReorder<T>(
   }
 
   function getTargetIndex(draggedCenterY: number): number {
-    // Swap when the dragged item's center crosses into the neighboring row's space.
-    // The boundary between two rows is the top edge of the lower row
-    // (or equivalently, the bottom edge of the upper row).
-    // This means you need to drag ~half a row height to trigger a swap.
     let target = dragFrom;
 
-    // Check downward: swap when dragged center passes the top edge of the next row
     for (let i = dragFrom + 1; i < rowRects.length; i++) {
       if (draggedCenterY > rowRects[i]!.top) target = i;
       else break;
     }
 
-    // Check upward (only if we haven't moved down)
     if (target === dragFrom) {
       for (let i = dragFrom - 1; i >= 0; i--) {
         const bottomEdge = rowRects[i]!.top + rowRects[i]!.height;
@@ -80,27 +85,14 @@ export function useDragReorder<T>(
       const el = children[i]!;
 
       let shift = 0;
-      // Items between dragFrom and target need to shift to fill the gap
       if (dragFrom < target) {
-        // Dragging down: items between (dragFrom, target] shift up
         if (i > dragFrom && i <= target) shift = -draggedHeight;
       } else if (dragFrom > target) {
-        // Dragging up: items between [target, dragFrom) shift down
         if (i >= target && i < dragFrom) shift = draggedHeight;
       }
 
       el.style.transition = `transform ${animation}ms ${easing}`;
       el.style.transform = shift ? `translateY(${shift}px)` : "";
-    }
-  }
-
-  function clearTransforms() {
-    const children = getChildren();
-    for (const el of children) {
-      el.style.transition = "";
-      el.style.transform = "";
-      el.style.position = "";
-      el.style.zIndex = "";
     }
   }
 
@@ -114,25 +106,23 @@ export function useDragReorder<T>(
     }
   }
 
+  function onDragStart(e: DragEvent) {
+    e.preventDefault();
+  }
+
   function onPointerDown(e: PointerEvent) {
-    // Only primary button
     if (e.button !== 0) return;
 
-    // Find which direct child was clicked
-    const container = containerRef.value;
+    const container = resolveEl();
     if (!container) return;
     const target = e.target as HTMLElement;
-
-    // Don't drag if clicking a button or interactive element
-    if (target.closest("button")) return;
+    if (target.closest("[data-drag-exclude]")) return;
 
     const children = getChildren();
-    const child = target.closest<HTMLElement>(":scope > *");
-    // :scope > * doesn't work with closest. Find the direct child manually.
     let clickedChild: HTMLElement | null = null;
     let node: HTMLElement | null = target;
     while (node && node !== container) {
-      if (node.parentElement === container) {
+      if (children.includes(node)) {
         clickedChild = node;
         break;
       }
@@ -145,6 +135,7 @@ export function useDragReorder<T>(
 
     startY = e.clientY;
     dragFrom = index;
+    currentTarget = index;
     active = false;
 
     window.addEventListener("pointermove", onPointerMove);
@@ -155,17 +146,16 @@ export function useDragReorder<T>(
   function onPointerMove(e: PointerEvent) {
     const deltaY = e.clientY - startY;
 
-    // Dead zone: 4px before activating
     if (!active) {
       if (Math.abs(deltaY) < 4) return;
       active = true;
+      didDrag = true;
       draggingIndex.value = dragFrom;
       cacheRects();
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
     }
 
-    // Move dragged element to follow pointer
     const children = getChildren();
     const draggedEl = children[dragFrom];
     if (draggedEl) {
@@ -175,9 +165,6 @@ export function useDragReorder<T>(
       draggedEl.style.transition = "none";
     }
 
-    // Figure out where we'd drop based on the dragged item's current center.
-    // deltaY is exactly how far the item has moved, so its center is its
-    // original midY + deltaY. Swap triggers when this crosses another row's midpoint.
     const draggedCenterY = rowRects[dragFrom]!.midY + deltaY;
     const target = getTargetIndex(draggedCenterY);
     if (target !== currentTarget) {
@@ -186,55 +173,106 @@ export function useDragReorder<T>(
     }
   }
 
-  function animateSettle(finalY: number, onDone: () => void) {
-    const children = getChildren();
-    const draggedEl = children[dragFrom];
-    if (!draggedEl) { onDone(); return; }
-
-    draggedEl.style.transition = `transform ${animation}ms ${easing}`;
-    draggedEl.style.transform = finalY ? `translateY(${finalY}px)` : "";
-
-    let settled = false;
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      draggedEl.removeEventListener("transitionend", onSettled);
-      onDone();
-    };
-    const onSettled = () => settle();
-    draggedEl.addEventListener("transitionend", onSettled);
-    setTimeout(settle, animation + 50);
-  }
-
   function onPointerUp() {
     if (!active) {
       cleanup();
       return;
     }
 
-    // Remove window listeners early so no further pointermove fires
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
     window.removeEventListener("keydown", onKeyDown);
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
 
-    const swapped = dragFrom !== currentTarget && currentTarget !== -1;
-    const finalY = swapped
-      ? rowRects[currentTarget]!.top - rowRects[dragFrom]!.top
-      : 0; // Animate back to original position
+    const swapped = dragFrom !== currentTarget;
 
-    animateSettle(finalY, () => {
-      if (swapped) commitReorder(dragFrom, currentTarget);
-      clearTransforms();
+    const children = getChildren();
+    const snapshot = new Map<HTMLElement, number>();
+    for (const el of children) {
+      snapshot.set(el, el.getBoundingClientRect().top);
+    }
+
+    for (const el of children) {
+      el.style.transition = "none";
+      el.style.transform = "";
+      el.style.position = "";
+      el.style.zIndex = "";
+    }
+
+    draggingIndex.value = null;
+
+    if (!swapped) {
+      const el = resolveEl();
+      if (el) el.offsetHeight;
+      for (const el of children) {
+        el.style.transition = "";
+      }
       cleanup();
+      return;
+    }
+
+    commitReorder(dragFrom, currentTarget);
+
+    nextTick(() => {
+      const newChildren = getChildren();
+
+      for (const el of newChildren) {
+        const oldTop = snapshot.get(el);
+        if (oldTop !== undefined) {
+          const newTop = el.getBoundingClientRect().top;
+          const dy = oldTop - newTop;
+          if (Math.abs(dy) > 0.5) {
+            el.style.transform = `translateY(${dy}px)`;
+          }
+        }
+      }
+
+      const el = resolveEl();
+      if (el) el.offsetHeight;
+
+      for (const el of newChildren) {
+        if (el.style.transform) {
+          el.style.transition = `transform ${animation}ms ${easing}`;
+          el.style.transform = "";
+        } else {
+          el.style.transition = "";
+        }
+      }
+
+      setTimeout(() => {
+        for (const child of getChildren()) {
+          child.style.transition = "";
+          child.style.transform = "";
+        }
+        cleanup();
+      }, animation + 20);
     });
   }
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      clearTransforms();
+      const children = getChildren();
+      for (const el of children) {
+        el.style.transition = "none";
+        el.style.transform = "";
+        el.style.position = "";
+        el.style.zIndex = "";
+      }
+      const el = resolveEl();
+      if (el) el.offsetHeight;
+      for (const el of children) {
+        el.style.transition = "";
+      }
       cleanup();
+    }
+  }
+
+  function onClickCapture(e: MouseEvent) {
+    if (didDrag) {
+      e.preventDefault();
+      e.stopPropagation();
+      didDrag = false;
     }
   }
 
@@ -251,14 +289,27 @@ export function useDragReorder<T>(
     window.removeEventListener("keydown", onKeyDown);
   }
 
-  onMounted(() => {
-    containerRef.value?.addEventListener("pointerdown", onPointerDown);
-  });
+  watch(containerRef, (el, _prev, onCleanup) => {
+    if (import.meta.server) return;
 
-  onUnmounted(() => {
-    containerRef.value?.removeEventListener("pointerdown", onPointerDown);
-    cleanup();
-  });
+    const node = el && typeof HTMLElement !== "undefined" && el instanceof HTMLElement
+      ? el
+      : (el as { $el?: HTMLElement } | null)?.$el;
+    if (!node) return;
+
+    node.addEventListener("pointerdown", onPointerDown, true);
+    node.addEventListener("click", onClickCapture, true);
+    node.addEventListener("dragstart", onDragStart);
+
+    onCleanup(() => {
+      node.removeEventListener("pointerdown", onPointerDown, true);
+      node.removeEventListener("click", onClickCapture, true);
+      node.removeEventListener("dragstart", onDragStart);
+      cleanup();
+    });
+  }, { immediate: true });
+
+  onUnmounted(cleanup);
 
   return { containerRef, draggingIndex };
 }

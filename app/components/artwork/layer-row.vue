@@ -58,6 +58,7 @@ const typeIcon = computed<Component>(() => {
     </span>
 
     <button
+      data-drag-exclude
       class="flex size-6 shrink-0 items-center justify-center rounded-md text-tertiary opacity-0 transition-all duration-150 hover:bg-surface-1 hover:text-secondary"
       :class="(selected || !layer.enabled) ? 'opacity-100' : 'group-hover:opacity-100'"
       title="Toggle visibility"
@@ -68,6 +69,7 @@ const typeIcon = computed<Component>(() => {
     </button>
 
     <button
+      data-drag-exclude
       class="flex size-6 shrink-0 items-center justify-center rounded-md text-tertiary opacity-0 transition-all duration-150 hover:bg-surface-1 hover:text-secondary"
       :class="selected ? 'opacity-100' : 'group-hover:opacity-100'"
       title="Remove layer"
