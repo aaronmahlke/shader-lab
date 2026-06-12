@@ -12,6 +12,16 @@ export function meshParamName(index: number, field: MeshPointField): string {
   return `mesh.${index}.${field}`;
 }
 
+/** Grainy-dither ramp: dark basin, purple ridge, pink canopy, cream horizon, BR bloom. */
+export const GRAINY_DITHER_MESH_POINTS: MeshPoint[] = [
+  { x: 0.06, y: 0.92, color: "#08040f", radius: 1.05 },
+  { x: 0.78, y: 0.82, color: "#c8e868", radius: 0.72 },
+  { x: 0.9, y: 0.22, color: "#d05090", radius: 0.95 },
+  { x: 0.52, y: 0.06, color: "#f2ead0", radius: 0.42 },
+  { x: 0.18, y: 0.48, color: "#2a1868", radius: 1.15 },
+  { x: 0.58, y: 0.4, color: "#6020a0", radius: 0.8 },
+];
+
 /** Default layout tuned for warm mesh + bloom highlight (reference-style). */
 export const MESH_BLOOM_POINTS: MeshPoint[] = [
   { x: 0.08, y: 0.9, color: "#b86a4a", radius: 0.95 },

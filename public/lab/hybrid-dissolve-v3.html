@@ -1,0 +1,150 @@
+<h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">WebGL demo blending a smooth layered gradient with its dissolved version, with controls for grain mix, edge softness and dot size</h2>
+<div style="display:flex;flex-direction:column;gap:12px;padding:0.5rem 0;">
+  <canvas id="gl3" width="1320" height="742" style="width:100%;border-radius:var(--border-radius-lg);display:block;"></canvas>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <label style="font-size:13px;color:var(--color-text-secondary);min-width:66px;">Grain mix</label>
+      <input type="range" id="gm3" min="0" max="1" step="0.01" value="0.6" style="flex:1;">
+      <span id="gmOut3" style="font-size:13px;font-weight:500;min-width:34px;">0.60</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <label style="font-size:13px;color:var(--color-text-secondary);min-width:66px;">Edge width</label>
+      <input type="range" id="ed3" min="0.1" max="0.9" step="0.01" value="0.55" style="flex:1;">
+      <span id="edOut3" style="font-size:13px;font-weight:500;min-width:34px;">0.55</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <label style="font-size:13px;color:var(--color-text-secondary);min-width:66px;">Dot size</label>
+      <input type="range" id="dt3" min="1" max="3" step="0.25" value="1.5" style="flex:1;">
+      <span id="dtOut3" style="font-size:13px;font-weight:500;min-width:34px;">1.5</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button id="rs3" style="flex:1;"><i class="ti ti-refresh" aria-hidden="true" style="font-size:16px;vertical-align:-2px;margin-right:6px;"></i>Reseed</button>
+    </div>
+  </div>
+</div>
+<script>
+const cv3 = document.getElementById('gl3');
+const G = cv3.getContext('webgl');
+const VS = 'attribute vec2 aPos; void main(){ gl_Position = vec4(aPos,0.0,1.0); }';
+const FS = `
+precision highp float;
+uniform vec2 uRes;
+uniform float uGrainMix;
+uniform float uEdge;
+uniform float uDot;
+uniform float uSeed;
+
+float h21(vec2 p){
+  p = fract(p * vec2(123.34, 456.21) + uSeed);
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  f = f*f*(3.0-2.0*f);
+  return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y);
+}
+float fine(vec2 fc, float k){
+  vec2 o = vec2(k*31.7, k*57.3);
+  float n1 = h21(floor((fc+o)/uDot));
+  float n2 = h21(floor((fc+o)/(uDot*2.0)) + 9.0);
+  float n = n1*0.8 + n2*0.2;
+  n += (vnoise((fc+o)/70.0) - 0.5) * 0.12;
+  return clamp(n, 0.0, 1.0);
+}
+float blob(vec2 p, vec2 c, vec2 r, float ang){
+  float s = sin(ang), co = cos(ang);
+  vec2 q = mat2(co,-s,s,co) * (p - c);
+  q /= r;
+  return exp(-dot(q,q));
+}
+float shape(float m){
+  return smoothstep(0.5-uEdge, 0.5+uEdge, m);
+}
+
+void main(){
+  vec2 fc = gl_FragCoord.xy;
+  vec2 p = fc / uRes;
+
+  vec3 cream = mix(vec3(0.93,0.91,0.74), vec3(0.97,0.96,0.82), p.y);
+  vec3 pinkC = mix(vec3(0.88,0.45,0.80), vec3(0.97,0.66,0.90), clamp((p.y-0.4)*1.4, 0.0, 1.0));
+  vec3 vioC  = mix(vec3(0.14,0.14,0.70), vec3(0.50,0.42,0.98), clamp(p.x*0.5 + p.y*0.85, 0.0, 1.0));
+  vec3 darkC = mix(vec3(0.05,0.05,0.06), vec3(0.10,0.10,0.14), p.y);
+  vec3 grnC  = mix(vec3(0.16,0.24,0.15), vec3(0.32,0.44,0.28), clamp((p.y-0.05)*1.6, 0.0, 1.0));
+  vec3 paleC = vec3(0.87,0.93,0.67);
+
+  float mPink   = shape(clamp(blob(p, vec2(0.72,0.68), vec2(0.42,0.33), -0.25)*1.5, 0.0, 1.0));
+  vec2 A = vec2(0.0, 0.95);
+  vec2 d = normalize(vec2(0.9, -0.65));
+  vec2 nrm = vec2(d.y, -d.x);
+  float mViolet = shape(smoothstep(-0.06, 0.34, dot(p - A, nrm)));
+  float mDark   = shape(clamp(blob(p, vec2(0.13,0.55), vec2(0.24,0.40), 0.35)*1.7
+                + smoothstep(0.22, 0.0, p.y)*smoothstep(0.95, 0.35, p.x), 0.0, 1.0));
+  float mGreen  = shape(clamp(blob(p, vec2(0.90,0.16), vec2(0.42,0.30), 0.45)*1.6, 0.0, 1.0));
+  float mGlow   = shape(clamp(blob(p, vec2(0.50,0.18), vec2(0.15,0.10), 0.0)*0.95, 0.0, 1.0));
+  float mStreak = shape(clamp(blob(p, vec2(0.79,0.34), vec2(0.30,0.085), 0.58)*1.3, 0.0, 1.0));
+
+  vec3 cs = cream;
+  cs = mix(cs, pinkC, mPink);
+  cs = mix(cs, vioC,  mViolet);
+  cs = mix(cs, darkC, mDark);
+  cs = mix(cs, grnC,  mGreen);
+  cs = mix(cs, paleC, mGlow);
+  cs = mix(cs, paleC, mStreak);
+
+  vec3 cd = cream;
+  cd = mix(cd, pinkC, step(fine(fc, 1.0), mPink));
+  cd = mix(cd, vioC,  step(fine(fc, 2.0), mViolet));
+  cd = mix(cd, darkC, step(fine(fc, 3.0), mDark));
+  cd = mix(cd, grnC,  step(fine(fc, 4.0), mGreen));
+  cd = mix(cd, paleC, step(fine(fc, 5.0), mGlow));
+  cd = mix(cd, paleC, step(fine(fc, 6.0), mStreak));
+
+  vec3 col = mix(cs, cd, uGrainMix);
+
+  col *= 0.96 + 0.08 * h21(fc * 0.731);
+  col += (vec3(h21(fc+1.0), h21(fc+2.0), h21(fc+3.0)) - 0.5) * 0.03;
+
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+function C(t, s){ const sh = G.createShader(t); G.shaderSource(sh, s); G.compileShader(sh); return sh; }
+const P = G.createProgram();
+G.attachShader(P, C(G.VERTEX_SHADER, VS));
+G.attachShader(P, C(G.FRAGMENT_SHADER, FS));
+G.linkProgram(P);
+G.useProgram(P);
+
+const B = G.createBuffer();
+G.bindBuffer(G.ARRAY_BUFFER, B);
+G.bufferData(G.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), G.STATIC_DRAW);
+const AL = G.getAttribLocation(P, 'aPos');
+G.enableVertexAttribArray(AL);
+G.vertexAttribPointer(AL, 2, G.FLOAT, false, 0, 0);
+
+const u = {
+  res: G.getUniformLocation(P, 'uRes'),
+  gm: G.getUniformLocation(P, 'uGrainMix'),
+  ed: G.getUniformLocation(P, 'uEdge'),
+  dt: G.getUniformLocation(P, 'uDot'),
+  sd: G.getUniformLocation(P, 'uSeed')
+};
+let seed3 = 0.0;
+const gmEl = document.getElementById('gm3');
+const edEl = document.getElementById('ed3');
+const dtEl = document.getElementById('dt3');
+function draw3(){
+  G.viewport(0, 0, cv3.width, cv3.height);
+  G.uniform2f(u.res, cv3.width, cv3.height);
+  G.uniform1f(u.gm, parseFloat(gmEl.value));
+  G.uniform1f(u.ed, parseFloat(edEl.value));
+  G.uniform1f(u.dt, parseFloat(dtEl.value));
+  G.uniform1f(u.sd, seed3);
+  G.drawArrays(G.TRIANGLES, 0, 3);
+}
+gmEl.addEventListener('input', () => { document.getElementById('gmOut3').textContent = parseFloat(gmEl.value).toFixed(2); draw3(); });
+edEl.addEventListener('input', () => { document.getElementById('edOut3').textContent = parseFloat(edEl.value).toFixed(2); draw3(); });
+dtEl.addEventListener('input', () => { document.getElementById('dtOut3').textContent = parseFloat(dtEl.value).toFixed(1); draw3(); });
+document.getElementById('rs3').addEventListener('click', () => { seed3 = Math.random() * 100; draw3(); });
+draw3();
+</script>
