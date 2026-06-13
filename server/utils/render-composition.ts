@@ -22,6 +22,7 @@ import ditherFrag from "#shared/shaders/layers/dither.frag";
 import grainFrag from "#shared/shaders/layers/grain.frag";
 import seamFrag from "#shared/shaders/layers/seam.frag";
 import vignetteFrag from "#shared/shaders/layers/vignette.frag";
+import chromaticAberrationFrag from "#shared/shaders/layers/chromatic-aberration.frag";
 import compositeFillFrag from "#shared/shaders/layers/composite-fill.frag";
 import hybridDissolveFrag from "#shared/shaders/layers/hybrid-dissolve.frag";
 import resolveFrag from "#shared/shaders/layers/resolve.frag";
@@ -40,6 +41,7 @@ const FRAG_SHADERS: Record<LayerType | "resolve" | "blit", string> = {
   seam: seamFrag,
   hybridDissolve: hybridDissolveFrag,
   vignette: vignetteFrag,
+  chromaticAberration: chromaticAberrationFrag,
   resolve: resolveFrag,
   blit: outputFrag,
 };
@@ -224,6 +226,8 @@ const INT_UNIFORMS = new Set([
   "u_pointCount",
   "shapeType",
   "passMode",
+  "mode",
+  "steps",
 ]);
 
 function setPassUniforms(

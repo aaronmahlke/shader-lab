@@ -12,7 +12,8 @@ export type LayerType =
   | "grain"
   | "seam"
   | "hybridDissolve"
-  | "vignette";
+  | "vignette"
+  | "chromaticAberration";
 
 export type LayerUniformDef = {
   name: string;

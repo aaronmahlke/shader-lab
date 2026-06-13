@@ -199,15 +199,25 @@ function resetUniform(def: LayerUniformDef) {
 }
 
 const isDistortion = computed(() => layer.type === "distortion");
+const isChromaticAberration = computed(() => layer.type === "chromaticAberration");
 const currentWaveType = computed(() => (layer.values.waveType as number) ?? 0);
 const currentCoordMode = computed(() => (layer.values.coordMode as number) ?? 0);
+const currentCaMode = computed(() => (layer.values.mode as number) ?? 0);
 
 function isUniformVisible(def: LayerUniformDef): boolean {
-  if (!isDistortion.value) return true;
-  if (def.name === "sharpness" || def.name === "pulseWidth") return currentWaveType.value === 1;
-  if (def.name === "skew") return currentWaveType.value === 2;
-  if (def.name === "direction") return currentCoordMode.value === 0;
-  if (def.name === "centerX" || def.name === "centerY") return currentCoordMode.value === 1;
+  if (isDistortion.value) {
+    if (def.name === "sharpness" || def.name === "pulseWidth") return currentWaveType.value === 1;
+    if (def.name === "skew") return currentWaveType.value === 2;
+    if (def.name === "direction") return currentCoordMode.value === 0;
+    if (def.name === "centerX" || def.name === "centerY") return currentCoordMode.value === 1;
+    return true;
+  }
+  if (isChromaticAberration.value) {
+    if (def.name === "angle") return currentCaMode.value === 1;
+    if (def.name === "centerX" || def.name === "centerY" || def.name === "radialScale") {
+      return currentCaMode.value === 0;
+    }
+  }
   return true;
 }
 </script>

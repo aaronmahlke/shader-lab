@@ -8,6 +8,7 @@ import {
   getShaderPreset,
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
+import { buildLayerValues } from "#shared/editor/build-layer-values";
 import {
   normalizeCompositeLayers,
   offsetDuplicatedWave,
@@ -22,7 +23,6 @@ import { BAND_EDGE, BAND_Y } from "#shared/editor/band-position";
 import { getHybridContext } from "#shared/editor/hybrid-pipeline";
 import { cloneMeshPoints } from "#shared/editor/mesh-uniforms";
 import { SignalIcon, CubeIcon, ArrowPathIcon } from "@heroicons/vue/16/solid";
-import type { GradientStop } from "#shared/types";
 import type { MeshPoint } from "#shared/types/mesh";
 import { MESH_MAX_POINTS } from "#shared/types/mesh";
 
@@ -159,16 +159,7 @@ function addLayer(type: LayerType) {
   if (!template) return;
 
   const id = `${type}-${++layerCounter}`;
-  const values: Record<string, unknown> = {};
-  for (const def of template.uniforms) {
-    if (def.type === "gradient" && Array.isArray(def.default)) {
-      values[def.name] = (def.default as GradientStop[]).map((s) => ({ ...s }));
-    } else if (def.type === "meshPoints" && Array.isArray(def.default)) {
-      values[def.name] = (def.default as MeshPoint[]).map((p) => ({ ...p }));
-    } else {
-      values[def.name] = def.default;
-    }
-  }
+  const values = buildLayerValues(type);
 
   if (type === "waveFill") {
     offsetDuplicatedWave(

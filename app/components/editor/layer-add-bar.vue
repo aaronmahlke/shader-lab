@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { PlusIcon } from "@heroicons/vue/16/solid";
 import {
-  SparklesIcon,
-  ArrowsPointingOutIcon,
-  AdjustmentsHorizontalIcon,
-} from "@heroicons/vue/16/solid";
-import type { Component } from "vue";
-import type { LayerCategory, LayerType } from "#shared/types/editor";
+  ComboboxAnchor,
+  ComboboxContent,
+  ComboboxPortal,
+  ComboboxRoot,
+  ComboboxTrigger,
+} from "reka-ui";
+import type { LayerType } from "#shared/types/editor";
 
 type Emits = {
   select: [type: LayerType];
@@ -13,27 +15,12 @@ type Emits = {
 
 const emit = defineEmits<Emits>();
 
-type CategoryEntry = {
-  key: LayerCategory;
-  label: string;
-  icon: Component;
-};
+const open = ref(false);
 
-const categories: CategoryEntry[] = [
-  { key: "generator", label: "Generators", icon: SparklesIcon },
-  { key: "distortion", label: "Distortions", icon: ArrowsPointingOutIcon },
-  { key: "effect", label: "Effects", icon: AdjustmentsHorizontalIcon },
-];
-
-const open = reactive<Record<LayerCategory, boolean>>({
-  generator: false,
-  distortion: false,
-  effect: false,
-});
-
-function handleSelect(type: LayerType, category: LayerCategory) {
-  open[category] = false;
+function onSelect(type: LayerType | null) {
+  if (!type) return;
   emit("select", type);
+  open.value = false;
 }
 </script>
 
@@ -41,23 +28,44 @@ function handleSelect(type: LayerType, category: LayerCategory) {
   <div
     class="flex gap-1 rounded-xl border border-neutral bg-layer-1 p-1 shadow-panel backdrop-blur-xl"
   >
-    <UiPopover
-      v-for="category in categories"
-      :key="category.key"
-      v-model:open="open[category.key]"
-      side="bottom"
-      align="center"
+    <ComboboxRoot
+      :model-value="undefined"
+      :open="open"
+      ignore-filter
+      :reset-search-term-on-select="false"
+      :reset-search-term-on-blur="false"
+      @update:open="open = $event"
+      @update:model-value="onSelect"
     >
-      <template #trigger>
-        <EditorLayerAddTrigger
-          :label="category.label"
-          :icon="category.icon"
-        />
-      </template>
-      <EditorLayerPicker
-        :category="category.key"
-        @select="handleSelect($event, category.key)"
-      />
-    </UiPopover>
+      <ComboboxAnchor as-child>
+        <UiTooltip label="Add layer" side="bottom" disable-closing-trigger>
+          <UiHover
+            :active="open"
+            class-name="bg-layer-1 border border-neutral group-hover/h:bg-tint"
+          >
+            <ComboboxTrigger
+              class="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-lg text-neutral-strong outline-none transition-colors duration-100 ease-out-expo"
+              aria-label="Add layer"
+            >
+              <PlusIcon class="size-4 shrink-0" aria-hidden="true" />
+            </ComboboxTrigger>
+          </UiHover>
+        </UiTooltip>
+      </ComboboxAnchor>
+
+      <ComboboxPortal>
+        <ComboboxContent
+          position="popper"
+          side="bottom"
+          align="center"
+          :side-offset="10"
+          :collision-padding="12"
+          class="floating-content-enter z-[9999] flex h-[min(60vh,28rem)] w-[min(92vw,36rem)] origin-[var(--reka-combobox-content-transform-origin)] flex-col overflow-hidden rounded-2xl border border-neutral bg-layer-1 shadow-panel backdrop-blur-xl outline-none"
+          @open-auto-focus.prevent
+        >
+          <EditorLayerAddBarPanel />
+        </ComboboxContent>
+      </ComboboxPortal>
+    </ComboboxRoot>
   </div>
 </template>

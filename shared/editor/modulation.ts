@@ -5,6 +5,8 @@ const ZERO_BASE_PARAMS = new Set([
   "vignetteIntensity",
   "vignetteRadius",
   "vignetteSoftness",
+  "amount",
+  "blend",
   "ditherScale",
   "levels",
 ]);
