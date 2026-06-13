@@ -63,11 +63,14 @@ export type WavePoint = {
 
 export type LFOPlaybackMode = "loop" | "pingpong";
 
+export type LFOWaveShape = "sine" | "custom";
+
 export type LFOSource = {
   id: string;
   label: string;
   color: string;
   points: WavePoint[];
+  waveShape?: LFOWaveShape;
   rate: number;     // Hz
   phase: number;    // 0-360 degrees
   mode: LFOPlaybackMode;

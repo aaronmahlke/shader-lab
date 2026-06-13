@@ -54,8 +54,8 @@ const DITHER_GRADIENT_LAYERS: LayerInstance[] = [
 ];
 
 const DITHER_GRADIENT_LFOS: LFOSource[] = [
-  { id: "lfo-1", label: "Drift", color: LFO_COLORS[0]!, points: clonePresetPoints("sine"), rate: 0.1, phase: 0, mode: "loop" },
-  { id: "lfo-2", label: "Pulse", color: LFO_COLORS[1]!, points: clonePresetPoints("sine"), rate: 0.13, phase: 0, mode: "loop" },
+  { id: "lfo-1", label: "Drift", color: LFO_COLORS[0]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.1, phase: 0, mode: "loop" },
+  { id: "lfo-2", label: "Pulse", color: LFO_COLORS[1]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.13, phase: 0, mode: "loop" },
 ];
 
 const DITHER_GRADIENT_ASSIGNMENTS: ModulationAssignment[] = [
@@ -123,9 +123,9 @@ const PRESET_DATA: Record<string, ShaderDocument> = {
       },
     ],
     lfos: [
-      { id: "lfo-1", label: "Drift", color: LFO_COLORS[0]!, points: clonePresetPoints("sine"), rate: 0.06, phase: 0, mode: "loop" },
-      { id: "lfo-2", label: "Bloom", color: LFO_COLORS[1]!, points: clonePresetPoints("sine"), rate: 0.09, phase: 120, mode: "loop" },
-      { id: "lfo-3", label: "Sway", color: LFO_COLORS[2]!, points: clonePresetPoints("sine"), rate: 0.04, phase: 200, mode: "pingpong" },
+      { id: "lfo-1", label: "Drift", color: LFO_COLORS[0]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.06, phase: 0, mode: "loop" },
+      { id: "lfo-2", label: "Bloom", color: LFO_COLORS[1]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.09, phase: 120, mode: "loop" },
+      { id: "lfo-3", label: "Sway", color: LFO_COLORS[2]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.04, phase: 200, mode: "pingpong" },
     ],
     assignments: [
       { sourceId: "lfo-1", layerId: "mesh-1", paramName: meshParamName(3, "x"), depth: 0.06 },
@@ -183,10 +183,10 @@ const PRESET_DATA: Record<string, ShaderDocument> = {
       },
     ],
     lfos: [
-      { id: "lfo-1", label: "Drift", color: LFO_COLORS[0]!, points: clonePresetPoints("sine"), rate: 0.05, phase: 0, mode: "loop" },
-      { id: "lfo-2", label: "Bloom", color: LFO_COLORS[1]!, points: clonePresetPoints("sine"), rate: 0.08, phase: 90, mode: "loop" },
-      { id: "lfo-3", label: "Sway", color: LFO_COLORS[2]!, points: clonePresetPoints("sine"), rate: 0.035, phase: 180, mode: "pingpong" },
-      { id: "lfo-4", label: "Warp", color: LFO_COLORS[3]!, points: clonePresetPoints("sine"), rate: 0.06, phase: 45, mode: "loop" },
+      { id: "lfo-1", label: "Drift", color: LFO_COLORS[0]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.05, phase: 0, mode: "loop" },
+      { id: "lfo-2", label: "Bloom", color: LFO_COLORS[1]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.08, phase: 90, mode: "loop" },
+      { id: "lfo-3", label: "Sway", color: LFO_COLORS[2]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.035, phase: 180, mode: "pingpong" },
+      { id: "lfo-4", label: "Warp", color: LFO_COLORS[3]!, points: clonePresetPoints("sine"), waveShape: "sine", rate: 0.06, phase: 45, mode: "loop" },
     ],
     assignments: [
       { sourceId: "lfo-1", layerId: "mesh-1", paramName: meshParamName(1, "x"), depth: 0.05 },

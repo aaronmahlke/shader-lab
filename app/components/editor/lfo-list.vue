@@ -80,7 +80,7 @@ function updatePanelPosition() {
 
   const panelEl = panelRef.value;
   const panelHeight = panelEl?.offsetHeight ?? 0;
-  const panelWidth = panelEl?.offsetWidth ?? 380;
+  const panelWidth = panelEl?.offsetWidth ?? 440;
 
   if (panelHeight > 0) {
     const maxTop = window.innerHeight - VIEWPORT_PAD - panelHeight;
@@ -125,6 +125,7 @@ function addLfo() {
     label: `LFO ${lfos.value.length + 1}`,
     color: nextLfoColor(existingColors),
     points: clonePresetPoints("sine"),
+    waveShape: "sine",
     rate: 1.0,
     phase: 0,
     mode: "loop",

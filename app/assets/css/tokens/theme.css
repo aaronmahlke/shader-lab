@@ -44,10 +44,10 @@
   --ring-color-focus: var(--color-neutral-500);
   --ring-offset-color-layer-1: var(--background-color-layer-1);
 
-  /* ── Controls (Figma cal: track #212121) ── */
+  /* ── Controls ── */
   --background-color-control: var(--color-neutral-800);
   --background-color-control-strong: var(--color-neutral-800);
-  --background-color-control-track: oklch(0.268 0 0);
+  --background-color-control-track: oklch(1 0 0 / 0.06);
 
   /* ── Code / wave canvas ── */
   --background-color-code: var(--color-black);

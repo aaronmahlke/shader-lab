@@ -38,6 +38,7 @@ function addLfo() {
     label: `LFO ${lfos.value.length + 1}`,
     color: nextLfoColor(existingColors),
     points: clonePresetPoints("sine"),
+    waveShape: "sine",
     rate: 1.0,
     phase: 0,
     mode: "loop",

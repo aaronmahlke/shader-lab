@@ -3,6 +3,7 @@ import type { LayerInstance, LayerType, LFOSource, ModulationAssignment } from "
 import LAYER_TEMPLATES from "#shared/editor/layer-templates";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
+import { normalizeLfo } from "#shared/editor/lfo-wave";
 import {
   cloneShaderPreset,
   getShaderPreset,
@@ -22,7 +23,7 @@ import {
 import { BAND_EDGE, BAND_Y } from "#shared/editor/band-position";
 import { getHybridContext } from "#shared/editor/hybrid-pipeline";
 import { cloneMeshPoints } from "#shared/editor/mesh-uniforms";
-import { SignalIcon, CubeIcon, ArrowPathIcon } from "@heroicons/vue/16/solid";
+import { CubeIcon, ArrowPathIcon } from "@heroicons/vue/16/solid";
 import type { MeshPoint } from "#shared/types/mesh";
 import { MESH_MAX_POINTS } from "#shared/types/mesh";
 
@@ -57,7 +58,7 @@ const shaderName = ref(
 );
 const layers = ref<LayerInstance[]>(initialDoc.layers);
 normalizeCompositeLayers(layers.value);
-const lfos = ref<LFOSource[]>(initialDoc.lfos);
+const lfos = ref<LFOSource[]>(initialDoc.lfos.map((lfo) => normalizeLfo(lfo)));
 const assignments = ref<ModulationAssignment[]>(initialDoc.assignments);
 
 if (routeId) {
@@ -72,7 +73,7 @@ if (routeId) {
     shaderName.value = comp.name;
     layers.value = comp.data.layers;
     normalizeCompositeLayers(layers.value);
-    lfos.value = comp.data.lfos;
+    lfos.value = comp.data.lfos.map((lfo) => normalizeLfo(lfo));
     assignments.value = comp.data.assignments;
   }
 }
@@ -528,7 +529,7 @@ function setBandFloat(
       transform: 'translate(-50%, -50%)',
     }"
   >
-    <SignalIcon class="size-4 text-neutral-subtle" />
+    <UiLfoSineIcon class="h-1.5 w-4 shrink-0" :style="{ color: draggingLfo.color }" />
     <span>{{ draggingLfo.label }}</span>
   </div>
 

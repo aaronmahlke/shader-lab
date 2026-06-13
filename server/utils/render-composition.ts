@@ -1,8 +1,9 @@
 import { createCanvas } from "@napi-rs/canvas";
-import type { LayerInstance, LFOSource, ModulationAssignment, RenderPass, LayerType, WavePoint } from "#shared/types/editor";
+import type { LayerInstance, LFOSource, ModulationAssignment, RenderPass, LayerType } from "#shared/types/editor";
 import type { GradientStop } from "#shared/types";
 import { compilePasses } from "#shared/editor/compile-passes";
 import { applyModulation } from "#shared/editor/modulation";
+import { evaluateLfoWave, getLfoWaveShape } from "#shared/editor/lfo-wave";
 import { stbnFrameIndex } from "#shared/editor/stbn";
 import { createStbnGlTexture } from "./stbn-texture";
 
@@ -57,42 +58,6 @@ void main() {
 `;
 
 const GRADIENT_RESOLUTION = 256;
-
-// --- Schlick bias + wave evaluation (duplicated from modulation engine for server use) ---
-
-function schlickBias(t: number, b: number): number {
-  t = Math.max(0, Math.min(1, t));
-  b = Math.max(0.001, Math.min(0.999, b));
-  return t / ((1 / b - 2) * (1 - t) + 1);
-}
-
-function curveToB(curve: number): number {
-  return 1 / (1 + Math.exp(curve * 3));
-}
-
-function effectiveCurve(p1y: number, p2y: number, curve: number): number {
-  return p2y >= p1y ? curve : -curve;
-}
-
-function evaluateWavePoints(points: WavePoint[], t: number): number {
-  if (points.length === 0) return 0.5;
-  if (points.length === 1) return points[0]!.y;
-  t = Math.max(0, Math.min(1, t));
-  for (let i = 0; i < points.length - 1; i++) {
-    const p1 = points[i]!;
-    const p2 = points[i + 1]!;
-    if (t >= p1.x && (t <= p2.x || i === points.length - 2)) {
-      const segLen = p2.x - p1.x;
-      if (segLen < 0.0001) return p2.y;
-      const segT = (t - p1.x) / segLen;
-      const eff = effectiveCurve(p1.y, p2.y, p1.curve);
-      const b = curveToB(eff);
-      const curvedT = schlickBias(segT, b);
-      return p1.y + (p2.y - p1.y) * curvedT;
-    }
-  }
-  return points[points.length - 1]!.y;
-}
 
 // --- Gradient texture creation ---
 
@@ -411,7 +376,7 @@ export async function renderComposition(
       ? (time * lfo.rate + phaseOffset) % 2
       : (time * lfo.rate + phaseOffset) % 1;
     const t = lfo.mode === "pingpong" && rawT > 1 ? 2 - rawT : rawT;
-    const lfoValue = evaluateWavePoints(lfo.points, Math.max(0, Math.min(1, t)));
+    const lfoValue = evaluateLfoWave(getLfoWaveShape(lfo), lfo.points, Math.max(0, Math.min(1, t)));
     return applyModulation(baseValue, paramName, lfoValue, assignment.depth);
   }
 

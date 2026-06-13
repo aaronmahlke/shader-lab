@@ -40,7 +40,7 @@ const hasModulation = computed(() => modColor != null && modDepth != null);
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-md bg-layer-0">
+  <div class="overflow-hidden rounded-md">
     <div
       v-if="hasModulation"
       class="min-h-0 overflow-hidden transition-[grid-template-rows] duration-200 ease-out-expo"

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { SignalIcon } from "@heroicons/vue/16/solid";
 import type { LFOSource } from "#shared/types/editor";
 
 type Props = {
@@ -74,7 +73,7 @@ function onPointerDown(e: PointerEvent) {
             class="flex size-5 shrink-0 items-center justify-center rounded-full"
             :class="selected ? 'bg-tint' : 'bg-tint-subtle'"
           >
-            <SignalIcon class="size-4" :style="{ color: lfo.color }" />
+            <UiLfoSineIcon class="h-1.5 w-4 shrink-0" :style="{ color: lfo.color }" />
           </span>
           <UiEditableText
             ref="editableRef"
