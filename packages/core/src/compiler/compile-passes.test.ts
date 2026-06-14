@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { compilePasses } from "./compile-passes";
 import { ModulationEngine } from "../modulation/engine";
 import { buildLayerValues } from "./build-layer-values";
-import { normalizeCompositeLayer } from "./normalize-composite-layers";
+import { migrateDiffuseValues, normalizeCompositeLayer } from "./normalize-composite-layers";
 import { cloneMeshPoints, MESH_BLOOM_POINTS } from "./mesh-uniforms";
 import type { CompositionConfig } from "../types/composition";
 
@@ -99,9 +99,29 @@ describe("normalizeCompositeLayer", () => {
     };
     normalizeCompositeLayer(layer);
     expect(layer.type).toBe("diffuse");
-    expect(layer.values.amount).toBe(0.18);
-    expect(layer.values.speed).toBe(0.5);
-    expect(layer.values.seed).toBe(12);
+    expect(layer.values.amount).toBe(14);
+    expect(layer.values.grainHard).toBe(1);
+    expect(layer.values.animate).toBe(true);
+  });
+
+  it("migrates legacy diffuse uniform scale to scatter params", () => {
+    const values = {
+      amount: 0.18,
+      blend: 0.55,
+      grain: 0.42,
+      direction: 180,
+      speed: 0.35,
+      seed: 0,
+    };
+    migrateDiffuseValues(values);
+    expect(values.amount).toBe(18);
+    expect(values.grainHard).toBe(0.42);
+    expect(values.direction).toBe(50);
+    expect(values.animate).toBe(true);
+    expect(values.blend).toBeUndefined();
+    expect(values.grain).toBeUndefined();
+    expect(values.speed).toBeUndefined();
+    expect(values.seed).toBeUndefined();
   });
 });
 

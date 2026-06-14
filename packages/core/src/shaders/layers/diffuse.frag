@@ -2,90 +2,69 @@
 precision highp float;
 #endif
 
+// Stochastic scatter: soft = average of displaced picks, hard = single pick.
+// No mix with original — only scattered samples blended.
+
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform sampler2D u_input;
-uniform sampler2D u_stbn;
-uniform float u_stbnFrame;
 
 uniform float amount;
-uniform float grain;
+uniform float grainHard;
 uniform float direction;
-uniform float speed;
-uniform float seed;
+uniform bool animate;
 
-const float STBN_TILE = 128.0;
-const float STBN_ATLAS = 1024.0;
-const float STBN_COLS = 8.0;
+const float OFFSET_BIAS = 1.0;
+const int SOFT_TAPS = 6;
 
-float h21(vec2 p) {
-  vec2 s = vec2(seed * 12.9898, seed * 78.233);
-  p = fract(p * vec2(123.34, 456.21) + dot(s, vec2(127.1, 311.7)));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
+float hash(vec2 co) {
+  return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
-float sampleStbn(vec2 pixelCoord) {
-  float frame = mod(floor(u_stbnFrame), 64.0);
-  float col = mod(frame, STBN_COLS);
-  float row = floor(frame / STBN_COLS);
-  vec2 local = mod(pixelCoord, STBN_TILE);
-  vec2 atlasUv = (local + vec2(col, row) * STBN_TILE + 0.5) / STBN_ATLAS;
-  return texture2D(u_stbn, atlasUv).r;
+vec2 hash2(vec2 co) {
+  return vec2(hash(co), hash(co + vec2(17.3, 41.7)));
 }
 
-float noiseAt(vec2 fc, float t) {
-  if (speed > 0.001) {
-    return sampleStbn(fc + vec2(t * 17.3, t * 31.7));
-  }
-  return h21(fc + vec2(t * 9.0, t * 13.0));
+vec3 sampleInput(vec2 uv) {
+  return texture2D(u_input, clamp(uv, 0.0, 1.0)).rgb;
 }
 
-float luma(vec3 c) {
-  return dot(c, vec3(0.299, 0.587, 0.114));
+vec2 scatterOffset(vec2 rnd, float spread) {
+  float rad = pow(rnd.y, OFFSET_BIAS) * spread;
+  float sign = rnd.x < 0.5 ? -1.0 : 1.0;
+  vec2 vert = vec2(0.0, sign * rad);
+  vec2 horiz = vec2(sign * rad, 0.0);
+  float ang = rnd.x * 6.2831853;
+  vec2 omni = vec2(cos(ang), sin(ang)) * rad;
+
+  float t = clamp(direction / 100.0, 0.0, 1.0);
+  if (t <= 0.5) return mix(vert, omni, t * 2.0);
+  return mix(omni, horiz, (t - 0.5) * 2.0);
 }
 
 void main() {
-  vec2 fc = gl_FragCoord.xy;
-  vec2 uv = fc / u_resolution;
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+  vec2 px = vec2(1.0) / u_resolution;
+  vec2 cell = floor(gl_FragCoord.xy);
+  vec2 timeCell = animate ? vec2(u_time * 17.0, u_time * 23.0) : vec2(0.0);
 
-  vec3 base = texture2D(u_input, uv).rgb;
-  float energy = luma(base);
-
-  if (amount < 0.0001) {
-    gl_FragColor = vec4(base, 1.0);
+  float reach = max(amount, 0.0);
+  if (reach < 0.0001) {
+    gl_FragColor = vec4(sampleInput(uv), 1.0);
     return;
   }
 
-  float rad = direction * 0.01745329252;
-  vec2 dir = vec2(cos(rad), sin(rad));
-  float reach = amount * (0.35 + energy * 0.65);
+  float hard = clamp(grainHard, 0.0, 1.0);
 
-  vec3 accum = vec3(0.0);
-  float wSum = 0.0;
+  vec2 s1 = hash2(cell + vec2(9.1, 3.7) + timeCell);
+  vec3 hardCol = sampleInput(uv + scatterOffset(s1, reach) * px);
 
-  for (int i = 0; i < 12; i++) {
-    float fi = float(i);
-    float t = fi / 11.0 - 0.5;
-    float w = 1.0 - abs(t * 2.0);
-
-    float n0 = noiseAt(fc, fi);
-    float n1 = noiseAt(fc + vec2(31.0, 17.0), fi + 13.0);
-    vec2 jitter = (vec2(n0, n1) - 0.5) * grain * 0.06;
-
-    vec2 offset = dir * t * reach * 0.12 + jitter;
-    vec3 s = texture2D(u_input, uv + offset).rgb;
-
-    accum += s * w;
-    wSum += w;
+  vec3 acc = hardCol;
+  for (int i = 1; i < SOFT_TAPS; i++) {
+    vec2 s = hash2(cell + vec2(float(i) * 3.3 + 1.7, float(i) * 5.1 + 2.9) + timeCell);
+    acc += sampleInput(uv + scatterOffset(s, reach) * px);
   }
+  vec3 softCol = acc / float(SOFT_TAPS);
 
-  vec3 col = accum / max(wSum, 1e-4);
-
-  float cell = max(1.0, grain * 1.8 + 0.5);
-  float g = h21(floor(fc / cell));
-  float particulate = mix(1.0, 0.82 + 0.36 * g, grain * smoothstep(0.05, 0.45, energy));
-  col *= particulate;
-
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(clamp(mix(softCol, hardCol, hard), 0.0, 1.0), 1.0);
 }

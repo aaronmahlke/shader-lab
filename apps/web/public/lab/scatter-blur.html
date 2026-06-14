@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scatter blur — lab</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0e0e10;
+      color: #e8e6e3;
+      min-height: 100vh;
+      padding: 1.25rem;
+    }
+    h1 { font-size: 1.125rem; font-weight: 600; margin-bottom: 0.25rem; }
+    p.sub { font-size: 0.8125rem; color: #8a8780; margin-bottom: 1rem; max-width: 56rem; line-height: 1.55; }
+    p.sub code { font-size: 0.75rem; color: #b8b4ac; }
+    .panel {
+      background: #161618;
+      border: 1px solid #2a2a2e;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    canvas { width: 100%; display: block; background: #ffeed9; }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.625rem;
+      padding: 0.875rem;
+      background: #161618;
+      border: 1px solid #2a2a2e;
+      border-radius: 10px;
+      margin-bottom: 1rem;
+    }
+    .row { display: flex; align-items: center; gap: 0.5rem; }
+    .row label { font-size: 0.8125rem; color: #8a8780; min-width: 5.5rem; flex-shrink: 0; }
+    .row input[type=range] { flex: 1; accent-color: #6b8afd; }
+    .row input[type=checkbox] { accent-color: #6b8afd; width: 1rem; height: 1rem; flex: 0; }
+    .row span.val { font-size: 0.8125rem; font-weight: 500; min-width: 2.75rem; text-align: right; }
+    .hint { font-size: 0.75rem; color: #6a6760; margin-top: 0.5rem; grid-column: 1 / -1; line-height: 1.5; }
+    .actions { grid-column: 1 / -1; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    button {
+      font: inherit; font-size: 0.8125rem; color: #e8e6e3;
+      background: #232327; border: 1px solid #34343a; border-radius: 7px;
+      padding: 0.4rem 0.7rem; cursor: pointer;
+    }
+    button:hover { background: #2c2c32; }
+  </style>
+</head>
+<body>
+  <h1>Scatter blur</h1>
+  <p class="sub">
+    Stochastic scatter with <code>grain hardness</code>: soft = average several displaced picks, hard = single pick.
+    Not mix with original — only scattered samples blended.
+  </p>
+
+  <div class="controls">
+    <div class="row">
+      <label for="amount">Amount</label>
+      <input type="range" id="amount" min="0" max="200" step="1" value="14">
+      <span class="val" id="amountOut">14px</span>
+    </div>
+    <div class="row">
+      <label for="grainHard">Grain hardness</label>
+      <input type="range" id="grainHard" min="0" max="1" step="0.01" value="1">
+      <span class="val" id="grainHardOut">100%</span>
+    </div>
+    <div class="row">
+      <label for="direction">Direction</label>
+      <input type="range" id="direction" min="0" max="100" step="1" value="50">
+      <span class="val" id="directionOut">Both</span>
+    </div>
+    <div class="row">
+      <label for="animate">Animate</label>
+      <input type="checkbox" id="animate">
+    </div>
+    <p class="hint">
+      <strong>Grain hardness</strong> 0% = soft (6-tap avg), 100% = crunchy (single pick).
+      <strong>Direction</strong> 0 = vertical, 50 = both, 100 = horizontal.
+      <strong>Animate</strong> = live grain crawl on/off. Play = hardness reveal 100% → 0%.
+    </p>
+    <div class="actions">
+      <button id="playBtn" type="button">▶ Play reveal</button>
+      <button id="resetBtn" type="button">Reset</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <canvas id="output"></canvas>
+  </div>
+
+<script>
+const BASE_W = 720;
+const BASE_H = 480;
+const SUPER = 2;
+
+function resizeCanvas(canvas) {
+  canvas.width = BASE_W * SUPER;
+  canvas.height = BASE_H * SUPER;
+  canvas.style.width = '100%';
+  canvas.style.aspectRatio = `${BASE_W} / ${BASE_H}`;
+}
+
+const VS = 'attribute vec2 aPos; varying vec2 vUv; void main(){ vUv = aPos * 0.5 + 0.5; gl_Position = vec4(aPos,0.0,1.0); }';
+
+const SCATTER_FS = `
+precision highp float;
+varying vec2 vUv;
+uniform sampler2D uTex;
+uniform vec2 uTexRes;
+uniform vec2 uRes;
+uniform float uAmount;
+uniform float uDirection;
+uniform float uGrainHard;
+uniform float uTime;
+
+const vec3 BG = vec3(1.0, 238.0 / 255.0, 217.0 / 255.0);
+const float IMAGE_SCALE = 0.48;
+const float OFFSET_BIAS = 1.0;
+const int SOFT_TAPS = 6;
+
+float hash(vec2 co) {
+  return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+vec2 hash2(vec2 co) {
+  return vec2(hash(co), hash(co + vec2(17.3, 41.7)));
+}
+
+vec2 toTexUv(vec2 canvasUv) {
+  float ca = uRes.x / uRes.y;
+  float ia = uTexRes.x / uTexRes.y;
+  vec2 s = ca > ia ? vec2(ia / ca, 1.0) : vec2(1.0, ca / ia);
+  s *= IMAGE_SCALE;
+  return (canvasUv - 0.5) / s + 0.5;
+}
+
+bool inTex(vec2 texUv) {
+  return texUv.x >= 0.0 && texUv.x <= 1.0 && texUv.y >= 0.0 && texUv.y <= 1.0;
+}
+
+vec3 sampleAt(vec2 canvasUv) {
+  vec2 texUv = toTexUv(canvasUv);
+  if (!inTex(texUv)) return BG;
+  return texture2D(uTex, texUv).rgb;
+}
+
+vec2 scatterOffset(vec2 rnd, float spread) {
+  float rad = pow(rnd.y, OFFSET_BIAS) * spread;
+  float sign = rnd.x < 0.5 ? -1.0 : 1.0;
+  vec2 vert = vec2(0.0, sign * rad);
+  vec2 horiz = vec2(sign * rad, 0.0);
+  float ang = rnd.x * 6.2831853;
+  vec2 omni = vec2(cos(ang), sin(ang)) * rad;
+
+  float t = clamp(uDirection, 0.0, 1.0);
+  if (t <= 0.5) return mix(vert, omni, t * 2.0);
+  return mix(omni, horiz, (t - 0.5) * 2.0);
+}
+
+void main() {
+  vec2 canvasUv = vec2(vUv.x, 1.0 - vUv.y);
+  vec2 px = vec2(1.0) / uRes;
+  vec2 cell = floor(gl_FragCoord.xy);
+  vec2 timeCell = vec2(uTime * 17.0, uTime * 23.0);
+
+  float reach = max(uAmount, 0.0);
+  if (reach < 0.0001) {
+    gl_FragColor = vec4(sampleAt(canvasUv), 1.0);
+    return;
+  }
+
+  float hard = clamp(uGrainHard, 0.0, 1.0);
+
+  vec2 s1 = hash2(cell + vec2(9.1, 3.7) + timeCell);
+  vec3 hardCol = sampleAt(canvasUv + scatterOffset(s1, reach) * px);
+
+  vec3 acc = hardCol;
+  for (int i = 1; i < SOFT_TAPS; i++) {
+    vec2 s = hash2(cell + vec2(float(i) * 3.3 + 1.7, float(i) * 5.1 + 2.9) + timeCell);
+    acc += sampleAt(canvasUv + scatterOffset(s, reach) * px);
+  }
+  vec3 softCol = acc / float(SOFT_TAPS);
+
+  gl_FragColor = vec4(clamp(mix(softCol, hardCol, hard), 0.0, 1.0), 1.0);
+}`;
+
+function compile(gl, type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    throw new Error(gl.getShaderInfoLog(sh) || 'compile failed');
+  }
+  return sh;
+}
+
+function link(gl, vs, fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    throw new Error(gl.getProgramInfoLog(p) || 'link failed');
+  }
+  return p;
+}
+
+function setup(canvas, fs) {
+  const gl = canvas.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
+  if (!gl) throw new Error('WebGL unavailable');
+  const prog = link(gl, VS, fs);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.useProgram(prog);
+  const aPos = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+  const uniforms = {};
+  for (let i = 0; i < gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS); i++) {
+    const info = gl.getActiveUniform(prog, i);
+    uniforms[info.name] = gl.getUniformLocation(prog, info.name);
+  }
+  return { gl, prog, uniforms, canvas };
+}
+
+function loadTexture(gl, img) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return { tex, w: img.naturalWidth, h: img.naturalHeight };
+}
+
+function bindTex(gl, uniforms, texInfo, unit) {
+  gl.activeTexture(gl.TEXTURE0 + unit);
+  gl.bindTexture(gl.TEXTURE_2D, texInfo.tex);
+  gl.uniform1i(uniforms.uTex, unit);
+  gl.uniform2f(uniforms.uTexRes, texInfo.w, texInfo.h);
+  gl.uniform2f(uniforms.uRes, gl.canvas.width, gl.canvas.height);
+}
+
+const amount = document.getElementById('amount');
+const grainHard = document.getElementById('grainHard');
+const direction = document.getElementById('direction');
+const animate = document.getElementById('animate');
+const playBtn = document.getElementById('playBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+const ANIM_RATE = 1.5;
+const REVEAL_MS = 4000;
+
+function formatDirection(v) {
+  const n = Math.round(+v);
+  if (n <= 0) return 'Vertical';
+  if (n >= 100) return 'Horizontal';
+  if (n === 50) return 'Both';
+  return n < 50 ? `${n}% ↕` : `${n}% ↔`;
+}
+
+function bindSlider(el, outId, fmt) {
+  el.addEventListener('input', () => {
+    document.getElementById(outId).textContent = fmt(el.value);
+    draw();
+  });
+}
+
+let view;
+let texInfo;
+let timeSec = 0;
+let lastFrame = 0;
+let loopId = null;
+let revealId = null;
+
+function draw() {
+  if (!texInfo) return;
+  const { gl, prog, uniforms } = view;
+  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+  gl.useProgram(prog);
+  bindTex(gl, uniforms, texInfo, 0);
+  gl.uniform1f(uniforms.uAmount, parseFloat(amount.value));
+  gl.uniform1f(uniforms.uGrainHard, parseFloat(grainHard.value));
+  gl.uniform1f(uniforms.uDirection, parseFloat(direction.value) / 100);
+  gl.uniform1f(uniforms.uTime, timeSec);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function frame(now) {
+  const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
+  lastFrame = now;
+  if (animate.checked) timeSec += dt * ANIM_RATE;
+  draw();
+  loopId = requestAnimationFrame(frame);
+}
+
+function playReveal() {
+  cancelAnimationFrame(revealId);
+  const t0 = performance.now();
+  grainHard.value = 1;
+  document.getElementById('grainHardOut').textContent = '100%';
+
+  function step(now) {
+    const p = Math.min((now - t0) / REVEAL_MS, 1);
+    const h = 1 - p;
+    grainHard.value = h;
+    document.getElementById('grainHardOut').textContent = `${Math.round(h * 100)}%`;
+    draw();
+    if (p < 1) revealId = requestAnimationFrame(step);
+  }
+  revealId = requestAnimationFrame(step);
+}
+
+function resetAll() {
+  cancelAnimationFrame(revealId);
+  revealId = null;
+  timeSec = 0;
+  lastFrame = 0;
+  amount.value = 14;
+  grainHard.value = 1;
+  direction.value = 50;
+  animate.checked = false;
+  document.getElementById('amountOut').textContent = '14px';
+  document.getElementById('grainHardOut').textContent = '100%';
+  document.getElementById('directionOut').textContent = 'Both';
+  draw();
+}
+
+function init() {
+  const canvas = document.getElementById('output');
+  resizeCanvas(canvas);
+  view = setup(canvas, SCATTER_FS);
+
+  bindSlider(amount, 'amountOut', v => `${Math.round(+v)}px`);
+  bindSlider(grainHard, 'grainHardOut', v => `${Math.round(+v * 100)}%`);
+  bindSlider(direction, 'directionOut', formatDirection);
+  animate.addEventListener('change', draw);
+
+  playBtn.addEventListener('click', playReveal);
+  resetBtn.addEventListener('click', resetAll);
+
+  const img = new Image();
+  img.onload = () => {
+    texInfo = loadTexture(view.gl, img);
+    draw();
+    loopId = requestAnimationFrame(frame);
+  };
+  img.onerror = () => {
+    document.body.insertAdjacentHTML('beforeend', '<p style="color:#f87171;padding:1rem">Failed to load test image</p>');
+  };
+  img.src = '/lab/textures/flower-input.png';
+}
+
+try {
+  init();
+} catch (e) {
+  document.body.insertAdjacentHTML('beforeend', `<p style="color:#f87171;padding:1rem">${e.message}</p>`);
+  console.error(e);
+}
+</script>
+</body>
+</html>

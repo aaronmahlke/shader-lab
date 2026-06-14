@@ -67,17 +67,48 @@ export function normalizeCompositeLayer(layer: LayerInstance): void {
     }
   }
 
+  if (layer.type === "diffuse") {
+    migrateDiffuseValues(layer.values);
+  }
+
   if ((layer.type as string) === "hybridDissolve") {
     const legacy = layer.values;
+    const speed = (legacy.dissolveSpeed as number) ?? 0.35;
     layer.type = "diffuse";
     layer.values = {
-      amount: 0.18,
-      grain: 0.42,
+      amount: 14,
+      grainHard: 1,
       direction: 50,
-      speed: (legacy.dissolveSpeed as number) ?? 0.35,
-      seed: (legacy.seed as number) ?? 0,
+      animate: speed > 0.001,
     };
   }
+}
+
+/** Migrate legacy diffuse params (0–1 amount, spread, speed) to scatter-blur schema. */
+export function migrateDiffuseValues(values: Record<string, unknown>): void {
+  if (typeof values.amount === "number" && values.amount > 0 && values.amount <= 1) {
+    values.amount = Math.min(200, Math.max(1, Math.round(values.amount * 100)));
+  }
+
+  if (typeof values.grainHard !== "number") {
+    const grain = values.grain;
+    values.grainHard =
+      typeof grain === "number" && grain >= 0 && grain <= 1 ? grain : 1;
+  }
+
+  if (typeof values.direction === "number" && values.direction > 100) {
+    values.direction = Math.round((values.direction / 360) * 100);
+  }
+
+  if (typeof values.animate !== "boolean") {
+    const speed = values.speed;
+    values.animate = typeof speed === "number" ? speed > 0.001 : false;
+  }
+
+  delete values.grain;
+  delete values.blend;
+  delete values.speed;
+  delete values.seed;
 }
 
 export function normalizeCompositeLayers(layers: LayerInstance[]): void {

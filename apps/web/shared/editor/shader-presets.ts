@@ -206,11 +206,10 @@ const PRESET_DATA: Record<string, ShaderDocument> = {
         type: "diffuse",
         enabled: true,
         values: {
-          amount: 0.18,
-          grain: 0.42,
+          amount: 14,
+          grainHard: 1,
           direction: 50,
-          speed: 0.35,
-          seed: 0,
+          animate: true,
         },
       },
       {

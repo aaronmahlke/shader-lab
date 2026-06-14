@@ -47,7 +47,7 @@ const CATALOG_META: Partial<
   dither: { tags: ["posterize", "quantize", "retro"] },
   grain: { tags: ["noise", "film", "texture"], featured: true },
   seam: { tags: ["edge", "block", "sample"] },
-  diffuse: { tags: ["scatter", "grain", "blur"], featured: true },
+  diffuse: { tags: ["scatter", "blur", "noise"], featured: true },
   vignette: { tags: ["darken", "edge", "frame"] },
   chromaticAberration: {
     tags: ["rgb", "split", "lens", "color", "aberration"],
