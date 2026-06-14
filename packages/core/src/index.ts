@@ -1,0 +1,139 @@
+import type { CompositionConfig } from "./types/composition";
+import { ModulationEngine, createModulationFn } from "./modulation/engine";
+import { compilePasses, buildLayerUniforms } from "./compiler/compile-passes";
+import type { ModulationFn } from "./compiler/compile-passes";
+import { CompositionRenderer } from "./renderer/composition-renderer";
+import type { CompositionRendererOptions } from "./renderer/composition-renderer";
+import { buildLayerValues } from "./compiler/build-layer-values";
+import LAYER_TEMPLATES from "./compiler/layer-templates";
+
+export type CompositionHandle = {
+  play(): void;
+  pause(): void;
+  destroy(): void;
+  updateConfig(config: CompositionConfig): void;
+  getCanvas(): HTMLCanvasElement;
+  renderFrame(time: number): void;
+};
+
+export function createComposition(
+  canvas: HTMLCanvasElement,
+  config: CompositionConfig,
+  options: CompositionRendererOptions & { autoplay?: boolean } = {},
+): CompositionHandle {
+  const engine = new ModulationEngine();
+  engine.setLfos(config.lfos);
+  engine.setAssignments(config.assignments);
+
+  let currentConfig = config;
+  let animationId: number | null = null;
+  let running = false;
+  let startTime = 0;
+
+  const renderer = new CompositionRenderer(canvas, {
+    ...options,
+    getModulatedValue: engine.getModulatedValue,
+  });
+
+  function tick() {
+    const time = (performance.now() - startTime) / 1000;
+    engine.sampleAt(time);
+    const passes = compilePasses(currentConfig.layers, engine.getModulatedValue);
+    renderer.renderFrame(time, passes);
+    if (running) animationId = requestAnimationFrame(tick);
+  }
+
+  return {
+    play() {
+      if (running) return;
+      running = true;
+      startTime = performance.now();
+      tick();
+    },
+    pause() {
+      running = false;
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+    },
+    destroy() {
+      this.pause();
+      renderer.dispose();
+    },
+    updateConfig(newConfig: CompositionConfig) {
+      currentConfig = newConfig;
+      engine.setLfos(newConfig.lfos);
+      engine.setAssignments(newConfig.assignments);
+    },
+    getCanvas() {
+      return renderer.getCanvas();
+    },
+    renderFrame(time: number) {
+      engine.sampleAt(time);
+      const passes = compilePasses(currentConfig.layers, engine.getModulatedValue);
+      renderer.renderFrame(time, passes);
+    },
+  };
+}
+
+export { normalizeCompositeLayer, normalizeCompositeLayers, offsetDuplicatedWave } from "./compiler/normalize-composite-layers";
+export {
+  ModulationEngine,
+  createModulationFn,
+  compilePasses,
+  buildLayerUniforms,
+  CompositionRenderer,
+  buildLayerValues,
+  LAYER_TEMPLATES,
+};
+
+export {
+  BAND_GRADIENT_ABOVE,
+  BAND_GRADIENT_BELOW,
+  WAVE_GRADIENT_BLACK,
+  WAVE_GRADIENT_BLACK2,
+  WAVE_GRADIENT_BLUE,
+  WAVE_GRADIENT_BLUE2,
+  WAVE_GRADIENT_LIME,
+  WAVE_GRADIENT_PALE,
+} from "./compiler/composite-defaults";
+export {
+  GRAINY_DITHER_MESH_POINTS,
+  MESH_BLOOM_POINTS,
+} from "./compiler/mesh-uniforms";
+export {
+  cloneMeshPoints,
+  meshParamName,
+  expandMeshUniforms,
+} from "./compiler/mesh-uniforms";
+export type { MeshPointField } from "./compiler/mesh-uniforms";
+export { MESH_MAX_POINTS } from "./types/mesh";
+export type { MeshPoint } from "./types/mesh";
+
+export type { ModulationFn, CompositionRendererOptions, CompositionConfig };
+
+export type {
+  LayerInstance,
+  LayerType,
+  LayerTemplate,
+  RenderPass,
+  LFOSource,
+  ModulationAssignment,
+  WavePoint,
+  LFOWaveShape,
+  LFOPlaybackMode,
+} from "./types/editor";
+
+export type { GradientStop } from "./types";
+
+export { applyModulation } from "./modulation/modulation";
+export {
+  evaluateLfoWave,
+  evaluateWavePoints,
+  getLfoWaveShape,
+  normalizeLfo,
+  inferLfoWaveShape,
+} from "./modulation/lfo-wave";
+export { STBN_TEXTURE_PATH, stbnFrameIndex } from "./modulation/stbn";
+

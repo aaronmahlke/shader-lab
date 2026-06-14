@@ -2,42 +2,24 @@
   "name": "shader-lab",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "nuxt dev",
-    "build": "nuxt build",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "db:generate": "drizzle-kit generate --config=server/database/drizzle.config.ts",
-    "db:migrate": "drizzle-kit migrate --config=server/database/drizzle.config.ts",
-    "migrate": "bun run db:migrate",
-    "db:push": "drizzle-kit push --config=server/database/drizzle.config.ts",
-    "db:studio": "drizzle-kit studio --config=server/database/drizzle.config.ts"
-  },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.999.0",
-    "@heroicons/vue": "^2.2.0",
-    "@napi-rs/canvas": "^0.1.92",
-    "@vueuse/core": "^14.0.0",
-    "drizzle-orm": "^1.0.0-beta.15-859cf75",
-    "gl": "^8.1.6",
-    "@heroicons/vue": "^2.2.0",
-    "mediabunny": "^1.34.4",
-    "nuxt": "^4.3.0",
-    "nuxt-auth-utils": "^0.5.29",
-    "postgres": "^3.4.8",
-    "reka-ui": "^2.6.0",
-    "three": "^0.150.1",
-    "uuidv7": "^1.1.0",
-    "vue": "^3.5.13"
+    "dev": "bun run --cwd packages/core build && bun run --cwd apps/web dev",
+    "build": "bun run --cwd packages/core build && bun run --cwd apps/web build",
+    "generate": "bun run --cwd apps/web generate",
+    "preview": "bun run --cwd apps/web preview",
+    "core:build": "bun run --cwd packages/core build",
+    "test": "bun run --cwd packages/core test",
+    "db:generate": "bun run --cwd apps/web db:generate",
+    "db:migrate": "bun run --cwd apps/web db:migrate",
+    "migrate": "bun run --cwd apps/web migrate",
+    "db:push": "bun run --cwd apps/web db:push",
+    "db:studio": "bun run --cwd apps/web db:studio"
   },
   "devDependencies": {
-    "@nuxt/fonts": "^0.12.1",
-    "@tailwindcss/vite": "^4.1.18",
-    "@types/gl": "^6.0.5",
-    "@types/three": "^0.150.1",
-    "drizzle-kit": "^1.0.0-beta.15-859cf75",
-    "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3",
-    "vite-plugin-glsl": "^1.3.0"
+    "typescript": "^5.9.3"
   }
 }
