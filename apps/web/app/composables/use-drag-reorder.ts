@@ -86,6 +86,16 @@ export function useDragReorder<T>(
   let gateDownRow = -1;
   let active = false;
   let didDrag = false;
+  let activePointerId = -1;
+  let capturedPointerId = -1;
+
+  function remainingSlotCount(): number {
+    return Math.max(0, rowRects.length - dragIndices.length);
+  }
+
+  function clampSlot(slot: number): number {
+    return Math.max(0, Math.min(remainingSlotCount(), slot));
+  }
 
   function readRowRect(el: HTMLElement): RowRect {
     const r = el.getBoundingClientRect();
@@ -165,13 +175,13 @@ export function useDragReorder<T>(
   }
 
   function refreshPreviewSlot() {
-    let slot = currentTarget;
+    let slot = clampSlot(currentTarget);
     for (let pass = 0; pass < rowRects.length + 1; pass++) {
       applyTransforms(slot);
       syncRowCenters(slot);
       const block = measureDragBlockBoundsComputed();
       const { aboveIdx } = crossingNeighbors(block, slot);
-      const next = computeTargetSlot(slot);
+      const next = clampSlot(computeTargetSlot(slot));
       if (next === slot) break;
       if (next < slot && aboveIdx >= 0) gateDownRow = aboveIdx;
       slot = next;
@@ -212,7 +222,7 @@ export function useDragReorder<T>(
   function beginDrag() {
     cacheRects();
     virtualBlockStart = computeVirtualBlockStart();
-    currentTarget = virtualBlockStart;
+    currentTarget = clampSlot(virtualBlockStart);
     stackTargetOffsets = new Map();
     stackProgress = 1;
     stackPhase = false;
@@ -224,6 +234,15 @@ export function useDragReorder<T>(
     blockNonDraggedHovers();
     elevateDraggedRows();
     syncRowCenters(currentTarget);
+
+    if (capturedPointerId < 0 && activePointerId >= 0) {
+      try {
+        resolveEl()?.setPointerCapture(activePointerId);
+        capturedPointerId = activePointerId;
+      } catch {
+        capturedPointerId = -1;
+      }
+    }
   }
 
   /** Bounding box of dragged block from drag-start geometry + pointer delta. */
@@ -444,8 +463,34 @@ export function useDragReorder<T>(
     }
   }
 
+  function releasePointerCapture() {
+    if (capturedPointerId < 0) return;
+    const container = resolveEl();
+    try {
+      container?.releasePointerCapture(capturedPointerId);
+    } catch {
+      // already released
+    }
+    capturedPointerId = -1;
+  }
+
+  function processPointerPosition(clientY: number) {
+    previewDeltaY = clientY - startY;
+    updateStackProgress();
+    applyDragTransforms(previewDeltaY);
+    if (!stackPhase) refreshPreviewSlot();
+  }
+
   function onDragStart(e: DragEvent) {
     e.preventDefault();
+  }
+
+  function onPointerCancel(e: PointerEvent) {
+    if (e.pointerId !== activePointerId) return;
+    cancelStackPhase();
+    clearChildStyles(getChildren());
+    releasePointerCapture();
+    cleanup();
   }
 
   function onPointerDown(e: PointerEvent) {
@@ -476,8 +521,9 @@ export function useDragReorder<T>(
 
     onDragStartIndex?.(index, e);
 
+    const modifierHeld = e.shiftKey || e.metaKey || e.ctrlKey;
     let selected = getSelectedIndices?.() ?? [index];
-    if (!selected.includes(index)) selected = [index];
+    if (!selected.includes(index) && !modifierHeld) selected = [index];
     selected = [...selected].sort((a, b) => a - b);
 
     startY = e.clientY;
@@ -486,35 +532,36 @@ export function useDragReorder<T>(
     originalDragFrom = index;
     dragIndices = selected;
     dragIndexSet = new Set(selected);
-    virtualBlockStart = computeVirtualBlockStart();
     cacheRects();
-    currentTarget = virtualBlockStart;
+    virtualBlockStart = computeVirtualBlockStart();
+    currentTarget = clampSlot(virtualBlockStart);
     active = false;
+    activePointerId = e.pointerId;
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
     window.addEventListener("keydown", onKeyDown);
   }
 
   function onPointerMove(e: PointerEvent) {
-    const deltaY = e.clientY - startY;
-    previewDeltaY = deltaY;
+    if (e.pointerId !== activePointerId) return;
+    const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
 
-    if (!active) {
-      if (Math.abs(deltaY) < 4) return;
-      active = true;
-      didDrag = true;
-      draggingIndices.value = new Set(dragIndices);
-      document.body.style.cursor = "grabbing";
-      document.body.style.userSelect = "none";
-      beginDrag();
-    }
+    for (const ev of events) {
+      const deltaY = ev.clientY - startY;
 
-    updateStackProgress();
-    applyDragTransforms(deltaY);
+      if (!active) {
+        if (Math.abs(deltaY) < 4) continue;
+        active = true;
+        didDrag = true;
+        draggingIndices.value = new Set(dragIndices);
+        document.body.style.cursor = "grabbing";
+        document.body.style.userSelect = "none";
+        beginDrag();
+      }
 
-    if (!stackPhase) {
-      refreshPreviewSlot();
+      processPointerPosition(ev.clientY);
     }
   }
 
@@ -525,7 +572,8 @@ export function useDragReorder<T>(
     stackTargetOffsets = new Map();
   }
 
-  function onPointerUp() {
+  function onPointerUp(e: PointerEvent) {
+    if (e.pointerId !== activePointerId) return;
     if (stackPhase) {
       cancelStackRaf();
       stackProgress = 1;
@@ -540,9 +588,13 @@ export function useDragReorder<T>(
 
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerCancel);
     window.removeEventListener("keydown", onKeyDown);
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
+    releasePointerCapture();
+
+    currentTarget = clampSlot(currentTarget);
 
     const children = getChildren();
     const snapshot = new Map<HTMLElement, number>();
@@ -607,11 +659,12 @@ export function useDragReorder<T>(
   }
 
   function commitSingleReorder(items: T[], from: number, to: number): T[] | null {
-    if (from === to) return null;
+    const dest = Math.max(0, Math.min(items.length - 1, to));
+    if (from === dest) return null;
     const updated = [...items];
     const [moved] = updated.splice(from, 1);
     if (!moved) return null;
-    updated.splice(to, 0, moved);
+    updated.splice(dest, 0, moved);
     return updated;
   }
 
@@ -619,6 +672,7 @@ export function useDragReorder<T>(
     if (e.key === "Escape") {
       if (stackPhase) cancelStackPhase();
       clearChildStyles(getChildren());
+      releasePointerCapture();
       const el = resolveEl();
       if (el) el.offsetHeight;
       for (const el of getChildren()) {
@@ -655,10 +709,13 @@ export function useDragReorder<T>(
     rowCenters = [];
     previewDeltaY = 0;
     gateDownRow = -1;
+    activePointerId = -1;
+    releasePointerCapture();
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerCancel);
     window.removeEventListener("keydown", onKeyDown);
   }
 
