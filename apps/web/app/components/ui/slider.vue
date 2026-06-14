@@ -11,6 +11,14 @@ type Props = {
   disabled?: boolean;
   isDropTarget?: boolean;
   unit?: string;
+  animatable?: boolean;
+  trackEnabled?: boolean;
+  keyedAtPlayhead?: boolean;
+};
+
+type Emits = {
+  "toggle-track": [];
+  "toggle-keyframe": [];
 };
 
 const {
@@ -23,7 +31,12 @@ const {
   disabled = false,
   isDropTarget = false,
   unit = "",
+  animatable = false,
+  trackEnabled = false,
+  keyedAtPlayhead = false,
 } = defineProps<Props>();
+
+const emit = defineEmits<Emits>();
 
 const model = defineModel<number>({ default: 0.5 });
 
@@ -80,6 +93,7 @@ function measureZones() {
 onMounted(() => nextTick(measureZones));
 watch(() => model.value, () => nextTick(measureZones));
 watch(() => isEditing.value, () => nextTick(measureZones));
+watch(() => trackEnabled, () => nextTick(measureZones));
 
 function tickOpacity(t: number): number {
   if (t <= 0 || t >= 1) return 0;
@@ -112,6 +126,14 @@ function onPointerDown(e: PointerEvent) {
   }
   history?.beginGesture();
   isDragging.value = true;
+}
+
+function onAnimateClick() {
+  if (!trackEnabled) {
+    emit("toggle-track");
+    return;
+  }
+  emit("toggle-keyframe");
 }
 
 function onPointerEnd() {
@@ -199,7 +221,7 @@ function onPointerEnd() {
         <!-- Value -->
         <div
           ref="valueRef"
-          class="pointer-events-auto absolute right-2 top-1/2 -translate-y-1/2"
+          class="pointer-events-auto absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1"
           @pointerdown.stop
         >
           <input
@@ -214,10 +236,28 @@ function onPointerEnd() {
           />
           <button
             v-else
+            type="button"
             class="cursor-text rounded px-1 font-mono text-copy-sm tabular-nums text-neutral-subtle transition-colors hover:text-neutral-strong"
             @click.stop="startEdit"
           >
             {{ displayValue }}{{ unit }}
+          </button>
+
+          <button
+            v-if="animatable"
+            type="button"
+            class="flex size-5 shrink-0 items-center justify-center outline-none"
+            :class="trackEnabled ? '' : 'text-neutral-subtle hover:text-neutral-strong'"
+            title="Toggle animation"
+            @click.stop="onAnimateClick"
+          >
+            <UiKeyframeDiamond
+              v-if="trackEnabled && keyedAtPlayhead"
+              class="size-2.5"
+              at-playhead
+            />
+            <UiStopwatchDot v-else-if="trackEnabled" active />
+            <UiStopwatchDot v-else />
           </button>
         </div>
 

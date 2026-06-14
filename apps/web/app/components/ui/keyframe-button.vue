@@ -25,6 +25,6 @@ const emit = defineEmits<Emits>();
     :title="title"
     @click.stop="emit('toggle')"
   >
-    <UiKeyframeDiamond class="size-2" :selected="active" />
+    <UiKeyframeDiamond class="size-2" :at-playhead="active" />
   </button>
 </template>

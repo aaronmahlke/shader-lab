@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import type { GradientStop } from "@shader-lab/core";
+import { isDeleteKey, useFocusedKeyboardScope } from "~/composables/use-editor-keyboard";
 
 const model = defineModel<GradientStop[]>({ required: true });
 
 const history = useEditorHistory();
+const rootRef = ref<HTMLElement | null>(null);
 const selectedIndex = ref<number>(0);
 const draggingIndex = ref<number | null>(null);
 const trackRef = ref<HTMLDivElement | null>(null);
@@ -27,6 +29,10 @@ const selectedColor = computed({
   },
 });
 
+function focusRoot() {
+  rootRef.value?.focus({ preventScroll: true });
+}
+
 function getPositionFromEvent(e: PointerEvent): number {
   if (!trackRef.value) return 0;
   const rect = trackRef.value.getBoundingClientRect();
@@ -35,6 +41,7 @@ function getPositionFromEvent(e: PointerEvent): number {
 
 function onTrackDoubleClick(e: MouseEvent) {
   if (!trackRef.value) return;
+  focusRoot();
   const rect = trackRef.value.getBoundingClientRect();
   const position = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   const color = sampleGradientColor(position);
@@ -76,6 +83,7 @@ function lerpColor(a: string, b: string, t: number): string {
 function onStopPointerDown(e: PointerEvent, index: number) {
   e.preventDefault();
   e.stopPropagation();
+  focusRoot();
   selectedIndex.value = index;
   draggingIndex.value = index;
   history?.beginGesture();
@@ -100,28 +108,28 @@ function onStopPointerDown(e: PointerEvent, index: number) {
 }
 
 function deleteSelected() {
-  if (model.value.length <= 2) return;
+  if (model.value.length <= 2) return false;
   const idx = selectedIndex.value;
   const newStops = model.value.filter((_, i) => i !== idx);
   model.value = newStops;
-  // Select the nearest remaining stop
   selectedIndex.value = Math.min(idx, newStops.length - 1);
   history?.record();
+  return true;
 }
 
-function onKeyDown(e: KeyboardEvent) {
-  if (e.key === "Backspace" || e.key === "Delete") {
-    e.preventDefault();
-    deleteSelected();
-  }
-}
+useFocusedKeyboardScope(rootRef, {
+  handle(e) {
+    if (!isDeleteKey(e)) return false;
+    return deleteSelected();
+  },
+});
 </script>
 
 <template>
   <div
-    class="flex flex-col gap-3"
+    ref="rootRef"
+    class="flex flex-col gap-3 outline-none"
     tabindex="0"
-    @keydown="onKeyDown"
   >
     <!-- Gradient bar with stop handles -->
     <div class="relative">

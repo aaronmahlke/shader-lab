@@ -17,6 +17,8 @@ type Props = {
   radius?: string;
   fullWidth?: boolean;
   focusable?: boolean;
+  /** Keyboard focus ring (often clips inside overflow panels). */
+  focusRing?: boolean;
 };
 
 const {
@@ -30,6 +32,7 @@ const {
   radius = "rounded-lg",
   fullWidth = false,
   focusable = true,
+  focusRing = false,
 } = defineProps<Props>();
 
 const surfaceClass = computed(() => {
@@ -65,6 +68,7 @@ const rootAttrs = computed(() => {
     v-bind="rootAttrs"
     class="group/h relative flex items-center"
     :class="[fullWidth ? 'w-full' : 'w-fit', attrs.class]"
+    :data-active="active ? 'true' : undefined"
   >
     <div
       class="pointer-events-none absolute transition-all duration-100 ease-out-expo motion-reduce:transition-none"
@@ -78,7 +82,11 @@ const rootAttrs = computed(() => {
         !solid && hoverable ? 'group-hover/h:inset-0 group-hover/h:opacity-100' : '',
         clickable ? 'group-active/h:inset-px' : '',
         focusable
-          ? 'group-has-focus-visible/h:inset-0 group-has-focus-visible/h:opacity-100 group-has-focus-visible/h:ring-2 group-has-focus-visible/h:ring-focus group-has-focus-visible/h:ring-offset-2 group-has-focus-visible/h:ring-offset-layer-1'
+          ? [
+              'group-has-focus-visible/h:inset-0 group-has-focus-visible/h:opacity-100',
+              focusRing &&
+                'group-has-focus-visible/h:ring-2 group-has-focus-visible/h:ring-focus group-has-focus-visible/h:ring-offset-2 group-has-focus-visible/h:ring-offset-layer-1',
+            ]
           : '',
         surfaceRadius,
       ]"

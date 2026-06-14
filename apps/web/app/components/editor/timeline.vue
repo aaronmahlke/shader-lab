@@ -10,6 +10,10 @@ import {
 } from "@heroicons/vue/16/solid";
 import { useEventListener } from "@vueuse/core";
 import {
+  EditorKeyboardPriority,
+  useEditorKeyboard,
+} from "~/composables/use-editor-keyboard";
+import {
   LAYER_TEMPLATES,
   evaluatePropertyTrack,
   findPropertyTrack,
@@ -36,7 +40,12 @@ type Emits = {
 const expanded = ref<Set<string>>(new Set());
 /** Layer ids showing keyed properties while row is collapsed (U key). */
 const keyframesRevealed = ref<Set<string>>(new Set());
+/** U-view rows that stay visible after stopwatch off until layer collapses. */
+const pinnedUViewProperties = ref<Set<string>>(new Set());
 const labelWidth = 208;
+
+const PLAYHEAD_HEAD =
+  "M0.31938 3.08047C-0.535142 1.74938 0.420642 0 2.00241 0H7.68118C9.26295 0 10.2187 1.74938 9.36421 3.08047L5.95419 8.39224C5.71104 8.77099 5.29188 9 4.8418 9C4.39171 9 3.97256 8.77099 3.72941 8.39224L0.31938 3.08047Z";
 
 const DEFAULT_PX_PER_SECOND = 96;
 const MIN_PX_PER_SECOND = 16;
@@ -411,10 +420,53 @@ function isKeyframesRevealed(layerId: string): boolean {
   return keyframesRevealed.value.has(layerId);
 }
 
+function isLayerPropertiesVisible(layerId: string): boolean {
+  return isExpanded(layerId) || isKeyframesRevealed(layerId);
+}
+
+function hasVisiblePropertyRows(layer: LayerInstance): boolean {
+  return keyframeableUniforms(layer).some((def) => showPropertyRow(layer, def.name));
+}
+
+/** Chevron reflects whether property rows are actually showing. */
+function isLayerChevronOpen(layerId: string): boolean {
+  if (isExpanded(layerId)) return true;
+  if (!isKeyframesRevealed(layerId)) return false;
+  const layer = layers.value.find((l) => l.id === layerId);
+  if (!layer) return false;
+  return hasVisiblePropertyRows(layer);
+}
+
+function uViewPropertyKey(layerId: string, paramName: string): string {
+  return `${layerId}:${paramName}`;
+}
+
+function isPinnedInUView(layerId: string, paramName: string): boolean {
+  return pinnedUViewProperties.value.has(uViewPropertyKey(layerId, paramName));
+}
+
+function clearUViewPinsForLayer(layerId: string) {
+  const prefix = `${layerId}:`;
+  pinnedUViewProperties.value = new Set(
+    [...pinnedUViewProperties.value].filter((key) => !key.startsWith(prefix)),
+  );
+}
+
 function toggleExpand(layerId: string) {
+  if (isLayerPropertiesVisible(layerId)) {
+    const nextExpanded = new Set(expanded.value);
+    nextExpanded.delete(layerId);
+    expanded.value = nextExpanded;
+
+    const nextRevealed = new Set(keyframesRevealed.value);
+    nextRevealed.delete(layerId);
+    keyframesRevealed.value = nextRevealed;
+    clearUViewPinsForLayer(layerId);
+    return;
+  }
+
   const next = new Set(expanded.value);
-  if (next.has(layerId)) next.delete(layerId);
-  else next.add(layerId);
+  next.add(layerId);
   expanded.value = next;
 }
 
@@ -428,20 +480,38 @@ function toggleRevealKeyframes() {
   const ids = layersForKeyframeRevealCommand();
   if (ids.length === 0) return;
 
-  const next = new Set(keyframesRevealed.value);
-  const allRevealed = ids.every((id) => next.has(id));
-  for (const id of ids) {
-    if (allRevealed) next.delete(id);
-    else next.add(id);
+  const allKeyframeOnly = ids.every(
+    (id) => isKeyframesRevealed(id) && !isExpanded(id),
+  );
+
+  const nextExpanded = new Set(expanded.value);
+  const nextRevealed = new Set(keyframesRevealed.value);
+
+  if (allKeyframeOnly) {
+    for (const id of ids) {
+      nextExpanded.delete(id);
+      nextRevealed.delete(id);
+      clearUViewPinsForLayer(id);
+    }
+  } else {
+    for (const id of ids) {
+      nextExpanded.delete(id);
+      nextRevealed.add(id);
+    }
   }
+
+  expanded.value = nextExpanded;
+  keyframesRevealed.value = nextRevealed;
+}
+
+function revealLayerTracks(layerId: string) {
+  if (keyframesRevealed.value.has(layerId)) return;
+  const next = new Set(keyframesRevealed.value);
+  next.add(layerId);
   keyframesRevealed.value = next;
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  return !!(target as HTMLElement | null)?.closest(
-    "input, textarea, select, [contenteditable='true']",
-  );
-}
+defineExpose({ revealLayerTracks });
 
 function enabledTracksForLayer(layerId: string): PropertyTrack[] {
   return tracks.value.filter((t) => t.layerId === layerId && isPropertyTrackActive(t));
@@ -457,20 +527,64 @@ function visibleProperties(layer: LayerInstance) {
   const all = keyframeableUniforms(layer);
   if (isExpanded(layer.id)) return all;
   if (!isKeyframesRevealed(layer.id)) return [];
-  return all.filter((def) =>
-    isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, def.name)),
-  );
+  return all.filter((def) => showPropertyRow(layer, def.name));
 }
 
 function showPropertyRow(layer: LayerInstance, paramName: string): boolean {
   if (isExpanded(layer.id)) return true;
   if (!isKeyframesRevealed(layer.id)) return false;
-  return isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, paramName));
+  const track = findPropertyTrack(tracks.value, layer.id, paramName);
+  return isPropertyTrackActive(track) || isPinnedInUView(layer.id, paramName);
 }
 
 function trackEnabled(layerId: string, paramName: string): boolean {
   return isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, paramName));
 }
+
+watch(
+  [tracks, keyframesRevealed, layers],
+  () => {
+    const nextPins = new Set<string>();
+    const nextRevealed = new Set(keyframesRevealed.value);
+
+    for (const layer of layers.value) {
+      if (!nextRevealed.has(layer.id)) continue;
+
+      const prefix = `${layer.id}:`;
+      for (const key of pinnedUViewProperties.value) {
+        if (key.startsWith(prefix)) nextPins.add(key);
+      }
+      for (const def of keyframeableUniforms(layer)) {
+        const track = findPropertyTrack(tracks.value, layer.id, def.name);
+        if (isPropertyTrackActive(track)) {
+          nextPins.add(uViewPropertyKey(layer.id, def.name));
+        }
+      }
+
+      const hasRows = keyframeableUniforms(layer).some((def) => {
+        const track = findPropertyTrack(tracks.value, layer.id, def.name);
+        return (
+          isPropertyTrackActive(track) || nextPins.has(uViewPropertyKey(layer.id, def.name))
+        );
+      });
+      if (!hasRows) {
+        nextRevealed.delete(layer.id);
+        for (const key of [...nextPins]) {
+          if (key.startsWith(prefix)) nextPins.delete(key);
+        }
+      }
+    }
+
+    pinnedUViewProperties.value = nextPins;
+    if (
+      nextRevealed.size !== keyframesRevealed.value.size ||
+      [...nextRevealed].some((id) => !keyframesRevealed.value.has(id))
+    ) {
+      keyframesRevealed.value = nextRevealed;
+    }
+  },
+  { deep: true },
+);
 
 function valueAt(layer: LayerInstance, paramName: string, fallback: number): number {
   const track = findPropertyTrack(tracks.value, layer.id, paramName);
@@ -667,6 +781,10 @@ function isKeyframeSelected(layerId: string, paramName: string, time: number): b
   return isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time);
 }
 
+function isKeyframeAtPlayhead(time: number): boolean {
+  return Math.abs(time - currentTime.value) < 1e-6;
+}
+
 function keyLeft(time: number): string {
   return `${timeToX(time)}px`;
 }
@@ -675,26 +793,37 @@ useEventListener(bodyScrollRef, "wheel", onTimelineWheel, { passive: false });
 useEventListener(rulerScrollRef, "wheel", onTimelineWheel, { passive: false });
 useEventListener(labelsScrollRef, "wheel", onTimelineWheel, { passive: false });
 
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  if (isTypingTarget(e.target)) return;
+const { register: registerKeyboard } = useEditorKeyboard();
 
-  if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-    if (selectedKeyframes.value.length === 0 && selectedLayerId.value) {
-      e.preventDefault();
-      startRenameSelectedLayer();
-    }
-    return;
-  }
+registerKeyboard({
+  id: "timeline:rename-layer",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    if (selectedKeyframes.value.length > 0 || !selectedLayerId.value) return false;
+    startRenameSelectedLayer();
+    return true;
+  },
+});
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
-    e.preventDefault();
+registerKeyboard({
+  id: "timeline:select-all-layers",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return false;
     selectAllLayers();
-    return;
-  }
+    return true;
+  },
+});
 
-  if (e.key.toLowerCase() !== "u" || e.metaKey || e.ctrlKey || e.altKey) return;
-  e.preventDefault();
-  toggleRevealKeyframes();
+registerKeyboard({
+  id: "timeline:reveal-keyframes",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (e.key.toLowerCase() !== "u" || e.metaKey || e.ctrlKey || e.altKey) return false;
+    toggleRevealKeyframes();
+    return true;
+  },
 });
 
 function togglePlay() {
@@ -826,10 +955,19 @@ function selectAllLayers() {
               </div>
             </template>
             <div
-              class="absolute top-0 z-20 h-full w-px bg-accent"
+              class="pointer-events-none absolute bottom-0 z-20 -translate-x-1/2"
               :style="{ left: `${playheadX}px` }"
             >
-              <div class="absolute -left-1 top-0 size-2 rounded-sm bg-accent" />
+              <svg
+                width="10"
+                height="9"
+                viewBox="0 0 10 9"
+                fill="none"
+                aria-hidden="true"
+                class="block"
+              >
+                <path :d="PLAYHEAD_HEAD" class="fill-playhead" />
+              </svg>
             </div>
           </div>
         </div>
@@ -857,7 +995,7 @@ function selectAllLayers() {
                 solid
                 :active="isLayerSelected(layer.id) || draggingIndices.has(i)"
                 :block-role="layerRowBlockRole(i)"
-                class-name="bg-layer-1 group-hover/h:bg-control"
+                class-name="bg-layer-1 group-hover/h:bg-control group-has-focus-visible/h:bg-control group-focus-within/h:bg-control"
                 active-class-name="bg-control"
                 full-width
               >
@@ -874,7 +1012,7 @@ function selectAllLayers() {
                   >
                     <ChevronRightIcon
                       class="size-3 transition-transform"
-                      :class="isExpanded(layer.id) && 'rotate-90'"
+                      :class="isLayerChevronOpen(layer.id) && 'rotate-90'"
                     />
                   </button>
                   <UiEditableText
@@ -886,17 +1024,16 @@ function selectAllLayers() {
                     :class="
                       isLayerSelected(layer.id)
                         ? 'text-neutral-strong'
-                        : 'text-neutral-subtle group-hover/h:text-neutral-strong'
+                        : 'text-neutral-subtle group-hover/h:text-neutral-strong group-data-[active=true]/h:text-neutral-strong group-focus-within/h:text-neutral-strong'
                     "
                     @update:model-value="setLayerName(layer, $event)"
                   />
                   <span
                     v-if="
                       enabledTracksForLayer(layer.id).length &&
-                      !isExpanded(layer.id) &&
-                      !isKeyframesRevealed(layer.id)
+                      !isLayerChevronOpen(layer.id)
                     "
-                    class="shrink-0 text-copy-xs text-neutral-subtle group-hover/h:opacity-0"
+                    class="shrink-0 text-copy-xs text-neutral-subtle group-hover/h:opacity-0 group-data-[active=true]/h:opacity-0 group-focus-within/h:opacity-0"
                   >
                     {{ enabledTracksForLayer(layer.id).length }}
                   </span>
@@ -905,7 +1042,10 @@ function selectAllLayers() {
                     size="sm"
                     data-drag-exclude
                     class="!size-6 shrink-0"
-                    :class="layer.enabled && 'opacity-0 group-hover/h:opacity-100'"
+                    :class="
+                      layer.enabled &&
+                      'opacity-0 group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
+                    "
                     :icon-left="layer.enabled ? EyeIcon : EyeSlashIcon"
                     :title="layer.enabled ? 'Hide layer' : 'Show layer'"
                     @click.stop="toggleLayerEnabled(layer)"
@@ -963,7 +1103,7 @@ function selectAllLayers() {
                       v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
                       :key="`${layer.id}-${def.name}-${key.time}`"
                       type="button"
-                      class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-grab border-0 bg-transparent p-0 outline-none active:cursor-grabbing"
+                      class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 outline-none"
                       :style="{ left: keyLeft(key.time) }"
                       :title="`${def.label} @ ${key.time.toFixed(2)}s`"
                       @pointerdown.stop.prevent="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
@@ -971,6 +1111,7 @@ function selectAllLayers() {
                       <UiKeyframeDiamond
                         class="size-full"
                         :selected="isKeyframeSelected(layer.id, def.name, key.time)"
+                        :at-playhead="isKeyframeAtPlayhead(key.time)"
                       />
                     </button>
                   </div>
@@ -985,7 +1126,7 @@ function selectAllLayers() {
             />
 
             <div
-              class="pointer-events-none absolute inset-y-0 z-10 w-px bg-accent"
+              class="pointer-events-none absolute -top-px bottom-0 z-10 w-px -translate-x-1/2 bg-playhead"
               :style="{ left: `${playheadX}px` }"
             />
           </div>
@@ -994,3 +1135,12 @@ function selectAllLayers() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.bg-playhead {
+  background-color: #2ca2ff;
+}
+.fill-playhead {
+  fill: #2ca2ff;
+}
+</style>

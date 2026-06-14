@@ -40,7 +40,6 @@ const {
   lfos,
   draggingLfoId,
   meshSelectedPointIndex = 0,
-  currentTime,
 } = props;
 const emit = defineEmits<Emits>();
 
@@ -62,7 +61,7 @@ function getModulatedFloat(paramName: string, fallback: number): number {
   const track = findPropertyTrack(props.tracks, layer.id, paramName);
   if (isPropertyTrackActive(track)) {
     const base = (layer.values[paramName] as number) ?? fallback;
-    return evaluatePropertyTrack(track, currentTime, base);
+    return evaluatePropertyTrack(track, props.currentTime, base);
   }
   const base = (layer.values[paramName] as number) ?? fallback;
   const assignment = getAssignment(paramName);
@@ -76,7 +75,7 @@ function isTrackEnabled(paramName: string): boolean {
 }
 
 function isKeyedAtPlayhead(paramName: string): boolean {
-  return hasKeyframeAt(findPropertyTrack(props.tracks, layer.id, paramName), currentTime);
+  return hasKeyframeAt(findPropertyTrack(props.tracks, layer.id, paramName), props.currentTime);
 }
 
 function getLfoColor(sourceId: string): string | undefined {
@@ -278,21 +277,8 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       <template v-for="def in template.uniforms" :key="def.name">
         <template v-if="isUniformVisible(def)">
           <UiContextMenu v-if="def.type === 'float' || def.type === 'int'">
-            <div class="flex items-start gap-0.5" @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
-              <UiStopwatchButton
-                v-if="isKeyframeableUniform(def)"
-                class="mt-5"
-                :active="isTrackEnabled(def.name)"
-                @toggle="emit('toggle-stopwatch', def.name)"
-              />
-              <UiKeyframeButton
-                v-if="isKeyframeableUniform(def) && isTrackEnabled(def.name)"
-                class="mt-5"
-                :active="isKeyedAtPlayhead(def.name)"
-                @toggle="emit('toggle-keyframe', def.name)"
-              />
+            <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
               <UiSliderField
-                class="min-w-0 flex-1"
                 :model-value="getFloat(def, layer.values)"
                 :label="def.label"
                 :min="def.min"
@@ -302,8 +288,13 @@ function isUniformVisible(def: LayerUniformDef): boolean {
                 :mod-depth="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.depth"
                 :mod-live-value="isTrackEnabled(def.name) ? undefined : getLiveValue(def)"
                 :is-drop-target="draggingLfoId !== null && !isTrackEnabled(def.name)"
+                :animatable="isKeyframeableUniform(def)"
+                :track-enabled="isTrackEnabled(def.name)"
+                :keyed-at-playhead="isKeyedAtPlayhead(def.name)"
                 @update:model-value="setFloat(def, layer.values, $event)"
                 @update:mod-depth="onDepthUpdate(def, $event)"
+                @toggle-track="emit('toggle-stopwatch', def.name)"
+                @toggle-keyframe="emit('toggle-keyframe', def.name)"
               />
             </div>
             <template #menu>

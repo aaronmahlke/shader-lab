@@ -12,10 +12,15 @@ type Props = {
   modLiveValue?: number;
   isDropTarget?: boolean;
   unit?: string;
+  animatable?: boolean;
+  trackEnabled?: boolean;
+  keyedAtPlayhead?: boolean;
 };
 
 type Emits = {
   "update:mod-depth": [value: number];
+  "toggle-track": [];
+  "toggle-keyframe": [];
 };
 
 const {
@@ -31,6 +36,9 @@ const {
   modLiveValue,
   isDropTarget = false,
   unit,
+  animatable = false,
+  trackEnabled = false,
+  keyedAtPlayhead = false,
 } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
@@ -67,6 +75,11 @@ const hasModulation = computed(() => modColor != null && modDepth != null);
       :disabled="disabled"
       :is-drop-target="isDropTarget"
       :unit="unit"
+      :animatable="animatable"
+      :track-enabled="trackEnabled"
+      :keyed-at-playhead="keyedAtPlayhead"
+      @toggle-track="emit('toggle-track')"
+      @toggle-keyframe="emit('toggle-keyframe')"
     />
   </div>
 </template>

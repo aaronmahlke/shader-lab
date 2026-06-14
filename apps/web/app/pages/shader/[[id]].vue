@@ -24,8 +24,13 @@ import {
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
+import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
-import { useEventListener } from "@vueuse/core";
+import {
+  EditorKeyboardPriority,
+  isDeleteKey,
+  useEditorKeyboard,
+} from "~/composables/use-editor-keyboard";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
 import { normalizeLfo } from "@shader-lab/core";
@@ -84,6 +89,12 @@ const shaderName = ref(
   routeId ? "Untitled" : (getShaderPreset(presetId)?.name ?? "Untitled"),
 );
 const layers = ref<LayerInstance[]>(initialDoc.layers);
+const layerCounter = { value: 100 };
+
+function syncLayerCounter() {
+  syncLayerIdCounter(layers.value, layerCounter);
+}
+
 const settings = ref<CompositionSettings>({
   ...DEFAULT_COMPOSITION_SETTINGS,
   ...initialDoc.settings,
@@ -149,6 +160,7 @@ if (routeId) {
 }
 
 syncInitialLayerSelection();
+syncLayerCounter();
 
 const selectedLayer = computed(() => {
   if (!selectedLayerId.value) return null;
@@ -262,6 +274,8 @@ useAutoSave(shaderId, shaderName, shaderData, { getCanvas });
 
 // --- Keyframe / track helpers ---
 
+const timelineRef = ref<{ revealLayerTracks: (layerId: string) => void } | null>(null);
+
 function paramValue(layerId: string, paramName: string, fallback: number): number {
   const layer = layers.value.find((l) => l.id === layerId);
   if (!layer) return fallback;
@@ -293,6 +307,7 @@ function toggleStopwatch(layerId: string, paramName: string) {
     value,
     currentTime.value,
   );
+  timelineRef.value?.revealLayerTracks(layerId);
   history.record();
 }
 
@@ -405,13 +420,11 @@ function pasteKeyframesAtPlayhead() {
 
 // --- Layer Management ---
 
-let layerCounter = 100;
-
 function addLayer(type: LayerType) {
   const template = LAYER_TEMPLATES[type];
   if (!template) return;
 
-  const id = `${type}-${++layerCounter}`;
+  const id = createUniqueLayerId(type, layers.value, layerCounter);
   const values = buildLayerValues(type);
 
   if (type === "waveFill") {
@@ -435,9 +448,30 @@ function removeLayer(id: string) {
   assignments.value = assignments.value.filter((a) => a.layerId !== id);
   tracks.value = tracks.value.filter((t) => t.layerId !== id);
   selectedLayerIds.value = new Set([...selectedLayerIds.value].filter((layerId) => layerId !== id));
+  selectedKeyframes.value = selectedKeyframes.value.filter((k) => k.layerId !== id);
   if (selectedLayerId.value === id) {
     selectedLayerId.value = layers.value[Math.min(idx, layers.value.length - 1)]?.id ?? null;
   }
+  history.record();
+}
+
+function removeSelectedLayers() {
+  const ids =
+    selectedLayerIds.value.size > 0
+      ? [...selectedLayerIds.value]
+      : selectedLayerId.value
+        ? [selectedLayerId.value]
+        : [];
+  if (ids.length === 0) return;
+
+  const idSet = new Set(ids);
+  layers.value = layers.value.filter((l) => !idSet.has(l.id));
+  assignments.value = assignments.value.filter((a) => !idSet.has(a.layerId));
+  tracks.value = tracks.value.filter((t) => !idSet.has(t.layerId));
+  selectedKeyframes.value = selectedKeyframes.value.filter((k) => !idSet.has(k.layerId));
+  selectedLayerIds.value = new Set();
+  selectedLayerId.value = layers.value[0]?.id ?? null;
+  selectionAnchorId.value = selectedLayerId.value;
   history.record();
 }
 
@@ -448,7 +482,7 @@ function duplicateLayer(
   const { record = true, updateSelection = true } = options;
   const source = layers.value.find((l) => l.id === id);
   if (!source) return null;
-  const newId = `${source.type}-${++layerCounter}`;
+  const newId = createUniqueLayerId(source.type, layers.value, layerCounter);
   const values = JSON.parse(JSON.stringify(source.values)) as Record<string, unknown>;
   if (source.type === "waveFill") {
     offsetDuplicatedWave(
@@ -734,6 +768,7 @@ function applyEditorSnapshot(snap: EditorSnapshot) {
   selectedKeyframes.value = snap.selectedKeyframes;
   selectionAnchorId.value = snap.selectionAnchorId;
   meshSelectedPointIndex.value = snap.meshSelectedPointIndex;
+  syncLayerCounter();
 }
 
 const history = useUndoHistory(captureEditorSnapshot, applyEditorSnapshot);
@@ -745,54 +780,82 @@ watch(shaderName, () => {
   history.record();
 });
 
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  const target = e.target as HTMLElement | null;
-  if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+const { register: registerKeyboard } = useEditorKeyboard();
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
-    e.preventDefault();
+registerKeyboard({
+  id: "shader:undo",
+  priority: EditorKeyboardPriority.transport,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return false;
     if (e.shiftKey) history.redo();
     else history.undo();
-    return;
-  }
+    return true;
+  },
+});
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
-    if (selectedKeyframes.value.length > 0) {
-      e.preventDefault();
-      copySelectedKeyframes();
-    }
-    return;
-  }
+registerKeyboard({
+  id: "shader:copy-keyframes",
+  priority: EditorKeyboardPriority.keyframe,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "c") return false;
+    if (selectedKeyframes.value.length === 0) return false;
+    copySelectedKeyframes();
+    return true;
+  },
+});
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
-    if (getKeyframeClipboard()) {
-      e.preventDefault();
-      pasteKeyframesAtPlayhead();
-    }
-    return;
-  }
+registerKeyboard({
+  id: "shader:paste-keyframes",
+  priority: EditorKeyboardPriority.keyframe,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "v") return false;
+    if (!getKeyframeClipboard()) return false;
+    pasteKeyframesAtPlayhead();
+    return true;
+  },
+});
 
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
-    if (selectedLayerIds.value.size > 0 || selectedLayerId.value) {
-      e.preventDefault();
-      duplicateSelectedLayers();
-    }
-    return;
-  }
+registerKeyboard({
+  id: "shader:duplicate-layers",
+  priority: EditorKeyboardPriority.layer,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "d") return false;
+    if (selectedLayerIds.value.size === 0 && !selectedLayerId.value) return false;
+    duplicateSelectedLayers();
+    return true;
+  },
+});
 
-  if (e.code === "Space" && !e.repeat) {
-    e.preventDefault();
+registerKeyboard({
+  id: "shader:toggle-play",
+  priority: EditorKeyboardPriority.transport,
+  handle(e) {
+    if (e.code !== "Space" || e.repeat) return false;
     playing.value = !playing.value;
-    return;
-  }
+    return true;
+  },
+});
 
-  if (
-    (e.code === "Backspace" || e.code === "Delete") &&
-    selectedKeyframes.value.length > 0
-  ) {
-    e.preventDefault();
+registerKeyboard({
+  id: "shader:delete-keyframes",
+  priority: EditorKeyboardPriority.keyframe,
+  handle(e) {
+    if (!isDeleteKey(e)) return false;
+    if (selectedKeyframes.value.length === 0) return false;
     deleteSelectedKeyframes();
-  }
+    return true;
+  },
+});
+
+registerKeyboard({
+  id: "shader:delete-layers",
+  priority: EditorKeyboardPriority.layer,
+  handle(e) {
+    if (!isDeleteKey(e)) return false;
+    if (selectedLayerIds.value.size === 0 && !selectedLayerId.value) return false;
+    removeSelectedLayers();
+    return true;
+  },
 });
 </script>
 
@@ -872,6 +935,7 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
         :style="{ height: `${timelineHeight}px` }"
       >
         <EditorTimeline
+          ref="timelineRef"
           v-model:layers="layers"
           v-model:tracks="tracks"
           v-model:selected-layer-id="selectedLayerId"

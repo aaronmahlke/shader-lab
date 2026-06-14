@@ -60,7 +60,7 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
       solid
       :active="selected || dragging"
       :block-role="blockRole"
-      class-name="bg-layer-1 group-hover/h:bg-control"
+      class-name="bg-layer-1 group-hover/h:bg-control group-has-focus-visible/h:bg-control group-focus-within/h:bg-control"
       active-class-name="bg-control"
       full-width
       :class="dragging && 'scale-[1.02] shadow-lg'"
@@ -68,7 +68,11 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
       <div
         data-drag-handle
         class="flex h-9 cursor-default items-center gap-2 p-2 outline-none select-none"
-        :class="selected ? 'text-neutral-strong' : 'text-neutral-subtle group-hover/h:text-neutral-strong'"
+        :class="
+          selected
+            ? 'text-neutral-strong'
+            : 'text-neutral-subtle group-hover/h:text-neutral-strong group-data-[active=true]/h:text-neutral-strong group-focus-within/h:text-neutral-strong'
+        "
         @click.stop="!isEditing && emit('select')"
       >
         <span
@@ -93,7 +97,7 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
         <div class="relative flex min-w-0 flex-1 items-center justify-end">
           <span
             v-if="layer.enabled"
-            class="pointer-events-none absolute right-0 max-w-full truncate text-copy-sm text-neutral-subtle group-hover/h:opacity-0"
+            class="pointer-events-none absolute right-0 max-w-full truncate text-copy-sm text-neutral-subtle group-hover/h:opacity-0 group-data-[active=true]/h:opacity-0 group-focus-within/h:opacity-0"
           >
             {{ template?.label }}
           </span>
@@ -104,7 +108,10 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
             title="Toggle visibility"
             data-drag-exclude
             class="relative z-10 !size-6"
-            :class="layer.enabled && 'opacity-0 group-hover/h:opacity-100'"
+            :class="
+              layer.enabled &&
+              'opacity-0 group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
+            "
             @click.stop="emit('toggle-enabled')"
           />
         </div>
