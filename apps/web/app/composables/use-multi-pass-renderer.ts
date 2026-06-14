@@ -7,11 +7,14 @@ import {
 
 type RendererOptions = {
   layers?: Ref<LayerInstance[]>;
+  tracks?: Ref<unknown[]>;
   getModulatedValue?: Ref<ModulationFn | null>;
   sampleLfosAtTime?: (time: number) => void;
   fixedBufferSize?: Ref<{ width: number; height: number }>;
   globalSpeed?: Ref<number>;
   paused?: Ref<boolean>;
+  /** When set, drives render time instead of internal clock. */
+  compositionTime?: Ref<number>;
 };
 
 export function useMultiPassRenderer(
@@ -22,9 +25,11 @@ export function useMultiPassRenderer(
   const globalSpeed = options.globalSpeed ?? ref(1);
   const paused = options.paused ?? ref(false);
   const layersRef = options.layers;
+  const tracksRef = options.tracks;
   const getModulatedValue = options.getModulatedValue;
   const fixedBufferSize = options.fixedBufferSize;
   const sampleLfosAtTime = options.sampleLfosAtTime;
+  const compositionTime = options.compositionTime;
 
   let renderer: CompositionRenderer | null = null;
   let resizeObserver: ResizeObserver | null = null;
@@ -46,6 +51,20 @@ export function useMultiPassRenderer(
   function render() {
     if (!renderer) return;
 
+    const time = compositionTime?.value ?? accumulatedTime;
+
+    sampleLfosAtTime?.(time);
+
+    renderer.renderFrame(
+      time,
+      passes.value,
+      getModulatedValue?.value ?? null,
+    );
+  }
+
+  function animate() {
+    if (exportLoopPaused || compositionTime) return;
+    animationId = requestAnimationFrame(animate);
     const now = performance.now() / 1000;
     const delta = lastFrameTime === 0 ? 0 : now - lastFrameTime;
     lastFrameTime = now;
@@ -53,17 +72,6 @@ export function useMultiPassRenderer(
     if (!paused.value) {
       accumulatedTime += delta * globalSpeed.value;
     }
-
-    renderer.renderFrame(
-      accumulatedTime,
-      passes.value,
-      getModulatedValue?.value ?? null,
-    );
-  }
-
-  function animate() {
-    if (exportLoopPaused) return;
-    animationId = requestAnimationFrame(animate);
     render();
   }
 
@@ -86,7 +94,11 @@ export function useMultiPassRenderer(
   }
 
   function resize() {
-    renderer?.syncCanvasSize();
+    if (!renderer || !canvasRef.value) return;
+    const rect = canvasRef.value.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    renderer.syncCanvasSize();
+    render();
   }
 
   function init() {
@@ -99,7 +111,11 @@ export function useMultiPassRenderer(
       getModulatedValue: getModulatedValue?.value ?? null,
     });
     renderer.syncCanvasSize();
-    animate();
+    if (compositionTime) {
+      render();
+    } else {
+      animate();
+    }
     window.addEventListener("resize", resize);
 
     if (typeof ResizeObserver !== "undefined") {
@@ -151,6 +167,18 @@ export function useMultiPassRenderer(
       renderer?.setOptions({ getModulatedValue: fn ?? null });
     },
   );
+
+  if (compositionTime) {
+    watch(compositionTime, () => render(), { flush: "post", immediate: true });
+  }
+
+  if (layersRef || tracksRef) {
+    watch(
+      [layersRef, tracksRef].filter(Boolean) as Ref<unknown>[],
+      () => render(),
+      { deep: true },
+    );
+  }
 
   onBeforeUnmount(destroy);
 

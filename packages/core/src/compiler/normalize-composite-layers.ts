@@ -1,5 +1,7 @@
 import type { LayerInstance } from "../types/editor";
+import type { CompositionConfig } from "../types/composition";
 import type { GradientStop } from "../types";
+import { DEFAULT_COMPOSITION_SETTINGS } from "../types/animation";
 import { MESH_BLOOM_POINTS } from "./mesh-uniforms";
 import {
   BAND_GRADIENT_ABOVE,
@@ -109,6 +111,21 @@ export function migrateDiffuseValues(values: Record<string, unknown>): void {
   delete values.blend;
   delete values.speed;
   delete values.seed;
+}
+
+export function normalizeComposition(config: CompositionConfig): void {
+  normalizeCompositeLayers(config.layers);
+  if (!config.settings) {
+    config.settings = { ...DEFAULT_COMPOSITION_SETTINGS };
+  } else {
+    config.settings = {
+      duration: config.settings.duration ?? DEFAULT_COMPOSITION_SETTINGS.duration,
+      fps: config.settings.fps ?? DEFAULT_COMPOSITION_SETTINGS.fps,
+    };
+  }
+  if (!config.tracks) {
+    config.tracks = [];
+  }
 }
 
 export function normalizeCompositeLayers(layers: LayerInstance[]): void {

@@ -53,12 +53,15 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
 <template>
   <UiContextMenu>
     <UiHover
+      solid
       :active="selected || dragging"
-      :class-name="dragging ? 'bg-control' : 'bg-tint'"
+      class-name="bg-layer-1 group-hover/h:bg-control"
+      active-class-name="bg-control"
       full-width
       :class="dragging && 'scale-[1.02] shadow-lg'"
     >
       <div
+        data-drag-handle
         class="flex h-9 cursor-default items-center gap-2 p-2 outline-none select-none"
         :class="selected ? 'text-neutral-strong' : 'text-neutral-subtle group-hover/h:text-neutral-strong'"
         @click.stop="!isEditing && emit('select')"

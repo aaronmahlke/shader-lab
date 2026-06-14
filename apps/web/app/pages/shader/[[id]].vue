@@ -1,6 +1,25 @@
 <script setup lang="ts">
-import type { LayerInstance, LayerType, LFOSource, ModulationAssignment } from "@shader-lab/core";
-import { LAYER_TEMPLATES } from "@shader-lab/core";
+import type {
+  LayerInstance,
+  LayerType,
+  LFOSource,
+  ModulationAssignment,
+  PropertyTrack,
+  CompositionSettings,
+} from "@shader-lab/core";
+import {
+  LAYER_TEMPLATES,
+  DEFAULT_COMPOSITION_SETTINGS,
+  normalizeComposition,
+  setTrackEnabled,
+  upsertKeyframe,
+  removeKeyframeAt,
+  findPropertyTrack,
+  evaluatePropertyTrack,
+  hasKeyframeAt,
+} from "@shader-lab/core";
+import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
+import { useEventListener } from "@vueuse/core";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
 import { normalizeLfo } from "@shader-lab/core";
@@ -9,11 +28,8 @@ import {
   getShaderPreset,
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
-import { buildLayerValues } from "@shader-lab/core";
-import {
-  normalizeCompositeLayers,
-  offsetDuplicatedWave,
-} from "@shader-lab/core";
+import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
+import { ChevronRightIcon } from "@heroicons/vue/16/solid";
 import {
   WAVE_AMPLITUDE,
   WAVE_CYCLE_WIDTH,
@@ -32,6 +48,22 @@ const route = useRoute();
 const exportOpen = ref(false);
 const layerSettingsRef = ref<{ randomize: () => void; reset: () => void } | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
+const editorSplitRef = ref<HTMLElement | null>(null);
+const { prefs: layoutPrefs, updatePrefs: updateLayoutPrefs } = useEditorLayoutPreferences();
+
+const timelineHeight = ref(layoutPrefs.value.timelineHeight);
+
+const timelineZoom = computed({
+  get: () => layoutPrefs.value.timelinePxPerSecond,
+  set: (pxPerSecond) => updateLayoutPrefs({ timelinePxPerSecond: pxPerSecond }),
+});
+
+const { onPointerDown: onTimelineResizePointerDown } = useVerticalPaneResize({
+  height: timelineHeight,
+  min: 120,
+  getMax: () => Math.max(160, (editorSplitRef.value?.clientHeight ?? 600) - 120),
+  onResizeEnd: () => updateLayoutPrefs({ timelineHeight: timelineHeight.value }),
+});
 
 // --- Load composition from server or preset ---
 
@@ -46,9 +78,25 @@ const shaderName = ref(
   routeId ? "Untitled" : (getShaderPreset(presetId)?.name ?? "Untitled"),
 );
 const layers = ref<LayerInstance[]>(initialDoc.layers);
-normalizeCompositeLayers(layers.value);
+const settings = ref<CompositionSettings>({
+  ...DEFAULT_COMPOSITION_SETTINGS,
+  ...initialDoc.settings,
+});
+const tracks = ref<PropertyTrack[]>(initialDoc.tracks ?? []);
+normalizeComposition({
+  version: 1,
+  layers: layers.value,
+  lfos: initialDoc.lfos,
+  assignments: initialDoc.assignments,
+  settings: settings.value,
+  tracks: tracks.value,
+});
 const lfos = ref<LFOSource[]>(initialDoc.lfos.map((lfo) => normalizeLfo(lfo)));
 const assignments = ref<ModulationAssignment[]>(initialDoc.assignments);
+
+const currentTime = ref(0);
+const playing = ref(false);
+const selectedKeyframes = ref<KeyframeSelection[]>([]);
 
 if (routeId) {
   const { data } = await useFetch(`/api/shaders/${routeId}`);
@@ -56,12 +104,27 @@ if (routeId) {
     const comp = data.value as {
       id: string;
       name: string;
-      data: { layers: LayerInstance[]; lfos: LFOSource[]; assignments: ModulationAssignment[] };
+      data: {
+        layers: LayerInstance[];
+        lfos: LFOSource[];
+        assignments: ModulationAssignment[];
+        settings?: CompositionSettings;
+        tracks?: PropertyTrack[];
+      };
     };
     shaderId.value = comp.id;
     shaderName.value = comp.name;
     layers.value = comp.data.layers;
-    normalizeCompositeLayers(layers.value);
+    settings.value = { ...DEFAULT_COMPOSITION_SETTINGS, ...comp.data.settings };
+    tracks.value = comp.data.tracks ?? [];
+    normalizeComposition({
+      version: 1,
+      layers: layers.value,
+      lfos: comp.data.lfos,
+      assignments: comp.data.assignments,
+      settings: settings.value,
+      tracks: tracks.value,
+    });
     lfos.value = comp.data.lfos.map((lfo) => normalizeLfo(lfo));
     assignments.value = comp.data.assignments;
   }
@@ -90,15 +153,66 @@ const draggingLfoId = ref<string | null>(null);
 
 // --- Modulation Engine ---
 
-const { lfoValues, lfoPhases, getModulatedValue, sampleLfosAtTime } = useModulationEngine(lfos, assignments);
-
-const modFn = computed(() => getModulatedValue);
+const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime } = useModulationEngine(
+  lfos,
+  assignments,
+  { clockTime: currentTime, tracks },
+);
 
 provide("lfoValues", lfoValues);
 
-const selectedLfoCursorPosition = computed(() => {
-  if (!selectedLfoId.value) return undefined;
-  return lfoPhases.value[selectedLfoId.value];
+// --- Playback ---
+
+let playbackId: number | null = null;
+let lastPlaybackMs = 0;
+let playbackClock = 0;
+
+function playbackTick(now: number) {
+  if (!playing.value) return;
+  const delta = lastPlaybackMs === 0 ? 0 : (now - lastPlaybackMs) / 1000;
+  lastPlaybackMs = now;
+
+  playbackClock += delta;
+  const fps = settings.value.fps;
+  const step = 1 / fps;
+  const frame = Math.floor(playbackClock / step);
+  const maxFrame = Math.floor(settings.value.duration * fps);
+
+  if (frame >= maxFrame) {
+    playbackClock = 0;
+    currentTime.value = 0;
+  } else {
+    currentTime.value = frame * step;
+  }
+
+  playbackId = requestAnimationFrame(playbackTick);
+}
+
+watch(playing, (isPlaying) => {
+  if (isPlaying) {
+    playbackClock = currentTime.value;
+    lastPlaybackMs = 0;
+    playbackId = requestAnimationFrame(playbackTick);
+  } else if (playbackId !== null) {
+    cancelAnimationFrame(playbackId);
+    playbackId = null;
+  }
+});
+
+onBeforeUnmount(() => {
+  if (playbackId !== null) cancelAnimationFrame(playbackId);
+});
+
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  if (e.code !== "Space" || e.repeat) return;
+  const target = e.target as HTMLElement | null;
+  if (
+    target?.closest("input, textarea, select, [contenteditable='true']")
+  ) {
+    return;
+  }
+  e.preventDefault();
+  playing.value = !playing.value;
 });
 
 // --- Layer Compiler + Renderer ---
@@ -114,8 +228,10 @@ const {
   renderFrame,
 } = useMultiPassRenderer(canvasRef, passes, {
   layers,
+  tracks,
   getModulatedValue: modFn,
   sampleLfosAtTime,
+  compositionTime: currentTime,
 });
 
 const shaderExport = {
@@ -136,9 +252,92 @@ const shaderData = computed(() => ({
   layers: layers.value,
   lfos: lfos.value,
   assignments: assignments.value,
+  settings: settings.value,
+  tracks: tracks.value,
 }));
 
 useAutoSave(shaderId, shaderName, shaderData, { getCanvas });
+
+// --- Keyframe / track helpers ---
+
+function paramValue(layerId: string, paramName: string, fallback: number): number {
+  const layer = layers.value.find((l) => l.id === layerId);
+  if (!layer) return fallback;
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  const base = (layer.values[paramName] as number) ?? fallback;
+  return evaluatePropertyTrack(track, currentTime.value, base);
+}
+
+function toggleStopwatch(layerId: string, paramName: string) {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  if (track?.enabled) {
+    tracks.value = setTrackEnabled(tracks.value, layerId, paramName, false);
+    selectedKeyframes.value = selectedKeyframes.value.filter(
+      (k) => !(k.layerId === layerId && k.paramName === paramName),
+    );
+    return;
+  }
+  const layer = layers.value.find((l) => l.id === layerId);
+  const template = layer ? LAYER_TEMPLATES[layer.type] : null;
+  const def = template?.uniforms.find((u) => u.name === paramName);
+  const fallback = (def?.default as number) ?? 0;
+  const value = paramValue(layerId, paramName, fallback);
+  tracks.value = setTrackEnabled(
+    tracks.value,
+    layerId,
+    paramName,
+    true,
+    value,
+    currentTime.value,
+  );
+}
+
+function setAnimatedValue(layerId: string, paramName: string, value: number) {
+  tracks.value = upsertKeyframe(
+    tracks.value,
+    layerId,
+    paramName,
+    currentTime.value,
+    value,
+  );
+}
+
+function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  if (!track?.enabled) return;
+
+  if (hasKeyframeAt(track, currentTime.value)) {
+    tracks.value = removeKeyframeAt(
+      tracks.value,
+      layerId,
+      paramName,
+      currentTime.value,
+    );
+    selectedKeyframes.value = selectedKeyframes.value.filter(
+      (k) =>
+        !(
+          k.layerId === layerId &&
+          k.paramName === paramName &&
+          Math.abs(k.time - currentTime.value) < 1e-6
+        ),
+    );
+    return;
+  }
+
+  const layer = layers.value.find((l) => l.id === layerId);
+  const template = layer ? LAYER_TEMPLATES[layer.type] : null;
+  const def = template?.uniforms.find((u) => u.name === paramName);
+  const fallback = (def?.default as number) ?? 0;
+  const value = paramValue(layerId, paramName, fallback);
+  tracks.value = upsertKeyframe(
+    tracks.value,
+    layerId,
+    paramName,
+    currentTime.value,
+    value,
+  );
+}
+
 
 // --- Layer Management ---
 
@@ -381,127 +580,169 @@ function setBandFloat(
 
 <template>
   <EditorFrame>
-    <template #left>
-      <EditorLayerStack
-        v-model:layers="layers"
-        v-model:selected-layer-id="selectedLayerId"
-        v-model:shader-name="shaderName"
-        v-model:lfos="lfos"
-        v-model:selected-lfo-id="selectedLfoId"
-        home-to="/"
-        :lfo-cursor-position="selectedLfoCursorPosition"
-        @duplicate-layer="duplicateLayer"
-        @remove-layer="removeLayer"
-        @drag-start="onDragStart"
-        @duplicate-lfo="duplicateLfo"
-        @clear-assignments="clearLfoAssignments"
-        @delete-lfo="deleteLfo"
-      />
-    </template>
-
-    <div class="relative min-h-0 min-w-0 flex-1">
-      <ClientOnly>
-        <div class="size-full min-h-0 select-none">
-          <div class="absolute inset-0 overflow-hidden">
-            <canvas
-              ref="canvasRef"
-              class="pointer-events-none size-full"
-            />
-            <EditorWavePositionGizmo
-              v-if="showWavePositionGizmo && selectedLayer"
-              :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
-              :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
-              :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
-              :cycle-width="getWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, waveWidthDef.default as number)"
-              :x-min="wavePosXDef.min ?? -1"
-              :x-max="wavePosXDef.max ?? 2"
-              :y-min="wavePosYDef.min ?? -1"
-              :y-max="wavePosYDef.max ?? 2"
-              :amp-min="waveAmpDef.min ?? 0"
-              :amp-max="waveAmpDef.max ?? 0.4"
-              :width-min="waveWidthDef.min ?? 0.08"
-              :width-max="waveWidthDef.max ?? 2"
-              @update:cycle-x="setWaveFloat(selectedLayer, WAVE_POS_X, $event)"
-              @update:center-y="setWaveFloat(selectedLayer, WAVE_POS_Y, $event)"
-              @update:amplitude="setWaveFloat(selectedLayer, WAVE_AMPLITUDE, $event)"
-              @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
-            />
-            <EditorMeshPointsGizmo
-              v-if="showMeshPointsGizmo && selectedLayer"
-              :points="getMeshPoints(selectedLayer)"
-              :selected-index="meshSelectedPointIndex"
-              :radius-min="0.15"
-              :radius-max="1.5"
-              @update:points="setMeshPoints(selectedLayer, $event)"
-              @update:selected-index="meshSelectedPointIndex = $event"
-            />
-            <EditorBandPositionGizmo
-              v-if="showBandPositionGizmo && selectedLayer"
-              :band-y="getBandFloat(selectedLayer, BAND_Y, bandYDef.default as number)"
-              :edge="getBandFloat(selectedLayer, BAND_EDGE, bandEdgeDef.default as number)"
-              :y-min="bandYDef.min ?? 0"
-              :y-max="bandYDef.max ?? 1"
-              :edge-min="bandEdgeDef.min ?? 0.02"
-              :edge-max="bandEdgeDef.max ?? 1"
-              @update:band-y="setBandFloat(selectedLayer, BAND_Y, $event)"
-              @update:edge="setBandFloat(selectedLayer, BAND_EDGE, $event)"
-            />
+    <div ref="editorSplitRef" class="flex h-full min-h-0 flex-col">
+      <div class="relative min-h-0 min-w-0 flex-1">
+        <ClientOnly>
+          <div class="size-full min-h-0 select-none">
+            <div class="absolute inset-0 overflow-hidden">
+              <canvas
+                ref="canvasRef"
+                class="pointer-events-none size-full"
+              />
+              <EditorWavePositionGizmo
+                v-if="showWavePositionGizmo && selectedLayer"
+                :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
+                :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
+                :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
+                :cycle-width="getWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, waveWidthDef.default as number)"
+                :x-min="wavePosXDef.min ?? -1"
+                :x-max="wavePosXDef.max ?? 2"
+                :y-min="wavePosYDef.min ?? -1"
+                :y-max="wavePosYDef.max ?? 2"
+                :amp-min="waveAmpDef.min ?? 0"
+                :amp-max="waveAmpDef.max ?? 0.4"
+                :width-min="waveWidthDef.min ?? 0.08"
+                :width-max="waveWidthDef.max ?? 2"
+                @update:cycle-x="setWaveFloat(selectedLayer, WAVE_POS_X, $event)"
+                @update:center-y="setWaveFloat(selectedLayer, WAVE_POS_Y, $event)"
+                @update:amplitude="setWaveFloat(selectedLayer, WAVE_AMPLITUDE, $event)"
+                @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
+              />
+              <EditorMeshPointsGizmo
+                v-if="showMeshPointsGizmo && selectedLayer"
+                :points="getMeshPoints(selectedLayer)"
+                :selected-index="meshSelectedPointIndex"
+                :radius-min="0.15"
+                :radius-max="1.5"
+                @update:points="setMeshPoints(selectedLayer, $event)"
+                @update:selected-index="meshSelectedPointIndex = $event"
+              />
+              <EditorBandPositionGizmo
+                v-if="showBandPositionGizmo && selectedLayer"
+                :band-y="getBandFloat(selectedLayer, BAND_Y, bandYDef.default as number)"
+                :edge="getBandFloat(selectedLayer, BAND_EDGE, bandEdgeDef.default as number)"
+                :y-min="bandYDef.min ?? 0"
+                :y-max="bandYDef.max ?? 1"
+                :edge-min="bandEdgeDef.min ?? 0.02"
+                :edge-max="bandEdgeDef.max ?? 1"
+                @update:band-y="setBandFloat(selectedLayer, BAND_Y, $event)"
+                @update:edge="setBandFloat(selectedLayer, BAND_EDGE, $event)"
+              />
+            </div>
           </div>
-        </div>
-      </ClientOnly>
+        </ClientOnly>
 
-      <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center">
-        <EditorLayerAddBar class="pointer-events-auto" @select="addLayer" />
+        <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center">
+          <EditorLayerAddBar class="pointer-events-auto" @select="addLayer" />
+        </div>
+      </div>
+
+      <div
+        class="group flex h-1.5 shrink-0 cursor-ns-resize touch-none items-center justify-center border-t border-neutral bg-layer-1 select-none hover:bg-layer-2 active:bg-layer-2"
+        title="Drag to resize timeline"
+        @pointerdown="onTimelineResizePointerDown"
+      >
+        <div class="h-0.5 w-10 rounded-full bg-neutral-subtle transition-colors group-hover:bg-neutral-strong" />
+      </div>
+
+      <div class="shrink-0 overflow-hidden" :style="{ height: `${timelineHeight}px` }">
+        <EditorTimeline
+          v-model:layers="layers"
+          v-model:tracks="tracks"
+          v-model:selected-layer-id="selectedLayerId"
+          v-model:selected-keyframes="selectedKeyframes"
+          v-model:current-time="currentTime"
+          v-model:playing="playing"
+          v-model:px-per-second="timelineZoom"
+          :settings="settings"
+          @toggle-stopwatch="toggleStopwatch"
+          @duplicate-layer="duplicateLayer"
+          @remove-layer="removeLayer"
+        />
       </div>
     </div>
 
     <template #right>
       <div class="flex h-full min-h-0 flex-col">
-        <div class="flex shrink-0 items-center justify-between border-b border-neutral px-3 py-2.5">
-          <div class="flex items-center gap-0.5">
-            <UiButton
-              v-if="selectedLayer && selectedTemplate"
-              variant="ghost"
-              size="sm"
-              :icon-left="CubeIcon"
-              title="Randomize"
-              @click="layerSettingsRef?.randomize()"
-            />
-            <UiButton
-              v-if="selectedLayer && selectedTemplate"
-              variant="ghost"
-              size="sm"
-              :icon-left="ArrowPathIcon"
-              title="Reset to defaults"
-              @click="layerSettingsRef?.reset()"
-            />
-          </div>
+        <div class="flex shrink-0 items-center gap-2 border-b border-neutral px-2 py-2">
+          <UiHover>
+            <NuxtLink
+              to="/"
+              class="flex size-8 items-center justify-center text-neutral-subtle outline-none group-hover/h:text-neutral-strong"
+              title="Shader Lab"
+            >
+              <ChevronRightIcon class="size-4 rotate-180" />
+            </NuxtLink>
+          </UiHover>
+          <UiEditableText
+            v-model="shaderName"
+            fill
+            class="min-w-0 flex-1 text-copy-sm text-neutral-strong"
+          />
           <UiButton variant="filled" size="sm" @click="exportOpen = true">
             Export
           </UiButton>
         </div>
-        <EditorLayerSettings
-          v-if="selectedLayer && selectedTemplate"
-          ref="layerSettingsRef"
-          :key="selectedLayer.id"
-          :layer="selectedLayer"
+
+        <div class="flex shrink-0 items-center gap-0.5 border-b border-neutral px-3 py-2">
+          <UiButton
+            v-if="selectedLayer && selectedTemplate"
+            variant="ghost"
+            size="sm"
+            :icon-left="CubeIcon"
+            title="Randomize"
+            @click="layerSettingsRef?.randomize()"
+          />
+          <UiButton
+            v-if="selectedLayer && selectedTemplate"
+            variant="ghost"
+            size="sm"
+            :icon-left="ArrowPathIcon"
+            title="Reset to defaults"
+            @click="layerSettingsRef?.reset()"
+          />
+        </div>
+
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <EditorLayerSettings
+            v-if="selectedLayer && selectedTemplate"
+            ref="layerSettingsRef"
+            :key="selectedLayer.id"
+            class="min-h-0 flex-1"
+            :layer="selectedLayer"
           :template="selectedTemplate"
           :assignments="selectedLayerAssignments"
           :lfos="lfos"
           :dragging-lfo-id="draggingLfoId"
           :mesh-selected-point-index="meshSelectedPointIndex"
+          :current-time="currentTime"
+          :tracks="tracks"
           @update:mesh-selected-point-index="meshSelectedPointIndex = $event"
           @assign-lfo="assignLfo"
           @remove-assignment="removeAssignment"
           @update-depth="updateDepth"
-        />
-        <div
-          v-else
-          class="flex flex-1 items-center justify-center p-6 text-center"
-        >
-          <p class="text-copy-sm text-neutral-subtle">
-            Select a layer to edit its settings.
-          </p>
+          @toggle-stopwatch="toggleStopwatch(selectedLayer.id, $event)"
+          @toggle-keyframe="toggleKeyframeAtPlayhead(selectedLayer.id, $event)"
+          @set-animated-value="(param, value) => setAnimatedValue(selectedLayer!.id, param, value)"
+          />
+          <div
+            v-else
+            class="flex flex-1 items-center justify-center p-6 text-center"
+          >
+            <p class="text-copy-sm text-neutral-subtle">
+              Select a layer to edit its properties.
+            </p>
+          </div>
+
+          <EditorLfoList
+            v-model:lfos="lfos"
+            v-model:selected-lfo-id="selectedLfoId"
+            class="max-h-48 shrink-0 border-t border-neutral"
+            @drag-start="onDragStart"
+            @duplicate-lfo="duplicateLfo"
+            @clear-assignments="clearLfoAssignments"
+            @delete-lfo="deleteLfo"
+          />
         </div>
       </div>
     </template>
@@ -524,5 +765,6 @@ function setBandFloat(
     v-model:open="exportOpen"
     :experiment-id="shaderId ?? 'shader'"
     :shader="shaderExport"
+    :composition-duration="settings.duration"
   />
 </template>

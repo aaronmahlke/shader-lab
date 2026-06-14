@@ -1,8 +1,10 @@
 import {
   ModulationEngine,
   evaluateWavePoints,
+  createAnimatedModulationFn,
   type LFOSource,
   type ModulationAssignment,
+  type PropertyTrack,
 } from "@shader-lab/core";
 
 export { evaluateWavePoints };
@@ -45,6 +47,10 @@ export function curveFromOnCurveY(p1y: number, p2y: number, onCurveY: number): n
 export function useModulationEngine(
   lfos: Ref<LFOSource[]>,
   assignments: Ref<ModulationAssignment[]>,
+  options: {
+    clockTime?: Ref<number>;
+    tracks?: Ref<PropertyTrack[]>;
+  } = {},
 ) {
   const engine = new ModulationEngine();
   const lfoValues = ref<Record<string, number>>({});
@@ -61,30 +67,45 @@ export function useModulationEngine(
     lfoValues.value = engine.getLfoValues();
   }
 
-  function tick() {
-    sampleLfosAtTime((performance.now() - startTime) / 1000);
-    animationId = requestAnimationFrame(tick);
-  }
-
   function getModulatedValue(layerId: string, paramName: string, baseValue: number): number {
-    return engine.getModulatedValue(layerId, paramName, baseValue);
+    const tracks = options.tracks?.value ?? [];
+    const time = options.clockTime?.value ?? 0;
+    const fn = createAnimatedModulationFn(time, tracks, engine);
+    return fn(layerId, paramName, baseValue);
   }
 
-  onMounted(() => {
-    startTime = performance.now();
-    animationId = requestAnimationFrame(tick);
-  });
+  const modFn = computed(() => getModulatedValue);
 
-  onUnmounted(() => {
-    if (animationId !== null) {
-      cancelAnimationFrame(animationId);
+  if (options.clockTime) {
+    watch(
+      options.clockTime,
+      (t) => sampleLfosAtTime(t),
+      { immediate: true },
+    );
+  } else {
+    function tick() {
+      sampleLfosAtTime((performance.now() - startTime) / 1000);
+      animationId = requestAnimationFrame(tick);
     }
-  });
+
+    onMounted(() => {
+      startTime = performance.now();
+      animationId = requestAnimationFrame(tick);
+    });
+
+    onUnmounted(() => {
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
+    });
+  }
 
   return {
     lfoValues,
     lfoPhases,
     getModulatedValue,
+    modFn,
     sampleLfosAtTime,
+    engine,
   };
 }

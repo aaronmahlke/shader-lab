@@ -93,11 +93,6 @@ export class CompositionRenderer {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width >= 1 && rect.height >= 1) {
       this.resize(rect.width, rect.height);
-      return;
-    }
-
-    if (typeof window !== "undefined") {
-      this.resize(window.innerWidth, window.innerHeight);
     }
   }
 

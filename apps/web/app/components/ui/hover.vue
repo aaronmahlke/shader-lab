@@ -3,6 +3,10 @@ defineOptions({ inheritAttrs: false });
 
 type Props = {
   className?: string[] | string;
+  /** Solid surface at rest (full inset, opaque). Use bg-layer-1 / bg-control, not tints. */
+  solid?: boolean;
+  /** Background when `active` (defaults to className). */
+  activeClassName?: string[] | string;
   active?: boolean;
   clickable?: boolean;
   hoverable?: boolean;
@@ -13,6 +17,8 @@ type Props = {
 
 const {
   className = "bg-tint",
+  solid = false,
+  activeClassName,
   active = false,
   clickable = true,
   hoverable = true,
@@ -20,6 +26,11 @@ const {
   fullWidth = false,
   focusable = true,
 } = defineProps<Props>();
+
+const surfaceClass = computed(() => {
+  if (active && activeClassName !== undefined) return activeClassName;
+  return className;
+});
 
 const attrs = useAttrs();
 
@@ -38,9 +49,13 @@ const rootAttrs = computed(() => {
     <div
       class="pointer-events-none absolute transition-all duration-100 ease-out-expo motion-reduce:transition-none"
       :class="[
-        className,
-        active ? 'inset-0 opacity-100' : 'inset-1 opacity-0',
-        hoverable ? 'group-hover/h:inset-0 group-hover/h:opacity-100' : '',
+        surfaceClass,
+        solid
+          ? 'inset-0 opacity-100'
+          : active
+            ? 'inset-0 opacity-100'
+            : 'inset-1 opacity-0',
+        !solid && hoverable ? 'group-hover/h:inset-0 group-hover/h:opacity-100' : '',
         clickable ? 'group-active/h:inset-px' : '',
         focusable
           ? 'group-has-focus-visible/h:inset-0 group-has-focus-visible/h:opacity-100 group-has-focus-visible/h:ring-2 group-has-focus-visible/h:ring-focus group-has-focus-visible/h:ring-offset-2 group-has-focus-visible/h:ring-offset-layer-1'

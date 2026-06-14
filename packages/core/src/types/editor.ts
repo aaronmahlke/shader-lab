@@ -24,6 +24,8 @@ export type LayerUniformDef = {
   max?: number;
   step?: number;
   options?: { label: string; value: string | number }[];
+  /** When false, no stopwatch / timeline track (gradients, mesh, etc.). */
+  keyframeable?: boolean;
 };
 
 export type LayerTemplate = {

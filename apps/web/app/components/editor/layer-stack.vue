@@ -24,7 +24,7 @@ const { homeTo = "/", lfoCursorPosition } = defineProps<{
 
 const emit = defineEmits<Emits>();
 
-const { containerRef, draggingIndex } = useDragReorder(layers);
+const { containerRef, draggingIndices } = useDragReorder(layers);
 
 function toggleEnabled(layer: LayerInstance) {
   selectedLayerId.value = layer.id;
@@ -63,7 +63,7 @@ function toggleEnabled(layer: LayerInstance) {
         :key="layer.id"
         :layer="layer"
         :selected="selectedLayerId === layer.id"
-        :dragging="draggingIndex === i"
+        :dragging="draggingIndices.has(i)"
         @select="selectedLayerId = layer.id"
         @toggle-enabled="toggleEnabled(layer)"
         @duplicate="emit('duplicate-layer', layer.id)"

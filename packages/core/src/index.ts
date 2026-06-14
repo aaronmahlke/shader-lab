@@ -77,7 +77,28 @@ export function createComposition(
   };
 }
 
-export { normalizeCompositeLayer, normalizeCompositeLayers, offsetDuplicatedWave } from "./compiler/normalize-composite-layers";
+export { normalizeCompositeLayer, normalizeCompositeLayers, normalizeComposition, offsetDuplicatedWave } from "./compiler/normalize-composite-layers";
+export {
+  evaluateKeyframes,
+  evaluatePropertyTrack,
+  findPropertyTrack,
+  hasKeyframeAt,
+  removeKeyframeAt,
+  setTrackEnabled,
+  trackId,
+  upsertKeyframe,
+  moveKeyframe,
+  offsetKeyframes,
+} from "./animation/property-tracks";
+export { isKeyframeableUniform } from "./animation/keyframeable";
+export { createAnimatedModulationFn } from "./animation/create-modulation-fn";
+export { DEFAULT_COMPOSITION_SETTINGS } from "./types/animation";
+export type {
+  CompositionSettings,
+  Keyframe,
+  KeyframeEasing,
+  PropertyTrack,
+} from "./types/animation";
 export {
   ModulationEngine,
   createModulationFn,

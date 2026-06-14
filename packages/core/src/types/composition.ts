@@ -1,3 +1,4 @@
+import type { CompositionSettings, PropertyTrack } from "./animation";
 import type { LayerInstance, LFOSource, ModulationAssignment } from "./editor";
 
 export type CompositionConfig = {
@@ -5,4 +6,6 @@ export type CompositionConfig = {
   layers: LayerInstance[];
   lfos: LFOSource[];
   assignments: ModulationAssignment[];
+  settings?: CompositionSettings;
+  tracks?: PropertyTrack[];
 };

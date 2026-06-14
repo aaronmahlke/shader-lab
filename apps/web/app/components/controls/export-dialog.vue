@@ -29,10 +29,11 @@ type Props = {
   /** Design canvas — enables 1× / 2× / 4× export scaling */
   designCanvas?: DesignCanvas;
   canvasVideoDuration?: number;
+  compositionDuration?: number;
   beforeExport?: () => void | Promise<void>;
 };
 
-const { experimentId, shader, designCanvas, canvasVideoDuration = 0, beforeExport } = defineProps<Props>();
+const { experimentId, shader, designCanvas, canvasVideoDuration = 0, compositionDuration = 0, beforeExport } = defineProps<Props>();
 
 const open = defineModel<boolean>("open", { default: false });
 
@@ -67,6 +68,12 @@ function formatDuration(seconds: number) {
 
 const durationOptions = computed(() => {
   const opts: { label: string; value: number }[] = [];
+  if (compositionDuration > 0.05) {
+    opts.push({
+      label: `Composition (${formatDuration(compositionDuration)})`,
+      value: compositionDuration,
+    });
+  }
   if (canvasVideoDuration > 0.05) {
     opts.push({
       label: `Canvas video (${formatDuration(canvasVideoDuration)})`,
@@ -84,6 +91,14 @@ const fpsOptions = [
 
 const selectedDuration = ref(0);
 const selectedFps = ref(0);
+
+watch(
+  () => compositionDuration,
+  (d) => {
+    if (d > 0.05) selectedDuration.value = 0;
+  },
+  { immediate: true },
+);
 
 watch(
   () => canvasVideoDuration,

@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource } from "@shader-lab/core";
-import type { GradientStop } from "@shader-lab/core";
-import type { MeshPoint } from "@shader-lab/core";
-import { cloneMeshPoints } from "@shader-lab/core";
-import { applyModulation } from "@shader-lab/core";
+import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource, PropertyTrack } from "@shader-lab/core";
+import type { GradientStop, MeshPoint } from "@shader-lab/core";
+import {
+  cloneMeshPoints,
+  applyModulation,
+  evaluatePropertyTrack,
+  findPropertyTrack,
+  hasKeyframeAt,
+  isKeyframeableUniform,
+} from "@shader-lab/core";
 
 type Props = {
   layer: LayerInstance;
@@ -12,6 +17,8 @@ type Props = {
   lfos: LFOSource[];
   draggingLfoId: string | null;
   meshSelectedPointIndex?: number;
+  currentTime: number;
+  tracks: PropertyTrack[];
 };
 
 type Emits = {
@@ -19,6 +26,9 @@ type Emits = {
   "remove-assignment": [sourceId: string, paramName: string];
   "update-depth": [sourceId: string, paramName: string, depth: number];
   "update:meshSelectedPointIndex": [index: number];
+  "toggle-stopwatch": [paramName: string];
+  "toggle-keyframe": [paramName: string];
+  "set-animated-value": [paramName: string, value: number];
 };
 
 const {
@@ -28,6 +38,8 @@ const {
   lfos,
   draggingLfoId,
   meshSelectedPointIndex = 0,
+  currentTime,
+  tracks,
 } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
@@ -44,11 +56,24 @@ function getLiveValue(def: LayerUniformDef): number | undefined {
 }
 
 function getModulatedFloat(paramName: string, fallback: number): number {
+  const track = findPropertyTrack(tracks, layer.id, paramName);
+  if (track?.enabled) {
+    const base = (layer.values[paramName] as number) ?? fallback;
+    return evaluatePropertyTrack(track, currentTime, base);
+  }
   const base = (layer.values[paramName] as number) ?? fallback;
   const assignment = getAssignment(paramName);
   if (!assignment) return base;
   const lfoValue = lfoValues.value[assignment.sourceId] ?? 0;
   return applyModulation(base, paramName, lfoValue, assignment.depth);
+}
+
+function isTrackEnabled(paramName: string): boolean {
+  return !!findPropertyTrack(tracks, layer.id, paramName)?.enabled;
+}
+
+function isKeyedAtPlayhead(paramName: string): boolean {
+  return hasKeyframeAt(findPropertyTrack(tracks, layer.id, paramName), currentTime);
 }
 
 function getLfoColor(sourceId: string): string | undefined {
@@ -133,10 +158,17 @@ function randomize() {
 defineExpose({ randomize, reset: resetToDefaults });
 
 function getFloat(def: LayerUniformDef, target: Record<string, unknown>): number {
+  if (isTrackEnabled(def.name)) {
+    return getModulatedFloat(def.name, def.default as number);
+  }
   return (target[def.name] as number) ?? (def.default as number);
 }
 
 function setFloat(def: LayerUniformDef, target: Record<string, unknown>, v: number) {
+  if (isTrackEnabled(def.name)) {
+    emit("set-animated-value", def.name, v);
+    return;
+  }
   target[def.name] = v;
 }
 
@@ -239,17 +271,30 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       <template v-for="def in template.uniforms" :key="def.name">
         <template v-if="isUniformVisible(def)">
           <UiContextMenu v-if="def.type === 'float' || def.type === 'int'">
-            <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
+            <div class="flex items-start gap-0.5" @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
+              <UiStopwatchButton
+                v-if="isKeyframeableUniform(def)"
+                class="mt-5"
+                :active="isTrackEnabled(def.name)"
+                @toggle="emit('toggle-stopwatch', def.name)"
+              />
+              <UiKeyframeButton
+                v-if="isKeyframeableUniform(def) && isTrackEnabled(def.name)"
+                class="mt-5"
+                :active="isKeyedAtPlayhead(def.name)"
+                @toggle="emit('toggle-keyframe', def.name)"
+              />
               <UiSliderField
+                class="min-w-0 flex-1"
                 :model-value="getFloat(def, layer.values)"
                 :label="def.label"
                 :min="def.min"
                 :max="def.max"
                 :step="def.step ?? (def.type === 'int' ? 1 : 0.01)"
-                :mod-color="getModInfo(def)?.color"
-                :mod-depth="getModInfo(def)?.depth"
-                :mod-live-value="getLiveValue(def)"
-                :is-drop-target="draggingLfoId !== null"
+                :mod-color="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.color"
+                :mod-depth="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.depth"
+                :mod-live-value="isTrackEnabled(def.name) ? undefined : getLiveValue(def)"
+                :is-drop-target="draggingLfoId !== null && !isTrackEnabled(def.name)"
                 @update:model-value="setFloat(def, layer.values, $event)"
                 @update:mod-depth="onDepthUpdate(def, $event)"
               />
