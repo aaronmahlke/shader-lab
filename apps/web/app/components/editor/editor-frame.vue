@@ -8,7 +8,7 @@
         <slot name="left" />
       </aside>
 
-      <main class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg">
+      <main class="relative flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-hidden">
         <slot />
       </main>
 

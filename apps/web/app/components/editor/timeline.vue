@@ -586,7 +586,15 @@ function togglePlay() {
 }
 
 function toggleLayerEnabled(layer: LayerInstance) {
-  layer.enabled = !layer.enabled;
+  const nextEnabled = !layer.enabled;
+  const multi = selectedLayerIds.value.size > 1 && selectedLayerIds.value.has(layer.id);
+  const applyTo = multi
+    ? layers.value.filter((l) => selectedLayerIds.value.has(l.id))
+    : [layer];
+
+  for (const target of applyTo) {
+    target.enabled = nextEnabled;
+  }
 }
 
 function isLayerSelected(id: string): boolean {

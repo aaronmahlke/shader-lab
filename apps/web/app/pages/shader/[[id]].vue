@@ -581,7 +581,7 @@ function setBandFloat(
 <template>
   <EditorFrame>
     <div ref="editorSplitRef" class="flex h-full min-h-0 flex-col">
-      <div class="relative min-h-0 min-w-0 flex-1">
+      <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-layer-1">
         <ClientOnly>
           <div class="size-full min-h-0 select-none">
             <div class="absolute inset-0 overflow-hidden">
@@ -638,14 +638,21 @@ function setBandFloat(
       </div>
 
       <div
-        class="group flex h-1.5 shrink-0 cursor-ns-resize touch-none items-center justify-center border-t border-neutral bg-layer-1 select-none hover:bg-layer-2 active:bg-layer-2"
+        class="group relative h-1 shrink-0"
         title="Drag to resize timeline"
-        @pointerdown="onTimelineResizePointerDown"
       >
-        <div class="h-0.5 w-10 rounded-full bg-neutral-subtle transition-colors group-hover:bg-neutral-strong" />
+        <div
+          class="absolute inset-x-0 -top-1.5 -bottom-1.5 flex cursor-ns-resize touch-none items-center justify-center select-none"
+          @pointerdown="onTimelineResizePointerDown"
+        >
+          <div class="h-0.5 w-10 rounded-full bg-neutral-subtle transition-colors group-hover:bg-neutral-strong" />
+        </div>
       </div>
 
-      <div class="shrink-0 overflow-hidden" :style="{ height: `${timelineHeight}px` }">
+      <div
+        class="flex shrink-0 flex-col overflow-hidden rounded-lg bg-layer-1"
+        :style="{ height: `${timelineHeight}px` }"
+      >
         <EditorTimeline
           v-model:layers="layers"
           v-model:tracks="tracks"
