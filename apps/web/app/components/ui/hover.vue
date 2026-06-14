@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 defineOptions({ inheritAttrs: false });
 
+type BlockRole = "none" | "single" | "top" | "middle" | "bottom";
+
 type Props = {
   className?: string[] | string;
   /** Solid surface at rest (full inset, opaque). Use bg-layer-1 / bg-control, not tints. */
@@ -10,6 +12,8 @@ type Props = {
   active?: boolean;
   clickable?: boolean;
   hoverable?: boolean;
+  /** Connected-list rounding — classes live here so Tailwind can scan them. */
+  blockRole?: BlockRole;
   radius?: string;
   fullWidth?: boolean;
   focusable?: boolean;
@@ -22,6 +26,7 @@ const {
   active = false,
   clickable = true,
   hoverable = true,
+  blockRole = "none",
   radius = "rounded-lg",
   fullWidth = false,
   focusable = true,
@@ -30,6 +35,21 @@ const {
 const surfaceClass = computed(() => {
   if (active && activeClassName !== undefined) return activeClassName;
   return className;
+});
+
+const surfaceRadius = computed(() => {
+  switch (blockRole) {
+    case "top":
+      return "rounded-t-lg rounded-b-none";
+    case "middle":
+      return "rounded-none";
+    case "bottom":
+      return "rounded-b-lg rounded-t-none";
+    case "single":
+      return "rounded-lg";
+    default:
+      return radius;
+  }
 });
 
 const attrs = useAttrs();
@@ -60,7 +80,7 @@ const rootAttrs = computed(() => {
         focusable
           ? 'group-has-focus-visible/h:inset-0 group-has-focus-visible/h:opacity-100 group-has-focus-visible/h:ring-2 group-has-focus-visible/h:ring-focus group-has-focus-visible/h:ring-offset-2 group-has-focus-visible/h:ring-offset-layer-1'
           : '',
-        radius,
+        surfaceRadius,
       ]"
     />
     <div

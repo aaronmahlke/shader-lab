@@ -20,6 +20,7 @@ import {
   type PropertyTrack,
 } from "@shader-lab/core";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
+import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
   isKeyframeInSelection,
   toggleKeyframeInSelection,
@@ -68,16 +69,7 @@ function selectedLayerIndices(): number[] {
     .map(({ index }) => index);
 }
 
-const showLayerDragDebug = import.meta.dev;
-const layerDragDebug = ref(isLayerDragDebugEnabled());
-
-function toggleLayerDragDebug() {
-  layerDragDebug.value = !layerDragDebug.value;
-  setLayerDragDebug(layerDragDebug.value);
-}
-
 const { containerRef: layerListRef, draggingIndices } = useDragReorder(layers, {
-  debug: layerDragDebug,
   getSelectedIndices: selectedLayerIndices,
   onDragStartIndex(index, e) {
     if (e.shiftKey || e.metaKey || e.ctrlKey) return;
@@ -601,6 +593,10 @@ function isLayerSelected(id: string): boolean {
   return selectedLayerIds.value.has(id);
 }
 
+function layerRowBlockRole(index: number) {
+  return layerHeaderBlockRole(index, selectedLayerIndices(), [...draggingIndices.value]);
+}
+
 function selectLayer(id: string, e?: MouseEvent) {
   const index = layerIndex(id);
   if (index === -1) return;
@@ -655,16 +651,6 @@ function selectLayer(id: string, e?: MouseEvent) {
         <UiButton variant="ghost" size="sm" :icon-left="PlusIcon" title="Zoom in (⌥ scroll)" @click="zoomIn" />
       </div>
       <span class="text-copy-xs text-neutral-subtle">{{ settings.fps }} fps</span>
-      <UiButton
-        v-if="showLayerDragDebug"
-        variant="ghost"
-        size="sm"
-        :class="layerDragDebug && 'text-accent'"
-        title="Toggle layer drag debug overlay"
-        @click="toggleLayerDragDebug"
-      >
-        dbg
-      </UiButton>
     </div>
 
     <div class="flex min-h-0 flex-1 flex-col">
@@ -731,6 +717,7 @@ function selectLayer(id: string, e?: MouseEvent) {
               <UiHover
                 solid
                 :active="isLayerSelected(layer.id) || draggingIndices.has(i)"
+                :block-role="layerRowBlockRole(i)"
                 class-name="bg-layer-1 group-hover/h:bg-control"
                 active-class-name="bg-control"
                 full-width

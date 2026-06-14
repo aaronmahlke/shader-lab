@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronRightIcon } from "@heroicons/vue/16/solid";
 import type { LayerInstance, LFOSource } from "@shader-lab/core";
+import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 
 type Emits = {
   "remove-layer": [id: string];
@@ -25,6 +26,23 @@ const { homeTo = "/", lfoCursorPosition } = defineProps<{
 const emit = defineEmits<Emits>();
 
 const { containerRef, draggingIndices } = useDragReorder(layers);
+
+function selectedLayerIndices(): number[] {
+  const i = layers.value.findIndex((l) => l.id === selectedLayerId.value);
+  return i >= 0 ? [i] : [];
+}
+
+function layerRowBlockRole(index: number) {
+  return layerHeaderBlockRole(index, selectedLayerIndices(), [...draggingIndices.value]);
+}
+
+function layerRowOverlapsPrevious(index: number): boolean {
+  const dragging = [...draggingIndices.value];
+  if (dragging.includes(index)) {
+    return layerBlockOverlapsPrevious(index, dragging, "single-block");
+  }
+  return layerBlockOverlapsPrevious(index, selectedLayerIndices(), "contiguous-runs");
+}
 
 function toggleEnabled(layer: LayerInstance) {
   selectedLayerId.value = layer.id;
@@ -64,6 +82,8 @@ function toggleEnabled(layer: LayerInstance) {
         :layer="layer"
         :selected="selectedLayerId === layer.id"
         :dragging="draggingIndices.has(i)"
+        :block-role="layerRowBlockRole(i)"
+        :overlaps-previous="layerRowOverlapsPrevious(i)"
         @select="selectedLayerId = layer.id"
         @toggle-enabled="toggleEnabled(layer)"
         @duplicate="emit('duplicate-layer', layer.id)"

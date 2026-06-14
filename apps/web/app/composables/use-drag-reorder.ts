@@ -7,21 +7,7 @@ type DragReorderOptions = {
   getSelectedIndices?: () => number[];
   /** Called on pointer down before drag starts (e.g. ensure row is selected). */
   onDragStartIndex?: (index: number, e: PointerEvent) => void;
-  /** Show live measurement overlay while dragging. Defaults to localStorage flag. */
-  debug?: MaybeRef<boolean>;
 };
-
-export const LAYER_DRAG_DEBUG_KEY = "shader-lab:debug-layer-drag";
-
-export function isLayerDragDebugEnabled(): boolean {
-  return import.meta.client && localStorage.getItem(LAYER_DRAG_DEBUG_KEY) === "1";
-}
-
-export function setLayerDragDebug(enabled: boolean) {
-  if (!import.meta.client) return;
-  if (enabled) localStorage.setItem(LAYER_DRAG_DEBUG_KEY, "1");
-  else localStorage.removeItem(LAYER_DRAG_DEBUG_KEY);
-}
 
 type RowRect = {
   top: number;
@@ -56,11 +42,9 @@ export function useDragReorder<T>(
   list: Ref<T[]>,
   options: DragReorderOptions = {},
 ) {
-  const { animation = 200, stackAnimation = 120, getSelectedIndices, onDragStartIndex, debug } = options;
+  const { animation = 200, stackAnimation = 120, getSelectedIndices, onDragStartIndex } = options;
   const containerRef = ref<HTMLElement | null>(null);
   const draggingIndices = ref<Set<number>>(new Set());
-  const debugEnabled = () =>
-    debug !== undefined ? unref(debug) : isLayerDragDebugEnabled();
 
   function resolveEl(): HTMLElement | null {
     if (import.meta.server) return null;
@@ -99,7 +83,6 @@ export function useDragReorder<T>(
   let gateDownRow = -1;
   let active = false;
   let didDrag = false;
-  let debugRoot: HTMLElement | null = null;
 
   function readRowRect(el: HTMLElement): RowRect {
     const r = el.getBoundingClientRect();
@@ -191,7 +174,6 @@ export function useDragReorder<T>(
       slot = next;
     }
     currentTarget = slot;
-    updateDebugOverlay(currentTarget);
   }
 
   function updateStackProgress() {
@@ -212,7 +194,6 @@ export function useDragReorder<T>(
     updateStackProgress();
     applyDragTransforms(previewDeltaY);
     if (stackPhase) {
-      updateDebugOverlay(currentTarget);
       stackRafId = requestAnimationFrame(stackAnimationFrame);
     }
   }
@@ -397,139 +378,6 @@ export function useDragReorder<T>(
     return baseSlot;
   }
 
-  function laneRect(): { left: number; width: number } {
-    const container = resolveEl();
-    const r = container?.getBoundingClientRect();
-    return { left: r?.left ?? 0, width: r?.width ?? 240 };
-  }
-
-  function lineStyle(
-    top: number,
-    left: number,
-    width: number,
-    color: string,
-    dashed = false,
-  ): string {
-    return [
-      "position:fixed",
-      `top:${top}px`,
-      `left:${left}px`,
-      `width:${width}px`,
-      "height:0",
-      `border-top:2px ${dashed ? "dashed" : "solid"} ${color}`,
-      "pointer-events:none",
-      "z-index:9999",
-    ].join(";");
-  }
-
-  function boxStyle(top: number, left: number, width: number, height: number, color: string): string {
-    return [
-      "position:fixed",
-      `top:${top}px`,
-      `left:${left}px`,
-      `width:${width}px`,
-      `height:${height}px`,
-      `border:2px solid ${color}`,
-      "background:transparent",
-      "pointer-events:none",
-      "box-sizing:border-box",
-      "z-index:9998",
-    ].join(";");
-  }
-
-  function removeDebugOverlay() {
-    debugRoot?.remove();
-    debugRoot = null;
-  }
-
-  function updateDebugOverlay(insertSlot: number) {
-    if (!debugEnabled() || !active) return;
-
-    const children = getChildren();
-    const n = children.length;
-    const lane = laneRect();
-    const block = measureDragBlockBoundsComputed();
-    const slot = currentTarget;
-    const sorted = sortedSelection();
-    const { aboveIdx, belowIdx } = crossingNeighbors(block, slot);
-
-    if (!debugRoot) {
-      debugRoot = document.createElement("div");
-      debugRoot.setAttribute("data-layer-drag-debug", "");
-      document.body.appendChild(debugRoot);
-    }
-
-    const parts: string[] = [];
-
-    for (let i = 0; i < n; i++) {
-      const r = rowRects[i];
-      if (!r) continue;
-      const shift = rowPreviewShift(i, slot);
-      const top = r.top + shift;
-      const selected = dragIndexSet.has(i);
-      parts.push(
-        `<div style="${boxStyle(top, lane.left, lane.width, r.height, selected ? "#22c55e" : "rgb(255 255 255 / 0.2)")}" title="layer ${i}"></div>`,
-      );
-    }
-
-    if (Number.isFinite(block.top)) {
-      parts.push(
-        `<div style="${boxStyle(block.top, lane.left, lane.width, block.bottom - block.top, "rgb(34 197 94 / 0.25)")}" title="selection bbox"></div>`,
-        `<div style="${lineStyle(block.top, lane.left, lane.width, "#22c55e")}" title="selection top (cross up vs prev center)"></div>`,
-        `<div style="${lineStyle(block.bottom, lane.left, lane.width, "#4ade80")}" title="selection bottom (cross down vs next center)"></div>`,
-      );
-    }
-
-    for (let i = 0; i < n; i++) {
-      const y = rowCenters[i];
-      if (y === undefined) continue;
-      let crossed = "";
-      if (dragIndexSet.has(i)) {
-        crossed = " (selected)";
-      } else if (i === belowIdx && block.bottom > y && i !== gateDownRow) {
-        crossed = " ✓ cross down";
-      } else if (i === aboveIdx && block.top < y) {
-        crossed = " ✓ cross up";
-      }
-      parts.push(
-        `<div style="${lineStyle(y, lane.left, lane.width, "#eab308", true)}" title="row ${i} full center${crossed}"></div>`,
-      );
-    }
-
-    const centerText = rowCenters
-      .map((y, i) => {
-        let mark = "";
-        if (dragIndexSet.has(i)) mark = " sel";
-        else if (i === belowIdx && block.bottom > y && i !== gateDownRow) mark = " ↓";
-        else if (i === aboveIdx && block.top < y) mark = " ↑";
-        return `  ${i} @ ${Math.round(y)}px${mark}`;
-      })
-      .join("\n");
-
-    parts.push(`
-      <div style="position:fixed;top:8px;right:8px;z-index:10000;max-width:280px;padding:8px 10px;border-radius:8px;background:rgb(0 0 0 / 0.85);color:#f5f5f5;font:11px/1.45 ui-monospace,Menlo,monospace;pointer-events:none;white-space:pre">
-<b style="color:#22c55e">layer drag debug</b>
-phase: ${stackPhase ? "stack" : "drag"}  stack: ${Math.round(stackProgress * 100)}%
-virtualBlock: ${virtualBlockStart}  insertSlot: ${insertSlot}  currentTarget: ${currentTarget}
-block top/bottom: ${Math.round(block.top)} / ${Math.round(block.bottom)}px
-selected: [${sorted.join(", ")}]
-row full centers (yellow, synced to preview):
-${centerText || "  —"}
-swap down: bottom > center  |  swap up: top < center
-gate down: ${gateDownRow >= 0 ? gateDownRow : "—"}
-neighbors (from bbox): above=${aboveIdx >= 0 ? aboveIdx : "—"} below=${belowIdx >= 0 ? belowIdx : "—"}
-
-localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
-      </div>
-    `);
-
-    debugRoot.innerHTML = parts.join("");
-  }
-
-  function restingSlot(): number {
-    return virtualBlockStart >= 0 ? virtualBlockStart : Math.min(...dragIndices);
-  }
-
   function applyTransforms(slot: number) {
     const children = getChildren();
 
@@ -637,8 +485,6 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
 
     if (!stackPhase) {
       refreshPreviewSlot();
-    } else {
-      updateDebugOverlay(currentTarget);
     }
   }
 
@@ -779,7 +625,6 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     rowCenters = [];
     previewDeltaY = 0;
     gateDownRow = -1;
-    removeDebugOverlay();
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     window.removeEventListener("pointermove", onPointerMove);
@@ -809,8 +654,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
 
   onUnmounted(() => {
     cleanup();
-    removeDebugOverlay();
   });
 
-  return { containerRef, draggingIndices, debugEnabled };
+  return { containerRef, draggingIndices };
 }

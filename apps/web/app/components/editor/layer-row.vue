@@ -10,10 +10,14 @@ import {
 import type { LayerInstance, LayerCategory } from "@shader-lab/core";
 import { LAYER_TEMPLATES } from "@shader-lab/core";
 
+import type { LayerBlockRole } from "#shared/editor/layer-block-radius";
+
 type Props = {
   layer: LayerInstance;
   selected: boolean;
   dragging?: boolean;
+  blockRole?: LayerBlockRole;
+  overlapsPrevious?: boolean;
 };
 
 type Emits = {
@@ -24,7 +28,7 @@ type Emits = {
   "update:name": [name: string];
 };
 
-const { layer, selected, dragging = false } = defineProps<Props>();
+const { layer, selected, dragging = false, blockRole = "none", overlapsPrevious = false } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
 const template = computed(() => LAYER_TEMPLATES[layer.type]);
@@ -51,10 +55,11 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
 </script>
 
 <template>
-  <UiContextMenu>
+  <UiContextMenu :class="overlapsPrevious && '-mt-px'">
     <UiHover
       solid
       :active="selected || dragging"
+      :block-role="blockRole"
       class-name="bg-layer-1 group-hover/h:bg-control"
       active-class-name="bg-control"
       full-width
