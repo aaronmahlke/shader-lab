@@ -693,7 +693,7 @@ function getBandFloat(
   key: typeof BAND_Y | typeof BAND_EDGE,
   fallback: number,
 ) {
-  return (layer.values[key] as number) ?? fallback;
+  return getGizmoFloat(layer, key, fallback);
 }
 
 function setBandFloat(
@@ -701,7 +701,7 @@ function setBandFloat(
   key: typeof BAND_Y | typeof BAND_EDGE,
   value: number,
 ) {
-  layer.values[key] = value;
+  setGizmoFloat(layer, key, value);
 }
 
 function captureEditorSnapshot(): EditorSnapshot {
