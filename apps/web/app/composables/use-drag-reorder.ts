@@ -1,6 +1,8 @@
 type DragReorderOptions = {
   /** Transition duration in ms for non-dragged items sliding into place. Default: 200 */
   animation?: number;
+  /** Duration in ms for non-contiguous stack collapse. Default: 120 */
+  stackAnimation?: number;
   /** Sorted indices in the active selection. Empty means drag only the clicked row. */
   getSelectedIndices?: () => number[];
   /** Called on pointer down before drag starts (e.g. ensure row is selected). */
@@ -34,19 +36,6 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-function commitMultiReorder<T>(list: T[], indices: number[], targetIndex: number): T[] | null {
-  const sorted = [...indices].sort((a, b) => a - b);
-  const selectedSet = new Set(sorted);
-  const selected = sorted.map((i) => list[i]!);
-  const remaining = list.filter((_, i) => !selectedSet.has(i));
-  const removedBefore = sorted.filter((i) => i < targetIndex).length;
-  let insertAt = targetIndex - removedBefore;
-  insertAt = Math.max(0, Math.min(remaining.length, insertAt));
-  remaining.splice(insertAt, 0, ...selected);
-  if (arraysEqual(remaining, list)) return null;
-  return remaining;
-}
-
 /** Insert selected block at `insertAt` in the list with selected rows removed. */
 function commitBlockAtInsert<T>(list: T[], indices: number[], insertAt: number): T[] | null {
   const sorted = [...indices].sort((a, b) => a - b);
@@ -67,7 +56,7 @@ export function useDragReorder<T>(
   list: Ref<T[]>,
   options: DragReorderOptions = {},
 ) {
-  const { animation = 200, getSelectedIndices, onDragStartIndex, debug } = options;
+  const { animation = 200, stackAnimation = 120, getSelectedIndices, onDragStartIndex, debug } = options;
   const containerRef = ref<HTMLElement | null>(null);
   const draggingIndices = ref<Set<number>>(new Set());
   const debugEnabled = () =>
@@ -88,13 +77,21 @@ export function useDragReorder<T>(
 
   let startY = 0;
   let dragFrom = -1;
+  /** Original selection at pointer down — used for drop commit when stack animates. */
+  let originalIndices: number[] = [];
+  let originalDragFrom = -1;
   let dragIndices: number[] = [];
   let dragIndexSet = new Set<number>();
   let currentTarget = -1;
+  /** Insert slot for the virtual block in remaining-list space. */
+  let virtualBlockStart = -1;
   let rowRects: RowRect[] = [];
-  let collapseOffsets = new Map<number, number>();
-  let groupingAnimating = false;
-  let preGroupList: T[] | null = null;
+  let stackTargetOffsets = new Map<number, number>();
+  let stackProgress = 1;
+  let stackStartMs = 0;
+  let stackRafId = 0;
+  /** Visual stack in progress — slot swaps gated until complete. */
+  let stackPhase = false;
   /** Row center Y synced to the current preview layout. */
   let rowCenters: number[] = [];
   let previewDeltaY = 0;
@@ -142,78 +139,20 @@ export function useDragReorder<T>(
     return true;
   }
 
-  /** Collapse non-adjacent selection into a contiguous block with FLIP animation. */
-  function animateSelectionGrouping(pointerY: number, onDone: () => void) {
+  function computeVirtualBlockStart(): number {
     const sorted = sortedSelection();
-    const grabPos = sorted.indexOf(dragFrom);
-    const blockStart = dragFrom - grabPos;
-    const children = getChildren();
-    const snapshot = new Map<HTMLElement, number>();
-    for (const el of children) {
-      snapshot.set(el, el.getBoundingClientRect().top);
-    }
-
-    const next = commitMultiReorder(list.value, dragIndices, dragFrom);
-    if (!next) {
-      onDone();
-      return;
-    }
-
-    preGroupList = [...list.value];
-    list.value = next;
-    dragIndices = sorted.map((_, i) => blockStart + i);
-    dragIndexSet = new Set(dragIndices);
-    draggingIndices.value = new Set(dragIndices);
-    currentTarget = blockStart;
-    groupingAnimating = true;
-
-    nextTick(() => {
-      const newChildren = getChildren();
-      let animated = 0;
-
-      for (const el of newChildren) {
-        const oldTop = snapshot.get(el);
-        if (oldTop === undefined) continue;
-        const dy = oldTop - el.getBoundingClientRect().top;
-        if (Math.abs(dy) > 0.5) {
-          el.style.transition = "none";
-          el.style.transform = `translateY(${dy}px)`;
-          animated++;
-        }
-      }
-
-      const container = resolveEl();
-      if (container) container.offsetHeight;
-
-      for (const el of newChildren) {
-        if (!el.style.transform) continue;
-        el.style.transition = `transform ${animation}ms ${easing}`;
-        el.style.transform = "";
-      }
-
-      const finish = () => {
-        for (const child of getChildren()) {
-          child.style.transition = "";
-          child.style.transform = "";
-        }
-        groupingAnimating = false;
-        preGroupList = null;
-        startY = pointerY;
-        previewDeltaY = 0;
-        onDone();
-      };
-
-      if (animated === 0) {
-        finish();
-        return;
-      }
-
-      setTimeout(finish, animation + 20);
-    });
+    if (sorted.length <= 1) return dragFrom;
+    return dragFrom - sorted.indexOf(dragFrom);
   }
 
-  /** Close gaps between selected rows only when non-contiguous (after grouping). */
-  function computeCollapseOffsets(): Map<number, number> {
+  function appliedStackOffset(i: number): number {
+    const target = stackTargetOffsets.get(i);
+    if (target === undefined) return 0;
+    return target * stackProgress;
+  }
+
+  /** Target Y offsets to visually stack non-adjacent rows at the grab anchor. */
+  function computeStackTargetOffsets(): Map<number, number> {
     const offsets = new Map<number, number>();
     const sorted = sortedSelection();
     if (sorted.length <= 1 || isContiguousSelection()) return offsets;
@@ -232,6 +171,75 @@ export function useDragReorder<T>(
     return offsets;
   }
 
+  function cancelStackRaf() {
+    if (stackRafId) {
+      cancelAnimationFrame(stackRafId);
+      stackRafId = 0;
+    }
+  }
+
+  function refreshPreviewSlot() {
+    let slot = currentTarget;
+    for (let pass = 0; pass < rowRects.length + 1; pass++) {
+      applyTransforms(slot);
+      syncRowCenters(slot);
+      const block = measureDragBlockBoundsComputed();
+      const { aboveIdx } = crossingNeighbors(block, slot);
+      const next = computeTargetSlot(slot);
+      if (next === slot) break;
+      if (next < slot && aboveIdx >= 0) gateDownRow = aboveIdx;
+      slot = next;
+    }
+    currentTarget = slot;
+    updateDebugOverlay(currentTarget);
+  }
+
+  function updateStackProgress() {
+    if (!stackPhase) return;
+    stackProgress = Math.min(1, (performance.now() - stackStartMs) / stackAnimation);
+    if (stackProgress >= 1) {
+      stackProgress = 1;
+      stackPhase = false;
+      cancelStackRaf();
+      syncRowCenters(currentTarget);
+      refreshPreviewSlot();
+    }
+  }
+
+  function stackAnimationFrame() {
+    stackRafId = 0;
+    if (!stackPhase) return;
+    updateStackProgress();
+    applyDragTransforms(previewDeltaY);
+    if (stackPhase) {
+      updateDebugOverlay(currentTarget);
+      stackRafId = requestAnimationFrame(stackAnimationFrame);
+    }
+  }
+
+  function startStackPhase() {
+    stackTargetOffsets = computeStackTargetOffsets();
+    stackProgress = 0;
+    stackStartMs = performance.now();
+    stackPhase = true;
+    stackAnimationFrame();
+  }
+
+  function beginDrag() {
+    cacheRects();
+    virtualBlockStart = computeVirtualBlockStart();
+    currentTarget = virtualBlockStart;
+    stackTargetOffsets = new Map();
+    stackProgress = 1;
+    stackPhase = false;
+
+    if (dragIndices.length > 1 && !isContiguousSelection()) {
+      startStackPhase();
+    }
+
+    syncRowCenters(currentTarget);
+  }
+
   /** Bounding box of dragged block from drag-start geometry + pointer delta. */
   function measureDragBlockBoundsComputed(): { top: number; bottom: number; center: number } {
     let top = Infinity;
@@ -239,7 +247,7 @@ export function useDragReorder<T>(
     for (const i of dragIndices) {
       const r = rowRects[i];
       if (!r) continue;
-      const shift = previewDeltaY + (collapseOffsets.get(i) ?? 0);
+      const shift = previewDeltaY + appliedStackOffset(i);
       top = Math.min(top, r.top + shift);
       bottom = Math.max(bottom, r.top + r.height + shift);
     }
@@ -247,25 +255,8 @@ export function useDragReorder<T>(
     return { top, bottom, center: (top + bottom) / 2 };
   }
 
-  function compactHeight(): number {
-    return dragIndices.reduce((sum, i) => sum + (rowRects[i]?.height ?? 0), 0);
-  }
-
-  function blockRange(): { lo: number; hi: number; span: number } {
-    const sorted = sortedSelection();
-    const lo = sorted[0] ?? dragFrom;
-    const hi = sorted[sorted.length - 1] ?? dragFrom;
-    return { lo, hi, span: hi - lo };
-  }
-
-  function rowPreviewTop(i: number, slot: number): number {
-    const r = rowRects[i];
-    if (!r) return 0;
-    return r.top + rowPreviewShift(i, slot);
-  }
-
   /**
-   * Next rows to cross in preview — by gap adjacency to the block bbox, not slot indices.
+   * Next rows to cross in preview — header bands vs block bbox edges.
    * Rows shifted into the gap straddle an edge and count as that neighbor.
    */
   function crossingNeighbors(
@@ -279,8 +270,9 @@ export function useDragReorder<T>(
 
     for (let i = 0; i < rowRects.length; i++) {
       if (dragIndexSet.has(i)) continue;
-      const top = rowPreviewTop(i, slot);
-      const bottom = top + rowRects[i]!.height;
+      const header = rowPreviewHeaderBounds(i, slot);
+      const top = header.top;
+      const bottom = header.bottom;
 
       if (top < block.top && bottom > block.top) {
         aboveIdx = i;
@@ -305,22 +297,64 @@ export function useDragReorder<T>(
     return { aboveIdx, belowIdx };
   }
 
+  function buildVirtualOrder(slot: number): number[] {
+    const sorted = sortedSelection();
+    const remaining: number[] = [];
+    for (let i = 0; i < rowRects.length; i++) {
+      if (!dragIndexSet.has(i)) remaining.push(i);
+    }
+    const order: number[] = [];
+    for (let r = 0; r < remaining.length; r++) {
+      if (r === slot) order.push(...sorted);
+      order.push(remaining[r]!);
+    }
+    if (slot >= remaining.length) order.push(...sorted);
+    return order;
+  }
+
+  /** Per-row preview shifts from cumulative heights (handles expanded rows). */
+  function previewLayoutShifts(slot: number): number[] {
+    const n = rowRects.length;
+    const shifts = new Array<number>(n).fill(0);
+    const order = buildVirtualOrder(slot);
+    if (order.length === 0) return shifts;
+
+    let y = rowRects[0]!.top;
+    for (const idx of order) {
+      shifts[idx] = y - rowRects[idx]!.top;
+      y += rowRects[idx]!.height;
+    }
+    return shifts;
+  }
+
   function rowPreviewShift(i: number, slot: number): number {
     if (dragIndexSet.has(i)) {
-      return previewDeltaY + (collapseOffsets.get(i) ?? 0);
+      return previewDeltaY + appliedStackOffset(i);
     }
+    return previewLayoutShifts(slot)[i] ?? 0;
+  }
 
-    const { lo, hi, span } = blockRange();
-    const height = compactHeight();
-    if (slot > lo && i > hi && i <= slot + span) return -height;
-    if (slot < lo && i >= slot && i < lo) return height;
-    return 0;
+  function rowPreviewHeaderBounds(
+    i: number,
+    slot: number,
+  ): { top: number; bottom: number; midY: number } {
+    const r = rowRects[i];
+    if (!r) return { top: 0, bottom: 0, midY: 0 };
+    const shift = rowPreviewShift(i, slot);
+    return {
+      top: r.headerTop + shift,
+      bottom: r.headerBottom + shift,
+      midY: r.headerMidY + shift,
+    };
   }
 
   function rowCrossingCenterY(i: number, slot: number): number {
-    const r = rowRects[i];
-    if (!r) return 0;
-    return r.top + r.height / 2 + rowPreviewShift(i, slot);
+    if (dragIndexSet.has(i)) {
+      const r = rowRects[i];
+      if (!r) return 0;
+      return r.top + r.height / 2 + rowPreviewShift(i, slot);
+    }
+    return rowPreviewHeaderBounds(i, slot).midY;
   }
 
   function syncRowCenters(slot: number) {
@@ -475,7 +509,8 @@ export function useDragReorder<T>(
     parts.push(`
       <div style="position:fixed;top:8px;right:8px;z-index:10000;max-width:280px;padding:8px 10px;border-radius:8px;background:rgb(0 0 0 / 0.85);color:#f5f5f5;font:11px/1.45 ui-monospace,Menlo,monospace;pointer-events:none;white-space:pre">
 <b style="color:#22c55e">layer drag debug</b>
-insertSlot: ${insertSlot}  currentTarget: ${currentTarget}
+phase: ${stackPhase ? "stack" : "drag"}  stack: ${Math.round(stackProgress * 100)}%
+virtualBlock: ${virtualBlockStart}  insertSlot: ${insertSlot}  currentTarget: ${currentTarget}
 block top/bottom: ${Math.round(block.top)} / ${Math.round(block.bottom)}px
 selected: [${sorted.join(", ")}]
 row full centers (yellow, synced to preview):
@@ -492,7 +527,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
   }
 
   function restingSlot(): number {
-    return Math.min(...dragIndices);
+    return virtualBlockStart >= 0 ? virtualBlockStart : Math.min(...dragIndices);
   }
 
   function applyTransforms(slot: number) {
@@ -514,7 +549,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     for (const i of dragIndices) {
       const el = children[i];
       if (!el) continue;
-      const collapse = collapseOffsets.get(i) ?? 0;
+      const collapse = appliedStackOffset(i);
       el.style.transform = `translateY(${deltaY + collapse}px)`;
       el.style.position = "relative";
       el.style.zIndex = "10";
@@ -569,10 +604,13 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
 
     startY = e.clientY;
     dragFrom = index;
+    originalIndices = selected;
+    originalDragFrom = index;
     dragIndices = selected;
     dragIndexSet = new Set(selected);
+    virtualBlockStart = computeVirtualBlockStart();
     cacheRects();
-    currentTarget = restingSlot();
+    currentTarget = virtualBlockStart;
     active = false;
 
     window.addEventListener("pointermove", onPointerMove);
@@ -581,8 +619,6 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
   }
 
   function onPointerMove(e: PointerEvent) {
-    if (groupingAnimating) return;
-
     const deltaY = e.clientY - startY;
     previewDeltaY = deltaY;
 
@@ -593,55 +629,32 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
       draggingIndices.value = new Set(dragIndices);
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
-
-      const beginDrag = () => {
-        cacheRects();
-        collapseOffsets = computeCollapseOffsets();
-        currentTarget = restingSlot();
-        syncRowCenters(currentTarget);
-      };
-
-      if (dragIndices.length > 1 && !isContiguousSelection()) {
-        animateSelectionGrouping(e.clientY, beginDrag);
-        return;
-      }
-
       beginDrag();
     }
 
+    updateStackProgress();
     applyDragTransforms(deltaY);
 
-    let slot = currentTarget;
-    for (let pass = 0; pass < rowRects.length + 1; pass++) {
-      applyTransforms(slot);
-      syncRowCenters(slot);
-      const block = measureDragBlockBoundsComputed();
-      const { aboveIdx } = crossingNeighbors(block, slot);
-      const next = computeTargetSlot(slot);
-      if (next === slot) break;
-      if (next < slot && aboveIdx >= 0) gateDownRow = aboveIdx;
-      slot = next;
+    if (!stackPhase) {
+      refreshPreviewSlot();
+    } else {
+      updateDebugOverlay(currentTarget);
     }
-    currentTarget = slot;
-
-    updateDebugOverlay(currentTarget);
   }
 
-  function cancelGroupingAnimation() {
-    if (preGroupList) list.value = preGroupList;
-    preGroupList = null;
-    groupingAnimating = false;
-    for (const child of getChildren()) {
-      child.style.transition = "";
-      child.style.transform = "";
-    }
+  function cancelStackPhase() {
+    cancelStackRaf();
+    stackPhase = false;
+    stackProgress = 1;
+    stackTargetOffsets = new Map();
   }
 
   function onPointerUp() {
-    if (groupingAnimating) {
-      cancelGroupingAnimation();
-      cleanup();
-      return;
+    if (stackPhase) {
+      cancelStackRaf();
+      stackProgress = 1;
+      stackPhase = false;
+      stackTargetOffsets = new Map();
     }
 
     if (!active) {
@@ -665,9 +678,9 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     draggingIndices.value = new Set();
 
     const next =
-      dragIndexSet.size > 1
-        ? commitBlockAtInsert(list.value, dragIndices, currentTarget)
-        : commitSingleReorder(list.value, dragFrom, currentTarget);
+      originalIndices.length > 1
+        ? commitBlockAtInsert(list.value, originalIndices, currentTarget)
+        : commitSingleReorder(list.value, originalDragFrom, currentTarget);
 
     if (!next) {
       const el = resolveEl();
@@ -728,7 +741,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
-      if (groupingAnimating) cancelGroupingAnimation();
+      if (stackPhase) cancelStackPhase();
       clearChildStyles(getChildren());
       const el = resolveEl();
       if (el) el.offsetHeight;
@@ -751,13 +764,18 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     active = false;
     draggingIndices.value = new Set();
     dragFrom = -1;
+    originalIndices = [];
+    originalDragFrom = -1;
     dragIndices = [];
     dragIndexSet = new Set();
     currentTarget = -1;
+    virtualBlockStart = -1;
     rowRects = [];
-    collapseOffsets = new Map();
-    groupingAnimating = false;
-    preGroupList = null;
+    stackTargetOffsets = new Map();
+    stackProgress = 1;
+    stackStartMs = 0;
+    cancelStackRaf();
+    stackPhase = false;
     rowCenters = [];
     previewDeltaY = 0;
     gateDownRow = -1;
