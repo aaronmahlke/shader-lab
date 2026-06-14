@@ -17,6 +17,7 @@ import {
   LAYER_TEMPLATES,
   evaluatePropertyTrack,
   findPropertyTrack,
+  hasKeyframeAt,
   isKeyframeableUniform,
   isPropertyTrackActive,
   offsetKeyframes,
@@ -33,6 +34,7 @@ import {
 
 type Emits = {
   "toggle-stopwatch": [layerId: string, paramName: string];
+  "toggle-keyframe": [layerId: string, paramName: string];
   "duplicate-layer": [id: string];
   "remove-layer": [id: string];
 };
@@ -50,6 +52,12 @@ const PLAYHEAD_HEAD =
 const DEFAULT_PX_PER_SECOND = 96;
 const MIN_PX_PER_SECOND = 16;
 const MAX_PX_PER_SECOND = 640;
+/** AE-style UU within this window fully expands after U from collapsed. */
+const U_DOUBLE_MS = 350;
+let lastUAt = 0;
+let lastUTargetIds: string[] = [];
+/** Set when a single U reveals keyed props from collapsed; cleared on any other U action. */
+let pendingUUFromCollapsed = false;
 
 const layers = defineModel<LayerInstance[]>("layers", { required: true });
 const tracks = defineModel<PropertyTrack[]>("tracks", { required: true });
@@ -476,32 +484,82 @@ function layersForKeyframeRevealCommand(): string[] {
   return [];
 }
 
+function sameLayerSelection(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((id) => setB.has(id));
+}
+
+function fullExpandLayers(ids: string[]) {
+  const nextExpanded = new Set(expanded.value);
+  const nextRevealed = new Set(keyframesRevealed.value);
+  for (const id of ids) {
+    nextExpanded.add(id);
+    nextRevealed.delete(id);
+    clearUViewPinsForLayer(id);
+  }
+  expanded.value = nextExpanded;
+  keyframesRevealed.value = nextRevealed;
+}
+
+function collapseLayers(ids: string[]) {
+  const nextExpanded = new Set(expanded.value);
+  const nextRevealed = new Set(keyframesRevealed.value);
+  for (const id of ids) {
+    nextExpanded.delete(id);
+    nextRevealed.delete(id);
+    clearUViewPinsForLayer(id);
+  }
+  expanded.value = nextExpanded;
+  keyframesRevealed.value = nextRevealed;
+}
+
+function revealUViewLayers(ids: string[]) {
+  const nextExpanded = new Set(expanded.value);
+  const nextRevealed = new Set(keyframesRevealed.value);
+  for (const id of ids) {
+    nextExpanded.delete(id);
+    nextRevealed.add(id);
+  }
+  expanded.value = nextExpanded;
+  keyframesRevealed.value = nextRevealed;
+}
+
 function toggleRevealKeyframes() {
   const ids = layersForKeyframeRevealCommand();
   if (ids.length === 0) return;
 
-  const allKeyframeOnly = ids.every(
-    (id) => isKeyframesRevealed(id) && !isExpanded(id),
-  );
+  const now = Date.now();
+  const doubleU =
+    now - lastUAt < U_DOUBLE_MS && sameLayerSelection(ids, lastUTargetIds);
 
-  const nextExpanded = new Set(expanded.value);
-  const nextRevealed = new Set(keyframesRevealed.value);
-
-  if (allKeyframeOnly) {
-    for (const id of ids) {
-      nextExpanded.delete(id);
-      nextRevealed.delete(id);
-      clearUViewPinsForLayer(id);
-    }
-  } else {
-    for (const id of ids) {
-      nextExpanded.delete(id);
-      nextRevealed.add(id);
-    }
+  if (doubleU && pendingUUFromCollapsed) {
+    pendingUUFromCollapsed = false;
+    lastUAt = 0;
+    lastUTargetIds = [];
+    fullExpandLayers(ids);
+    return;
   }
 
-  expanded.value = nextExpanded;
-  keyframesRevealed.value = nextRevealed;
+  pendingUUFromCollapsed = false;
+
+  const anyFullyExpanded = ids.some((id) => isExpanded(id));
+  const anyPropertiesShowing = ids.some((id) => isLayerChevronOpen(id));
+  const allFlagsCollapsed = ids.every(
+    (id) => !isExpanded(id) && !isKeyframesRevealed(id),
+  );
+
+  if (anyFullyExpanded) {
+    revealUViewLayers(ids);
+  } else if (anyPropertiesShowing) {
+    collapseLayers(ids);
+  } else {
+    revealUViewLayers(ids);
+    if (allFlagsCollapsed) pendingUUFromCollapsed = true;
+  }
+
+  lastUAt = now;
+  lastUTargetIds = [...ids];
 }
 
 function revealLayerTracks(layerId: string) {
@@ -785,6 +843,11 @@ function isKeyframeAtPlayhead(time: number): boolean {
   return Math.abs(time - currentTime.value) < 1e-6;
 }
 
+function isKeyedAtPlayhead(layerId: string, paramName: string): boolean {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  return hasKeyframeAt(track, currentTime.value);
+}
+
 function keyLeft(time: number): string {
   return `${timeToX(time)}px`;
 }
@@ -1056,15 +1119,27 @@ function selectAllLayers() {
               <template v-for="def in visibleProperties(layer)" :key="`${layer.id}-${def.name}`">
                 <div
                   v-if="showPropertyRow(layer, def.name)"
-                  class="flex h-6 cursor-default items-center gap-1 border-t border-neutral/50 pl-6 pr-2 select-none"
+                  class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
                 >
-                  <UiStopwatchButton
-                    data-drag-exclude
-                    :active="trackEnabled(layer.id, def.name)"
-                    @toggle="emit('toggle-stopwatch', layer.id, def.name)"
-                  />
-                  <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">{{ def.label }}</span>
-                  <span class="font-mono text-copy-xs text-neutral-subtle">
+                  <div class="flex size-5 shrink-0 items-center justify-center">
+                    <UiKeyframeButton
+                      v-if="trackEnabled(layer.id, def.name)"
+                      data-drag-exclude
+                      :active="isKeyedAtPlayhead(layer.id, def.name)"
+                      @toggle="emit('toggle-keyframe', layer.id, def.name)"
+                    />
+                  </div>
+                  <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1">
+                    <UiStopwatchButton
+                      data-drag-exclude
+                      :active="trackEnabled(layer.id, def.name)"
+                      @toggle="emit('toggle-stopwatch', layer.id, def.name)"
+                    />
+                    <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
+                      {{ def.label }}
+                    </span>
+                  </div>
+                  <span class="shrink-0 font-mono text-copy-xs text-neutral-subtle">
                     {{ valueAt(layer, def.name, def.default as number).toFixed(2) }}
                   </span>
                 </div>

@@ -947,6 +947,7 @@ registerKeyboard({
           v-model:px-per-second="timelineZoom"
           :settings="settings"
           @toggle-stopwatch="toggleStopwatch"
+          @toggle-keyframe="toggleKeyframeAtPlayhead"
           @duplicate-layer="duplicateLayer"
           @remove-layer="removeLayer"
         />
