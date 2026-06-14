@@ -14,6 +14,8 @@ const { color, waveShape = "custom", editable = true, cursorPosition } = defineP
 
 const points = defineModel<WavePoint[]>({ required: true });
 
+const history = useEditorHistory();
+
 function sampleWave(t: number): number {
   return evaluateLfoWave(waveShape, points.value, t);
 }
@@ -409,6 +411,7 @@ function onPointerDown(e: PointerEvent) {
   e.preventDefault();
   dragIdx.value = hit.idx;
   dragType.value = hit.type;
+  history?.beginGesture();
 
   const canvas = canvasRef.value!;
   const dpr = window.devicePixelRatio || 1;
@@ -458,6 +461,7 @@ function onPointerDown(e: PointerEvent) {
   function onUp() {
     dragIdx.value = null;
     dragType.value = null;
+    history?.commitGesture();
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
   }
@@ -494,6 +498,7 @@ function onDblClick(e: MouseEvent) {
 
   pts.splice(insertIdx, 0, { x: newX, y: newY, curve: 0 });
   requestAnimationFrame(draw);
+  history?.record();
 }
 
 function onContextMenu(e: MouseEvent) {
@@ -506,6 +511,7 @@ function onContextMenu(e: MouseEvent) {
   hoveredIdx.value = null;
   hoveredType.value = null;
   requestAnimationFrame(draw);
+  history?.record();
 }
 
 watch(() => [cursorPosition, points.value, waveShape, editable, color], () => {

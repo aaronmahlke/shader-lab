@@ -20,6 +20,8 @@ const lfos = defineModel<LFOSource[]>("lfos", { required: true });
 const selectedLfoId = defineModel<string | null>("selectedLfoId", { required: true });
 const emit = defineEmits<Emits>();
 
+const history = useEditorHistory();
+
 let lfoCounter = 0;
 
 function initLfoCounter() {
@@ -131,10 +133,12 @@ function addLfo() {
     mode: "loop",
   });
   selectedLfoId.value = id;
+  history?.record();
 }
 
 function selectLfo(id: string) {
   selectedLfoId.value = selectedLfoId.value === id ? null : id;
+  history?.record();
 }
 
 function onDeleteLfo(id: string) {

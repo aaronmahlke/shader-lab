@@ -50,6 +50,7 @@ const {
 } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
+const history = useEditorHistory();
 const stageRef = ref<HTMLElement | null>(null);
 const dragMode = ref<DragMode | null>(null);
 const moveOffset = ref<{ x: number; y: number } | null>(null);
@@ -168,6 +169,7 @@ function onPointerDown(e: PointerEvent) {
 
   dragMode.value = hitWaveGizmoHandle(norm, rect, values.value);
   dragStart.value = { ...values.value };
+  history?.beginGesture();
   if (dragMode.value === "move") {
     moveOffset.value = { x: norm.x - cycleX, y: norm.y - centerY };
   } else {
@@ -183,6 +185,7 @@ function onPointerMove(e: PointerEvent) {
 
 function onPointerUp(e: PointerEvent) {
   if (!dragMode.value) return;
+  history?.commitGesture();
   dragMode.value = null;
   moveOffset.value = null;
   dragStart.value = null;

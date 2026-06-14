@@ -45,6 +45,8 @@ const MAX_PX_PER_SECOND = 640;
 const layers = defineModel<LayerInstance[]>("layers", { required: true });
 const tracks = defineModel<PropertyTrack[]>("tracks", { required: true });
 const selectedLayerId = defineModel<string | null>("selectedLayerId", { required: true });
+const selectedLayerIds = defineModel<Set<string>>("selectedLayerIds", { required: true });
+const selectionAnchorId = defineModel<string | null>("selectionAnchorId", { required: true });
 const selectedKeyframes = defineModel<KeyframeSelection[]>("selectedKeyframes", {
   default: () => [],
 });
@@ -58,8 +60,7 @@ const { settings } = defineProps<{
 
 const emit = defineEmits<Emits>();
 
-const selectionAnchorId = ref<string | null>(null);
-const selectedLayerIds = ref<Set<string>>(new Set());
+const history = useEditorHistory();
 
 function layerIndex(id: string): number {
   return layers.value.findIndex((l) => l.id === id);
@@ -82,7 +83,11 @@ const { containerRef: layerListRef, draggingIndices } = useDragReorder(layers, {
     selectedLayerId.value = layer.id;
     selectionAnchorId.value = layer.id;
     selectedKeyframes.value = [];
+    history?.record();
   },
+  onReorderGestureStart: () => history?.beginGesture(),
+  onReorderGestureCommit: () => history?.commitGesture(),
+  onReorderGestureCancel: () => history?.cancelGesture(),
 });
 
 watch(
@@ -523,6 +528,7 @@ function onKeyframePointerDown(
   if (e.shiftKey) {
     selectedKeyframes.value = toggleKeyframeInSelection(selectedKeyframes.value, clickedKey);
     selectedLayerId.value = layerId;
+    history?.record();
     return;
   }
 
@@ -542,6 +548,7 @@ function onKeyframePointerDown(
 
     if (!dragging) {
       dragging = true;
+      history?.beginGesture();
       dragKeys = wasInSelection
         ? selectedKeyframes.value.map((k) => ({ ...k }))
         : [{ ...clickedKey }];
@@ -565,6 +572,8 @@ function onKeyframePointerDown(
   function onUp() {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    if (dragging) history?.commitGesture();
+    else history?.record();
   }
 
   window.addEventListener("pointermove", onMove);
@@ -614,6 +623,7 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
       if (hits.length > 0) {
         selectedLayerId.value = hits[0]!.layerId;
       }
+      history?.record();
     }
     marquee.value = null;
   }
@@ -662,6 +672,7 @@ function toggleLayerEnabled(layer: LayerInstance) {
   for (const target of applyTo) {
     target.enabled = nextEnabled;
   }
+  history?.record();
 }
 
 function isLayerSelected(id: string): boolean {
@@ -692,6 +703,7 @@ function selectLayer(id: string, e?: MouseEvent) {
     selectedKeyframes.value = [];
     if (next.size === 0) {
       selectedLayerId.value = null;
+      history?.record();
       return;
     }
     if (adding) {
@@ -702,6 +714,7 @@ function selectLayer(id: string, e?: MouseEvent) {
           ? selectedLayerId.value
           : [...next][0]!;
     }
+    history?.record();
     return;
   } else {
     selectedLayerIds.value = new Set([id]);
@@ -710,6 +723,7 @@ function selectLayer(id: string, e?: MouseEvent) {
 
   selectedLayerId.value = id;
   selectedKeyframes.value = [];
+  history?.record();
 }
 
 function selectAllLayers() {
@@ -720,6 +734,7 @@ function selectAllLayers() {
   }
   selectionAnchorId.value = selectedLayerId.value;
   selectedKeyframes.value = [];
+  history?.record();
 }
 </script>
 

@@ -28,6 +28,7 @@ type Emits = {
 const { bandY, edge, yMin, yMax, edgeMin, edgeMax } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
+const history = useEditorHistory();
 const stageRef = ref<HTMLElement | null>(null);
 const dragMode = ref<BandDragMode | null>(null);
 const moveOffsetY = ref<number | null>(null);
@@ -102,6 +103,7 @@ function onPointerDown(e: PointerEvent) {
 
   e.preventDefault();
   dragMode.value = hit;
+  history?.beginGesture();
   moveOffsetY.value = hit === "move" ? norm.y - bandY : null;
   stageRef.value?.setPointerCapture(e.pointerId);
 }
@@ -113,6 +115,7 @@ function onPointerMove(e: PointerEvent) {
 
 function onPointerUp(e: PointerEvent) {
   if (!dragMode.value) return;
+  history?.commitGesture();
   dragMode.value = null;
   moveOffsetY.value = null;
   try {

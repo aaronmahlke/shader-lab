@@ -3,6 +3,7 @@ import { hexToHsv, hsvToHex } from "~/utils/color";
 
 const model = defineModel<string>({ default: "#ff0000" });
 
+const history = useEditorHistory();
 const [hue, sat, val] = hexToHsv(model.value);
 const h = ref(hue);
 const s = ref(sat);
@@ -46,8 +47,20 @@ function onSVPointerDown(e: PointerEvent) {
   e.preventDefault();
   const el = svFieldRef.value;
   if (!el) return;
+  history?.beginGesture();
   el.setPointerCapture(e.pointerId);
   updateSV(e);
+}
+
+function onSVPointerUp(e: PointerEvent) {
+  const el = svFieldRef.value;
+  if (!el?.hasPointerCapture(e.pointerId)) return;
+  history?.commitGesture();
+  try {
+    el.releasePointerCapture(e.pointerId);
+  } catch {
+    // ignore
+  }
 }
 
 function onSVPointerMove(e: PointerEvent) {
@@ -69,8 +82,20 @@ function onHuePointerDown(e: PointerEvent) {
   e.preventDefault();
   const el = hueStripRef.value;
   if (!el) return;
+  history?.beginGesture();
   el.setPointerCapture(e.pointerId);
   updateHue(e);
+}
+
+function onHuePointerUp(e: PointerEvent) {
+  const el = hueStripRef.value;
+  if (!el?.hasPointerCapture(e.pointerId)) return;
+  history?.commitGesture();
+  try {
+    el.releasePointerCapture(e.pointerId);
+  } catch {
+    // ignore
+  }
 }
 
 function onHuePointerMove(e: PointerEvent) {
@@ -86,6 +111,7 @@ function commitHex(e: Event) {
   if (!val.startsWith("#")) val = "#" + val;
   if (/^#[0-9a-fA-F]{6}$/.test(val)) {
     model.value = val;
+    history?.record();
   }
   // Reset input to current valid value
   input.value = hexValue.value;
@@ -101,6 +127,8 @@ function commitHex(e: Event) {
       :style="{ backgroundColor: pureHueColor }"
       @pointerdown="onSVPointerDown"
       @pointermove="onSVPointerMove"
+      @pointerup="onSVPointerUp"
+      @pointercancel="onSVPointerUp"
     >
       <!-- Saturation gradient: white → transparent (left to right) -->
       <div class="absolute inset-0 bg-gradient-to-r from-white to-transparent" />
@@ -120,6 +148,8 @@ function commitHex(e: Event) {
       style="background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)"
       @pointerdown="onHuePointerDown"
       @pointermove="onHuePointerMove"
+      @pointerup="onHuePointerUp"
+      @pointercancel="onHuePointerUp"
     >
       <!-- Hue indicator -->
       <div

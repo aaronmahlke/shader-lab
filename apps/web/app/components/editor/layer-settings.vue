@@ -44,6 +44,8 @@ const {
 } = props;
 const emit = defineEmits<Emits>();
 
+const history = useEditorHistory();
+
 function getAssignment(paramName: string): ModulationAssignment | undefined {
   return assignments.find((a) => a.layerId === layer.id && a.paramName === paramName);
 }
@@ -179,6 +181,7 @@ function getColor(def: LayerUniformDef, target: Record<string, unknown>): string
 
 function setColor(def: LayerUniformDef, target: Record<string, unknown>, v: string) {
   target[def.name] = v;
+  history?.record();
 }
 
 function getBool(def: LayerUniformDef, target: Record<string, unknown>): boolean {
@@ -187,6 +190,7 @@ function getBool(def: LayerUniformDef, target: Record<string, unknown>): boolean
 
 function setBool(def: LayerUniformDef, target: Record<string, unknown>, v: boolean) {
   target[def.name] = v;
+  history?.record();
 }
 
 function getGradient(def: LayerUniformDef, target: Record<string, unknown>): GradientStop[] {
@@ -211,6 +215,7 @@ function getSelect(def: LayerUniformDef, target: Record<string, unknown>): strin
 
 function setSelect(def: LayerUniformDef, target: Record<string, unknown>, v: string | number) {
   target[def.name] = v;
+  history?.record();
 }
 
 function getVec2(def: LayerUniformDef, target: Record<string, unknown>): [number, number] {
@@ -229,6 +234,7 @@ function setVec2Y(def: LayerUniformDef, target: Record<string, unknown>, y: numb
 
 function resetUniform(def: LayerUniformDef) {
   layer.values[def.name] = def.default;
+  history?.record();
 }
 
 const isDistortion = computed(() => layer.type === "distortion");

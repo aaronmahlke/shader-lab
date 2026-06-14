@@ -15,6 +15,8 @@ type Emits = {
 const { lfo, cursorPosition } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
+const history = useEditorHistory();
+
 const isCustom = computed(() => (lfo.waveShape ?? "sine") === "custom");
 
 const activePreset = computed(() => {
@@ -29,15 +31,18 @@ const activePreset = computed(() => {
 function setSine() {
   lfo.waveShape = "sine";
   lfo.points = clonePresetPoints("sine");
+  history?.record();
 }
 
 function setCustom() {
   lfo.waveShape = "custom";
+  history?.record();
 }
 
 function applyPreset(key: string) {
   lfo.waveShape = "custom";
   lfo.points = clonePresetPoints(key);
+  history?.record();
 }
 </script>
 

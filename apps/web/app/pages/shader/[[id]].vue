@@ -20,6 +20,8 @@ import {
   isPropertyTrackActive,
 } from "@shader-lab/core";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
+import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
+import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
 import { useEventListener } from "@vueuse/core";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
@@ -99,6 +101,17 @@ const currentTime = ref(0);
 const playing = ref(false);
 const selectedKeyframes = ref<KeyframeSelection[]>([]);
 
+const selectedLayerId = ref<string | null>(null);
+const selectedLayerIds = ref<Set<string>>(new Set());
+const selectionAnchorId = ref<string | null>(null);
+
+function syncInitialLayerSelection() {
+  const id = layers.value.find((l) => l.enabled)?.id ?? layers.value[0]?.id ?? null;
+  selectedLayerId.value = id;
+  selectedLayerIds.value = id ? new Set([id]) : new Set();
+  selectionAnchorId.value = id;
+}
+
 if (routeId) {
   const { data } = await useFetch(`/api/shaders/${routeId}`);
   if (data.value) {
@@ -128,14 +141,11 @@ if (routeId) {
     });
     lfos.value = comp.data.lfos.map((lfo) => normalizeLfo(lfo));
     assignments.value = comp.data.assignments;
+    syncInitialLayerSelection();
   }
 }
 
-// --- Selection state ---
-
-const selectedLayerId = ref<string | null>(
-  layers.value.find((l) => l.enabled)?.id ?? layers.value[0]?.id ?? null,
-);
+syncInitialLayerSelection();
 
 const selectedLayer = computed(() => {
   if (!selectedLayerId.value) return null;
@@ -204,25 +214,6 @@ onBeforeUnmount(() => {
   if (playbackId !== null) cancelAnimationFrame(playbackId);
 });
 
-useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  const target = e.target as HTMLElement | null;
-  if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
-
-  if (e.code === "Space" && !e.repeat) {
-    e.preventDefault();
-    playing.value = !playing.value;
-    return;
-  }
-
-  if (
-    (e.code === "Backspace" || e.code === "Delete") &&
-    selectedKeyframes.value.length > 0
-  ) {
-    e.preventDefault();
-    deleteSelectedKeyframes();
-  }
-});
-
 // --- Layer Compiler + Renderer ---
 
 const { passes } = useLayerCompiler(layers, modFn, lfos, assignments);
@@ -283,6 +274,7 @@ function toggleStopwatch(layerId: string, paramName: string) {
     selectedKeyframes.value = selectedKeyframes.value.filter(
       (k) => !(k.layerId === layerId && k.paramName === paramName),
     );
+    history.record();
     return;
   }
   const layer = layers.value.find((l) => l.id === layerId);
@@ -298,6 +290,7 @@ function toggleStopwatch(layerId: string, paramName: string) {
     value,
     currentTime.value,
   );
+  history.record();
 }
 
 function setAnimatedValue(layerId: string, paramName: string, value: number) {
@@ -329,6 +322,7 @@ function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
           Math.abs(k.time - currentTime.value) < 1e-6
         ),
     );
+    history.record();
     return;
   }
 
@@ -344,6 +338,7 @@ function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
     currentTime.value,
     value,
   );
+  history.record();
 }
 
 function deleteSelectedKeyframes() {
@@ -371,6 +366,7 @@ function deleteSelectedKeyframes() {
 
   tracks.value = next;
   selectedKeyframes.value = [];
+  history.record();
 }
 
 
@@ -394,6 +390,9 @@ function addLayer(type: LayerType) {
 
   layers.value.unshift({ id, type, enabled: true, values });
   selectedLayerId.value = id;
+  selectedLayerIds.value = new Set([id]);
+  selectionAnchorId.value = id;
+  history.record();
 }
 
 function removeLayer(id: string) {
@@ -401,9 +400,12 @@ function removeLayer(id: string) {
   if (idx === -1) return;
   layers.value.splice(idx, 1);
   assignments.value = assignments.value.filter((a) => a.layerId !== id);
+  tracks.value = tracks.value.filter((t) => t.layerId !== id);
+  selectedLayerIds.value = new Set([...selectedLayerIds.value].filter((layerId) => layerId !== id));
   if (selectedLayerId.value === id) {
     selectedLayerId.value = layers.value[Math.min(idx, layers.value.length - 1)]?.id ?? null;
   }
+  history.record();
 }
 
 function duplicateLayer(id: string) {
@@ -431,6 +433,9 @@ function duplicateLayer(id: string) {
     .filter((a) => a.layerId === id)
     .map((a) => ({ ...a, layerId: newId }));
   assignments.value.push(...clonedAssignments);
+  selectedLayerIds.value = new Set([newId]);
+  selectionAnchorId.value = newId;
+  history.record();
 }
 
 // --- LFO Management ---
@@ -439,6 +444,7 @@ function deleteLfo(id: string) {
   lfos.value = lfos.value.filter((l) => l.id !== id);
   assignments.value = assignments.value.filter((a) => a.sourceId !== id);
   if (selectedLfoId.value === id) selectedLfoId.value = null;
+  history.record();
 }
 
 function duplicateLfo(id: string) {
@@ -455,10 +461,12 @@ function duplicateLfo(id: string) {
   };
   lfos.value.push(clone);
   selectedLfoId.value = newId;
+  history.record();
 }
 
 function clearLfoAssignments(id: string) {
   assignments.value = assignments.value.filter((a) => a.sourceId !== id);
+  history.record();
 }
 
 // --- Modulation Assignment Management ---
@@ -479,6 +487,7 @@ function assignLfo(paramName: string) {
     depth: range,
   });
   draggingLfoId.value = null;
+  history.record();
 }
 
 function removeAssignment(sourceId: string, paramName: string) {
@@ -486,6 +495,7 @@ function removeAssignment(sourceId: string, paramName: string) {
   assignments.value = assignments.value.filter(
     (a) => !(a.sourceId === sourceId && a.layerId === selectedLayer.value!.id && a.paramName === paramName),
   );
+  history.record();
 }
 
 function updateDepth(sourceId: string, paramName: string, depth: number) {
@@ -611,6 +621,73 @@ function setBandFloat(
 ) {
   layer.values[key] = value;
 }
+
+function captureEditorSnapshot(): EditorSnapshot {
+  return cloneEditorSnapshot({
+    shaderName: shaderName.value,
+    layers: layers.value,
+    lfos: lfos.value,
+    assignments: assignments.value,
+    settings: settings.value,
+    tracks: tracks.value,
+    selectedLayerId: selectedLayerId.value,
+    selectedLayerIds: [...selectedLayerIds.value],
+    selectedLfoId: selectedLfoId.value,
+    selectedKeyframes: selectedKeyframes.value,
+    selectionAnchorId: selectionAnchorId.value,
+    meshSelectedPointIndex: meshSelectedPointIndex.value,
+  });
+}
+
+function applyEditorSnapshot(snap: EditorSnapshot) {
+  shaderName.value = snap.shaderName;
+  layers.value = snap.layers;
+  lfos.value = snap.lfos;
+  assignments.value = snap.assignments;
+  settings.value = snap.settings;
+  tracks.value = snap.tracks;
+  selectedLayerId.value = snap.selectedLayerId;
+  selectedLayerIds.value = new Set(snap.selectedLayerIds);
+  selectedLfoId.value = snap.selectedLfoId;
+  selectedKeyframes.value = snap.selectedKeyframes;
+  selectionAnchorId.value = snap.selectionAnchorId;
+  meshSelectedPointIndex.value = snap.meshSelectedPointIndex;
+}
+
+const history = useUndoHistory(captureEditorSnapshot, applyEditorSnapshot);
+provideEditorHistory(history);
+history.reset();
+
+watch(shaderName, () => {
+  if (history.isApplying.value) return;
+  history.record();
+});
+
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement | null;
+  if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) history.redo();
+    else history.undo();
+    return;
+  }
+
+  if (e.code === "Space" && !e.repeat) {
+    e.preventDefault();
+    playing.value = !playing.value;
+    return;
+  }
+
+  if (
+    (e.code === "Backspace" || e.code === "Delete") &&
+    selectedKeyframes.value.length > 0
+  ) {
+    e.preventDefault();
+    deleteSelectedKeyframes();
+  }
+});
 </script>
 
 <template>
@@ -692,6 +769,8 @@ function setBandFloat(
           v-model:layers="layers"
           v-model:tracks="tracks"
           v-model:selected-layer-id="selectedLayerId"
+          v-model:selected-layer-ids="selectedLayerIds"
+          v-model:selection-anchor-id="selectionAnchorId"
           v-model:selected-keyframes="selectedKeyframes"
           v-model:current-time="currentTime"
           v-model:playing="playing"
@@ -733,7 +812,7 @@ function setBandFloat(
             size="sm"
             :icon-left="CubeIcon"
             title="Randomize"
-            @click="layerSettingsRef?.randomize()"
+            @click="layerSettingsRef?.randomize(); history.record()"
           />
           <UiButton
             v-if="selectedLayer && selectedTemplate"
@@ -741,7 +820,7 @@ function setBandFloat(
             size="sm"
             :icon-left="ArrowPathIcon"
             title="Reset to defaults"
-            @click="layerSettingsRef?.reset()"
+            @click="layerSettingsRef?.reset(); history.record()"
           />
         </div>
 

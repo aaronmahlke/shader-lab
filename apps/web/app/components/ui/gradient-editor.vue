@@ -3,6 +3,7 @@ import type { GradientStop } from "@shader-lab/core";
 
 const model = defineModel<GradientStop[]>({ required: true });
 
+const history = useEditorHistory();
 const selectedIndex = ref<number>(0);
 const draggingIndex = ref<number | null>(null);
 const trackRef = ref<HTMLDivElement | null>(null);
@@ -40,6 +41,7 @@ function onTrackDoubleClick(e: MouseEvent) {
   const newStops = [...model.value, { color, position }];
   model.value = newStops;
   selectedIndex.value = newStops.length - 1;
+  history?.record();
 }
 
 function sampleGradientColor(position: number): string {
@@ -76,6 +78,7 @@ function onStopPointerDown(e: PointerEvent, index: number) {
   e.stopPropagation();
   selectedIndex.value = index;
   draggingIndex.value = index;
+  history?.beginGesture();
 
   const onMove = (e: PointerEvent) => {
     if (draggingIndex.value === null) return;
@@ -87,6 +90,7 @@ function onStopPointerDown(e: PointerEvent, index: number) {
 
   const onUp = () => {
     draggingIndex.value = null;
+    history?.commitGesture();
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
   };
@@ -102,6 +106,7 @@ function deleteSelected() {
   model.value = newStops;
   // Select the nearest remaining stop
   selectedIndex.value = Math.min(idx, newStops.length - 1);
+  history?.record();
 }
 
 function onKeyDown(e: KeyboardEvent) {

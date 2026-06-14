@@ -10,6 +10,12 @@ type DragReorderOptions = {
   getSelectedIndices?: () => number[];
   /** Called on pointer down before drag starts (e.g. ensure row is selected). */
   onDragStartIndex?: (index: number, e: PointerEvent) => void;
+  /** Called when the row block actually starts moving (past drag threshold). */
+  onReorderGestureStart?: () => void;
+  /** Called when a reorder is committed to the list. */
+  onReorderGestureCommit?: () => void;
+  /** Called when a drag ends without reordering the list. */
+  onReorderGestureCancel?: () => void;
 };
 
 type RowRect = {
@@ -45,7 +51,15 @@ export function useDragReorder<T>(
   list: Ref<T[]>,
   options: DragReorderOptions = {},
 ) {
-  const { animation = 200, stackAnimation = 120, getSelectedIndices, onDragStartIndex } = options;
+  const {
+    animation = 200,
+    stackAnimation = 120,
+    getSelectedIndices,
+    onDragStartIndex,
+    onReorderGestureStart,
+    onReorderGestureCommit,
+    onReorderGestureCancel,
+  } = options;
   const containerRef = ref<HTMLElement | null>(null);
   const draggingIndices = ref<Set<number>>(new Set());
 
@@ -88,6 +102,7 @@ export function useDragReorder<T>(
   let didDrag = false;
   let activePointerId = -1;
   let capturedPointerId = -1;
+  let reorderGestureStarted = false;
 
   function remainingSlotCount(): number {
     return Math.max(0, rowRects.length - dragIndices.length);
@@ -555,6 +570,10 @@ export function useDragReorder<T>(
         if (Math.abs(deltaY) < 4) continue;
         active = true;
         didDrag = true;
+        if (!reorderGestureStarted) {
+          reorderGestureStarted = true;
+          onReorderGestureStart?.();
+        }
         draggingIndices.value = new Set(dragIndices);
         document.body.style.cursor = "grabbing";
         document.body.style.userSelect = "none";
@@ -611,6 +630,8 @@ export function useDragReorder<T>(
         : commitSingleReorder(list.value, originalDragFrom, currentTarget);
 
     if (!next) {
+      if (reorderGestureStarted) onReorderGestureCancel?.();
+      reorderGestureStarted = false;
       const el = resolveEl();
       if (el) el.offsetHeight;
       for (const el of children) {
@@ -621,6 +642,8 @@ export function useDragReorder<T>(
     }
 
     list.value = next;
+    if (reorderGestureStarted) onReorderGestureCommit?.();
+    reorderGestureStarted = false;
 
     nextTick(() => {
       const newChildren = getChildren();
@@ -678,6 +701,7 @@ export function useDragReorder<T>(
       for (const el of getChildren()) {
         el.style.transition = "";
       }
+      if (reorderGestureStarted) onReorderGestureCancel?.();
       cleanup();
     }
   }
@@ -691,6 +715,7 @@ export function useDragReorder<T>(
   }
 
   function cleanup() {
+    reorderGestureStarted = false;
     active = false;
     draggingIndices.value = new Set();
     dragFrom = -1;

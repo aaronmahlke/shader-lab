@@ -27,6 +27,7 @@ const {
 
 const model = defineModel<number>({ default: 0.5 });
 
+const history = useEditorHistory();
 const isDragging = ref(false);
 const isHovered = ref(false);
 const isEditing = ref(false);
@@ -100,6 +101,7 @@ function commitValue(e: Event) {
     model.value = Math.min(max, Math.max(min, snapped));
   }
   isEditing.value = false;
+  history?.record();
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -108,7 +110,15 @@ function onPointerDown(e: PointerEvent) {
     e.stopPropagation();
     return;
   }
+  history?.beginGesture();
   isDragging.value = true;
+}
+
+function onPointerEnd() {
+  if (isDragging.value) {
+    history?.commitGesture();
+  }
+  isDragging.value = false;
 }
 </script>
 
@@ -129,8 +139,8 @@ function onPointerDown(e: PointerEvent) {
       as="div"
       class="relative h-8 outline-none"
       @update:model-value="(val?: number[]) => (model = val?.[0] ?? model)"
-      @pointerup="isDragging = false"
-      @pointercancel="isDragging = false"
+      @pointerup="onPointerEnd"
+      @pointercancel="onPointerEnd"
     >
       <SliderTrack
         as="div"
