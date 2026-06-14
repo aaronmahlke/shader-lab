@@ -81,7 +81,9 @@ export function useDragReorder<T>(
   let currentTarget = -1;
   let rowRects: RowRect[] = [];
   let collapseOffsets = new Map<number, number>();
-  /** Row center Y captured at drag start — must not follow preview transforms. */
+  let groupingAnimating = false;
+  let preGroupList: T[] | null = null;
+  /** Row center Y synced to the current preview layout. */
   let rowCenters: number[] = [];
   let previewDeltaY = 0;
   let active = false;
@@ -116,6 +118,84 @@ export function useDragReorder<T>(
 
   function sortedSelection(): number[] {
     return [...dragIndices].sort((a, b) => a - b);
+  }
+
+  function isContiguousSelection(): boolean {
+    const sorted = sortedSelection();
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i]! !== sorted[i - 1]! + 1) return false;
+    }
+    return true;
+  }
+
+  /** Collapse non-adjacent selection into a contiguous block with FLIP animation. */
+  function animateSelectionGrouping(pointerY: number, onDone: () => void) {
+    const sorted = sortedSelection();
+    const grabPos = sorted.indexOf(dragFrom);
+    const blockStart = dragFrom - grabPos;
+    const children = getChildren();
+    const snapshot = new Map<HTMLElement, number>();
+    for (const el of children) {
+      snapshot.set(el, el.getBoundingClientRect().top);
+    }
+
+    const next = commitMultiReorder(list.value, dragIndices, dragFrom);
+    if (!next) {
+      onDone();
+      return;
+    }
+
+    preGroupList = [...list.value];
+    list.value = next;
+    dragIndices = sorted.map((_, i) => blockStart + i);
+    dragIndexSet = new Set(dragIndices);
+    draggingIndices.value = new Set(dragIndices);
+    currentTarget = blockStart;
+    groupingAnimating = true;
+
+    nextTick(() => {
+      const newChildren = getChildren();
+      let animated = 0;
+
+      for (const el of newChildren) {
+        const oldTop = snapshot.get(el);
+        if (oldTop === undefined) continue;
+        const dy = oldTop - el.getBoundingClientRect().top;
+        if (Math.abs(dy) > 0.5) {
+          el.style.transition = "none";
+          el.style.transform = `translateY(${dy}px)`;
+          animated++;
+        }
+      }
+
+      const container = resolveEl();
+      if (container) container.offsetHeight;
+
+      for (const el of newChildren) {
+        if (!el.style.transform) continue;
+        el.style.transition = `transform ${animation}ms ${easing}`;
+        el.style.transform = "";
+      }
+
+      const finish = () => {
+        for (const child of getChildren()) {
+          child.style.transition = "";
+          child.style.transform = "";
+        }
+        groupingAnimating = false;
+        preGroupList = null;
+        startY = pointerY;
+        previewDeltaY = 0;
+        onDone();
+      };
+
+      if (animated === 0) {
+        finish();
+        return;
+      }
+
+      setTimeout(finish, animation + 20);
+    });
   }
 
   /** Close gaps between selected rows (computed once at drag start, no pointer delta). */
@@ -153,13 +233,11 @@ export function useDragReorder<T>(
     return { top, bottom, center: (top + bottom) / 2 };
   }
 
-  /** Center used for crossing detection — header for single, union bbox for multi. */
+  /** Crossing anchor — always the grabbed row header (single layer or stack). */
   function measureCrossingCenter(): number {
-    if (dragIndices.length === 1) {
-      const r = rowRects[dragFrom];
-      if (r) {
-        return r.headerMidY + previewDeltaY + (collapseOffsets.get(dragFrom) ?? 0);
-      }
+    const r = rowRects[dragFrom];
+    if (r) {
+      return r.headerMidY + previewDeltaY + (collapseOffsets.get(dragFrom) ?? 0);
     }
     return measureDragBlockBoundsComputed().center;
   }
@@ -194,8 +272,7 @@ export function useDragReorder<T>(
   function rowCrossingCenterY(i: number, slot: number): number {
     const r = rowRects[i];
     if (!r) return 0;
-    const anchor = dragIndices.length === 1 ? r.headerMidY : r.top + r.height / 2;
-    return anchor + rowPreviewShift(i, slot);
+    return r.headerMidY + rowPreviewShift(i, slot);
   }
 
   function syncRowCenters(slot: number) {
@@ -317,7 +394,7 @@ export function useDragReorder<T>(
     if (Number.isFinite(block.top)) {
       parts.push(
         `<div style="${boxStyle(block.top, lane.left, lane.width, block.bottom - block.top, "#22c55e")}" title="drag block union"></div>`,
-        `<div style="${lineStyle(crossingCenter, lane.left, lane.width, "#22c55e")}" title="crossing anchor (header for single, block center for multi)"></div>`,
+        `<div style="${lineStyle(crossingCenter, lane.left, lane.width, "#22c55e")}" title="crossing anchor (grabbed row header)"></div>`,
       );
     }
 
@@ -458,6 +535,8 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
   }
 
   function onPointerMove(e: PointerEvent) {
+    if (groupingAnimating) return;
+
     const deltaY = e.clientY - startY;
     previewDeltaY = deltaY;
 
@@ -466,12 +545,22 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
       active = true;
       didDrag = true;
       draggingIndices.value = new Set(dragIndices);
-      cacheRects();
-      collapseOffsets = computeCollapseOffsets();
-      currentTarget = restingSlot();
-      syncRowCenters(currentTarget);
       document.body.style.cursor = "grabbing";
       document.body.style.userSelect = "none";
+
+      const beginDrag = () => {
+        cacheRects();
+        collapseOffsets = computeCollapseOffsets();
+        currentTarget = restingSlot();
+        syncRowCenters(currentTarget);
+      };
+
+      if (dragIndices.length > 1 && !isContiguousSelection()) {
+        animateSelectionGrouping(e.clientY, beginDrag);
+        return;
+      }
+
+      beginDrag();
     }
 
     applyDragTransforms(deltaY);
@@ -489,7 +578,23 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     updateDebugOverlay(currentTarget);
   }
 
+  function cancelGroupingAnimation() {
+    if (preGroupList) list.value = preGroupList;
+    preGroupList = null;
+    groupingAnimating = false;
+    for (const child of getChildren()) {
+      child.style.transition = "";
+      child.style.transform = "";
+    }
+  }
+
   function onPointerUp() {
+    if (groupingAnimating) {
+      cancelGroupingAnimation();
+      cleanup();
+      return;
+    }
+
     if (!active) {
       cleanup();
       return;
@@ -574,6 +679,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      if (groupingAnimating) cancelGroupingAnimation();
       clearChildStyles(getChildren());
       const el = resolveEl();
       if (el) el.offsetHeight;
@@ -601,6 +707,8 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     currentTarget = -1;
     rowRects = [];
     collapseOffsets = new Map();
+    groupingAnimating = false;
+    preGroupList = null;
     rowCenters = [];
     previewDeltaY = 0;
     removeDebugOverlay();
