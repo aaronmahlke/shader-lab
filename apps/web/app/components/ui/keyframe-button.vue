@@ -20,15 +20,11 @@ const emit = defineEmits<Emits>();
 <template>
   <button
     type="button"
-    class="flex size-5 shrink-0 items-center justify-center rounded outline-none transition-colors disabled:opacity-40"
-    :class="active ? 'text-accent' : 'text-neutral-subtle hover:text-neutral-strong'"
+    class="flex size-5 shrink-0 items-center justify-center rounded outline-none disabled:opacity-40"
     :disabled="disabled"
     :title="title"
     @click.stop="emit('toggle')"
   >
-    <span
-      class="size-2 rotate-45 border border-current"
-      :class="active ? 'bg-current' : 'bg-transparent'"
-    />
+    <UiKeyframeDiamond class="size-2" :selected="active" />
   </button>
 </template>

@@ -613,6 +613,7 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
 
   const start = pointInTracksContent(e);
   const addToSelection = e.shiftKey;
+  const baseSelection = addToSelection ? [...selectedKeyframes.value] : [];
   if (!addToSelection) {
     selectedKeyframes.value = [];
   }
@@ -621,12 +622,31 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
   marquee.value = { ...finalRect };
   let dragging = false;
 
+  function applyMarqueeSelection(rect: MarqueeRect) {
+    const hits = hitsInMarquee(rect);
+    if (addToSelection) {
+      let next = [...baseSelection];
+      for (const hit of hits) {
+        if (!isKeyframeInSelection(next, hit.layerId, hit.paramName, hit.time)) {
+          next.push(hit);
+        }
+      }
+      selectedKeyframes.value = next;
+    } else {
+      selectedKeyframes.value = hits;
+    }
+    if (hits.length > 0) {
+      selectedLayerId.value = hits[0]!.layerId;
+    }
+  }
+
   function onMove(ev: PointerEvent) {
     const pt = pointInTracksContent(ev);
     if (!dragging && Math.hypot(pt.x - start.x, pt.y - start.y) < 3) return;
     dragging = true;
     finalRect = { x0: start.x, y0: start.y, x1: pt.x, y1: pt.y };
     marquee.value = { ...finalRect };
+    applyMarqueeSelection(finalRect);
   }
 
   function onUp() {
@@ -634,21 +654,6 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
     window.removeEventListener("pointerup", onUp);
 
     if (dragging) {
-      const hits = hitsInMarquee(finalRect);
-      if (addToSelection) {
-        let next = [...selectedKeyframes.value];
-        for (const hit of hits) {
-          if (!isKeyframeInSelection(next, hit.layerId, hit.paramName, hit.time)) {
-            next.push(hit);
-          }
-        }
-        selectedKeyframes.value = next;
-      } else {
-        selectedKeyframes.value = hits;
-      }
-      if (hits.length > 0) {
-        selectedLayerId.value = hits[0]!.layerId;
-      }
       history?.record();
     }
     marquee.value = null;
@@ -958,16 +963,16 @@ function selectAllLayers() {
                       v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
                       :key="`${layer.id}-${def.name}-${key.time}`"
                       type="button"
-                      class="absolute top-1/2 z-10 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border outline-none cursor-grab active:cursor-grabbing"
-                      :class="
-                        isKeyframeSelected(layer.id, def.name, key.time)
-                          ? 'border-accent bg-accent'
-                          : 'border-accent bg-layer-1 hover:bg-accent/20'
-                      "
+                      class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-grab border-0 bg-transparent p-0 outline-none active:cursor-grabbing"
                       :style="{ left: keyLeft(key.time) }"
                       :title="`${def.label} @ ${key.time.toFixed(2)}s`"
                       @pointerdown.stop.prevent="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
-                    />
+                    >
+                      <UiKeyframeDiamond
+                        class="size-full"
+                        :selected="isKeyframeSelected(layer.id, def.name, key.time)"
+                      />
+                    </button>
                   </div>
                 </template>
               </div>
