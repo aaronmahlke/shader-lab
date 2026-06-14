@@ -179,6 +179,73 @@ export type KeyframeRef = {
   time: number;
 };
 
+export type KeyframePasteItem = KeyframeRef & {
+  value: number;
+  ease?: Keyframe["ease"];
+};
+
+export function buildKeyframePasteItems(
+  tracks: PropertyTrack[],
+  selection: KeyframeRef[],
+): KeyframePasteItem[] {
+  const items: KeyframePasteItem[] = [];
+  for (const sel of selection) {
+    const track = findPropertyTrack(tracks, sel.layerId, sel.paramName);
+    const key = track?.keys.find((k) => Math.abs(k.time - sel.time) < 1e-6);
+    if (!key) continue;
+    items.push({
+      layerId: sel.layerId,
+      paramName: sel.paramName,
+      time: sel.time,
+      value: key.value,
+      ease: key.ease,
+    });
+  }
+  return items;
+}
+
+export function keyframePasteAnchorTime(items: KeyframePasteItem[]): number {
+  if (items.length === 0) return 0;
+  return Math.min(...items.map((item) => item.time));
+}
+
+/** Paste copied keys so the anchor time lands at `pasteTime`, preserving relative spacing. */
+export function pasteKeyframesAtTime(
+  tracks: PropertyTrack[],
+  items: KeyframePasteItem[],
+  anchorTime: number,
+  pasteTime: number,
+): { tracks: PropertyTrack[]; pasted: KeyframeRef[] } {
+  if (items.length === 0) return { tracks, pasted: [] };
+
+  const delta = pasteTime - anchorTime;
+  let next = tracks;
+  const pasted: KeyframeRef[] = [];
+
+  for (const item of items) {
+    const time = item.time + delta;
+    if (time < 0) continue;
+
+    next = upsertKeyframe(next, item.layerId, item.paramName, time, item.value);
+    next = next.map((track) => {
+      if (track.layerId !== item.layerId || track.paramName !== item.paramName) return track;
+      return {
+        ...track,
+        enabled: true,
+        keys: track.keys.map((key) =>
+          Math.abs(key.time - time) < 1e-6
+            ? { ...key, ease: item.ease ?? key.ease ?? "linear" }
+            : key,
+        ),
+      };
+    });
+
+    pasted.push({ layerId: item.layerId, paramName: item.paramName, time });
+  }
+
+  return { tracks: next, pasted };
+}
+
 /** Move many keys by the same delta (skips moves that would collide). */
 export function offsetKeyframes(
   tracks: PropertyTrack[],

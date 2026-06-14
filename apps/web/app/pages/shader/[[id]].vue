@@ -18,7 +18,10 @@ import {
   evaluatePropertyTrack,
   hasKeyframeAt,
   isPropertyTrackActive,
+  buildKeyframePasteItems,
+  pasteKeyframesAtTime,
 } from "@shader-lab/core";
+import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
@@ -369,6 +372,36 @@ function deleteSelectedKeyframes() {
   history.record();
 }
 
+function snapPlayheadTime(time: number): number {
+  const step = 1 / settings.value.fps;
+  return Math.round(time / step) * step;
+}
+
+function copySelectedKeyframes() {
+  const items = buildKeyframePasteItems(tracks.value, selectedKeyframes.value);
+  if (items.length === 0) return;
+  setKeyframeClipboard(items);
+}
+
+function pasteKeyframesAtPlayhead() {
+  const clip = getKeyframeClipboard();
+  if (!clip) return;
+
+  playing.value = false;
+  const pasteTime = snapPlayheadTime(currentTime.value);
+  const { tracks: next, pasted } = pasteKeyframesAtTime(
+    tracks.value,
+    clip.items,
+    clip.anchorTime,
+    pasteTime,
+  );
+  if (pasted.length === 0) return;
+
+  tracks.value = next;
+  selectedKeyframes.value = pasted;
+  history.record();
+}
+
 
 // --- Layer Management ---
 
@@ -671,6 +704,22 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     e.preventDefault();
     if (e.shiftKey) history.redo();
     else history.undo();
+    return;
+  }
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
+    if (selectedKeyframes.value.length > 0) {
+      e.preventDefault();
+      copySelectedKeyframes();
+    }
+    return;
+  }
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
+    if (getKeyframeClipboard()) {
+      e.preventDefault();
+      pasteKeyframesAtPlayhead();
+    }
     return;
   }
 

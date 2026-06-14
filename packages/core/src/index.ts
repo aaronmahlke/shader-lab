@@ -90,7 +90,10 @@ export {
   upsertKeyframe,
   moveKeyframe,
   offsetKeyframes,
+  buildKeyframePasteItems,
+  pasteKeyframesAtTime,
 } from "./animation/property-tracks";
+export type { KeyframePasteItem } from "./animation/property-tracks";
 export { isKeyframeableUniform } from "./animation/keyframeable";
 export { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 export { DEFAULT_COMPOSITION_SETTINGS } from "./types/animation";

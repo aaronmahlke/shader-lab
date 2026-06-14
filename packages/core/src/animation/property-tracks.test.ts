@@ -7,6 +7,8 @@ import {
   setTrackEnabled,
   upsertKeyframe,
   isPropertyTrackActive,
+  buildKeyframePasteItems,
+  pasteKeyframesAtTime,
 } from "./property-tracks";
 
 describe("evaluateKeyframes", () => {
@@ -100,6 +102,46 @@ describe("isPropertyTrackActive", () => {
         keys: [{ time: 0, value: 1, ease: "linear" }],
       }),
     ).toBe(true);
+  });
+});
+
+describe("pasteKeyframesAtTime", () => {
+  it("pastes keys at the playhead while preserving relative spacing", () => {
+    const items = [
+      { layerId: "l1", paramName: "x", time: 1, value: 5, ease: "easeOut" as const },
+      { layerId: "l1", paramName: "x", time: 2, value: 8, ease: "linear" as const },
+    ];
+    const { tracks, pasted } = pasteKeyframesAtTime([], items, 1, 4);
+    expect(tracks[0]!.keys.map((k) => k.time)).toEqual([4, 5]);
+    expect(tracks[0]!.keys[0]!.value).toBe(5);
+    expect(tracks[0]!.keys[0]!.ease).toBe("easeOut");
+    expect(pasted).toEqual([
+      { layerId: "l1", paramName: "x", time: 4 },
+      { layerId: "l1", paramName: "x", time: 5 },
+    ]);
+  });
+
+  it("replaces an existing key at the target time", () => {
+    let tracks = upsertKeyframe([], "l1", "x", 4, 99);
+    const items = [{ layerId: "l1", paramName: "x", time: 1, value: 5 }];
+    const { tracks: next } = pasteKeyframesAtTime(tracks, items, 1, 4);
+    expect(next[0]!.keys).toHaveLength(1);
+    expect(next[0]!.keys[0]!.value).toBe(5);
+  });
+});
+
+describe("buildKeyframePasteItems", () => {
+  it("copies value and easing from tracks", () => {
+    let tracks = upsertKeyframe([], "l1", "x", 1, 5);
+    tracks = tracks.map((t) =>
+      t.layerId === "l1" && t.paramName === "x"
+        ? { ...t, keys: [{ time: 1, value: 5, ease: "easeIn" as const }] }
+        : t,
+    );
+    const items = buildKeyframePasteItems(tracks, [{ layerId: "l1", paramName: "x", time: 1 }]);
+    expect(items).toEqual([
+      { layerId: "l1", paramName: "x", time: 1, value: 5, ease: "easeIn" },
+    ]);
   });
 });
 
