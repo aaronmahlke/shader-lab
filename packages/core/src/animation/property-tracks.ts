@@ -12,6 +12,11 @@ export function findPropertyTrack(
   return tracks.find((t) => t.layerId === layerId && t.paramName === paramName);
 }
 
+/** Stopwatch on — track exists with at least one keyframe. */
+export function isPropertyTrackActive(track: PropertyTrack | undefined): boolean {
+  return !!track?.enabled && track.keys.length > 0;
+}
+
 function easeProgress(t: number, ease: KeyframeEasing): number {
   const x = Math.max(0, Math.min(1, t));
   switch (ease) {
@@ -103,6 +108,10 @@ export function removeKeyframeAt(
 
   const keys = track.keys.filter((k) => Math.abs(k.time - time) >= 1e-6);
   if (keys.length === track.keys.length) return tracks;
+
+  if (keys.length === 0) {
+    return tracks.filter((t) => !(t.layerId === layerId && t.paramName === paramName));
+  }
 
   return tracks.map((t) =>
     t.layerId === layerId && t.paramName === paramName ? { ...t, keys } : t,

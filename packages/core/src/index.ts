@@ -83,6 +83,7 @@ export {
   evaluatePropertyTrack,
   findPropertyTrack,
   hasKeyframeAt,
+  isPropertyTrackActive,
   removeKeyframeAt,
   setTrackEnabled,
   trackId,

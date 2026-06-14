@@ -17,6 +17,7 @@ import {
   findPropertyTrack,
   evaluatePropertyTrack,
   hasKeyframeAt,
+  isPropertyTrackActive,
 } from "@shader-lab/core";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { useEventListener } from "@vueuse/core";
@@ -204,15 +205,22 @@ onBeforeUnmount(() => {
 });
 
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
-  if (e.code !== "Space" || e.repeat) return;
   const target = e.target as HTMLElement | null;
-  if (
-    target?.closest("input, textarea, select, [contenteditable='true']")
-  ) {
+  if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+
+  if (e.code === "Space" && !e.repeat) {
+    e.preventDefault();
+    playing.value = !playing.value;
     return;
   }
-  e.preventDefault();
-  playing.value = !playing.value;
+
+  if (
+    (e.code === "Backspace" || e.code === "Delete") &&
+    selectedKeyframes.value.length > 0
+  ) {
+    e.preventDefault();
+    deleteSelectedKeyframes();
+  }
 });
 
 // --- Layer Compiler + Renderer ---
@@ -270,7 +278,7 @@ function paramValue(layerId: string, paramName: string, fallback: number): numbe
 
 function toggleStopwatch(layerId: string, paramName: string) {
   const track = findPropertyTrack(tracks.value, layerId, paramName);
-  if (track?.enabled) {
+  if (isPropertyTrackActive(track)) {
     tracks.value = setTrackEnabled(tracks.value, layerId, paramName, false);
     selectedKeyframes.value = selectedKeyframes.value.filter(
       (k) => !(k.layerId === layerId && k.paramName === paramName),
@@ -336,6 +344,33 @@ function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
     currentTime.value,
     value,
   );
+}
+
+function deleteSelectedKeyframes() {
+  const keys = selectedKeyframes.value;
+  if (keys.length === 0) return;
+
+  let next = tracks.value;
+  for (const key of keys) {
+    next = removeKeyframeAt(next, key.layerId, key.paramName, key.time);
+  }
+
+  const touched = new Map<string, Set<string>>();
+  for (const key of keys) {
+    const names = touched.get(key.layerId) ?? new Set<string>();
+    names.add(key.paramName);
+    touched.set(key.layerId, names);
+  }
+  for (const [layerId, paramNames] of touched) {
+    for (const paramName of paramNames) {
+      if (!isPropertyTrackActive(findPropertyTrack(next, layerId, paramName))) {
+        next = setTrackEnabled(next, layerId, paramName, false);
+      }
+    }
+  }
+
+  tracks.value = next;
+  selectedKeyframes.value = [];
 }
 
 

@@ -76,13 +76,7 @@ export function useModulationEngine(
 
   const modFn = computed(() => getModulatedValue);
 
-  if (options.clockTime) {
-    watch(
-      options.clockTime,
-      (t) => sampleLfosAtTime(t),
-      { immediate: true },
-    );
-  } else {
+  if (!options.clockTime) {
     function tick() {
       sampleLfosAtTime((performance.now() - startTime) / 1000);
       animationId = requestAnimationFrame(tick);

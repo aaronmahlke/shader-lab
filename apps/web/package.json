@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --cwd ../../packages/core build && bun --env-file=../../.env --env-file=.env nuxt dev",
-    "build": "bun --env-file=../../.env --env-file=.env nuxt build",
+    "build": "bun run --cwd ../../packages/core build && bun --env-file=../../.env --env-file=.env nuxt build",
     "generate": "bun --env-file=../../.env --env-file=.env nuxt generate",
     "preview": "bun --env-file=../../.env --env-file=.env nuxt preview",
     "db:generate": "drizzle-kit generate --config=server/database/drizzle.config.ts",

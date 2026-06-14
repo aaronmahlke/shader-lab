@@ -8,6 +8,7 @@ import {
   findPropertyTrack,
   hasKeyframeAt,
   isKeyframeableUniform,
+  isPropertyTrackActive,
 } from "@shader-lab/core";
 
 type Props = {
@@ -31,6 +32,7 @@ type Emits = {
   "set-animated-value": [paramName: string, value: number];
 };
 
+const props = defineProps<Props>();
 const {
   layer,
   template,
@@ -39,8 +41,7 @@ const {
   draggingLfoId,
   meshSelectedPointIndex = 0,
   currentTime,
-  tracks,
-} = defineProps<Props>();
+} = props;
 const emit = defineEmits<Emits>();
 
 function getAssignment(paramName: string): ModulationAssignment | undefined {
@@ -56,8 +57,8 @@ function getLiveValue(def: LayerUniformDef): number | undefined {
 }
 
 function getModulatedFloat(paramName: string, fallback: number): number {
-  const track = findPropertyTrack(tracks, layer.id, paramName);
-  if (track?.enabled) {
+  const track = findPropertyTrack(props.tracks, layer.id, paramName);
+  if (isPropertyTrackActive(track)) {
     const base = (layer.values[paramName] as number) ?? fallback;
     return evaluatePropertyTrack(track, currentTime, base);
   }
@@ -69,11 +70,11 @@ function getModulatedFloat(paramName: string, fallback: number): number {
 }
 
 function isTrackEnabled(paramName: string): boolean {
-  return !!findPropertyTrack(tracks, layer.id, paramName)?.enabled;
+  return isPropertyTrackActive(findPropertyTrack(props.tracks, layer.id, paramName));
 }
 
 function isKeyedAtPlayhead(paramName: string): boolean {
-  return hasKeyframeAt(findPropertyTrack(tracks, layer.id, paramName), currentTime);
+  return hasKeyframeAt(findPropertyTrack(props.tracks, layer.id, paramName), currentTime);
 }
 
 function getLfoColor(sourceId: string): string | undefined {

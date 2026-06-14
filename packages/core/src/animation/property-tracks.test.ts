@@ -3,8 +3,10 @@ import {
   evaluateKeyframes,
   evaluatePropertyTrack,
   moveKeyframe,
+  removeKeyframeAt,
   setTrackEnabled,
   upsertKeyframe,
+  isPropertyTrackActive,
 } from "./property-tracks";
 
 describe("evaluateKeyframes", () => {
@@ -62,6 +64,42 @@ describe("moveKeyframe", () => {
     tracks = upsertKeyframe(tracks, "l1", "x", 3, 8);
     const unchanged = moveKeyframe(tracks, "l1", "x", 1, 3);
     expect(unchanged[0]!.keys.map((k) => k.time)).toEqual([1, 3]);
+  });
+});
+
+describe("removeKeyframeAt", () => {
+  it("removes the track when the last keyframe is deleted", () => {
+    let tracks = upsertKeyframe([], "l1", "x", 1, 5);
+    tracks = removeKeyframeAt(tracks, "l1", "x", 1);
+    expect(tracks.length).toBe(0);
+  });
+
+  it("keeps the track when other keyframes remain", () => {
+    let tracks = upsertKeyframe([], "l1", "x", 1, 5);
+    tracks = upsertKeyframe(tracks, "l1", "x", 3, 8);
+    tracks = removeKeyframeAt(tracks, "l1", "x", 1);
+    expect(tracks.length).toBe(1);
+    expect(tracks[0]!.keys.map((k) => k.time)).toEqual([3]);
+  });
+});
+
+describe("isPropertyTrackActive", () => {
+  it("is false for missing, empty, or disabled tracks", () => {
+    expect(isPropertyTrackActive(undefined)).toBe(false);
+    expect(
+      isPropertyTrackActive({ layerId: "l", paramName: "x", enabled: true, keys: [] }),
+    ).toBe(false);
+  });
+
+  it("is true when the track has keyframes", () => {
+    expect(
+      isPropertyTrackActive({
+        layerId: "l",
+        paramName: "x",
+        enabled: true,
+        keys: [{ time: 0, value: 1, ease: "linear" }],
+      }),
+    ).toBe(true);
   });
 });
 

@@ -125,6 +125,8 @@ export function normalizeComposition(config: CompositionConfig): void {
   }
   if (!config.tracks) {
     config.tracks = [];
+  } else {
+    config.tracks = config.tracks.filter((t) => t.enabled && t.keys.length > 0);
   }
 }
 

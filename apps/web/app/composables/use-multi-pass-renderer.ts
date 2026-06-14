@@ -42,6 +42,16 @@ export function useMultiPassRenderer(
     bufferWidth: number;
     bufferHeight: number;
   } | null = null;
+  let compositionRenderRaf: number | null = null;
+
+  function scheduleCompositionRender() {
+    if (import.meta.server || !renderer) return;
+    if (compositionRenderRaf !== null) return;
+    compositionRenderRaf = requestAnimationFrame(() => {
+      compositionRenderRaf = null;
+      render();
+    });
+  }
 
   function findLayerForPass(pass: RenderPass): LayerInstance | undefined {
     if (!layersRef?.value) return undefined;
@@ -129,6 +139,10 @@ export function useMultiPassRenderer(
       cancelAnimationFrame(animationId);
       animationId = null;
     }
+    if (compositionRenderRaf !== null) {
+      cancelAnimationFrame(compositionRenderRaf);
+      compositionRenderRaf = null;
+    }
     window.removeEventListener("resize", resize);
     resizeObserver?.disconnect();
     resizeObserver = null;
@@ -169,7 +183,7 @@ export function useMultiPassRenderer(
   );
 
   if (compositionTime) {
-    watch(compositionTime, () => render(), { flush: "post", immediate: true });
+    watch(compositionTime, scheduleCompositionRender, { immediate: true });
   }
 
   if (layersRef || tracksRef) {

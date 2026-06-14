@@ -14,6 +14,7 @@ import {
   evaluatePropertyTrack,
   findPropertyTrack,
   isKeyframeableUniform,
+  isPropertyTrackActive,
   offsetKeyframes,
   type CompositionSettings,
   type LayerInstance,
@@ -33,6 +34,8 @@ type Emits = {
 };
 
 const expanded = ref<Set<string>>(new Set());
+/** Layer ids showing keyed properties while row is collapsed (U key). */
+const keyframesRevealed = ref<Set<string>>(new Set());
 const labelWidth = 208;
 
 const DEFAULT_PX_PER_SECOND = 96;
@@ -95,9 +98,16 @@ watch(
 
 const timelineWidth = computed(() => settings.duration * pxPerSecond.value);
 const playheadX = computed(() => timeToX(currentTime.value));
+const scrubbing = ref(false);
+/** Property value labels — frozen while scrubbing so the playhead stays responsive. */
+const displayTime = ref(currentTime.value);
 const zoomPercent = computed(() =>
   Math.round((pxPerSecond.value / DEFAULT_PX_PER_SECOND) * 100),
 );
+
+watch(currentTime, (t) => {
+  if (!scrubbing.value) displayTime.value = t;
+});
 
 const rulerStep = computed(() => {
   for (const step of [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60]) {
@@ -366,6 +376,10 @@ function isExpanded(layerId: string): boolean {
   return expanded.value.has(layerId);
 }
 
+function isKeyframesRevealed(layerId: string): boolean {
+  return keyframesRevealed.value.has(layerId);
+}
+
 function toggleExpand(layerId: string) {
   const next = new Set(expanded.value);
   if (next.has(layerId)) next.delete(layerId);
@@ -373,8 +387,33 @@ function toggleExpand(layerId: string) {
   expanded.value = next;
 }
 
+function layersForKeyframeRevealCommand(): string[] {
+  if (selectedLayerIds.value.size > 0) return [...selectedLayerIds.value];
+  if (selectedLayerId.value) return [selectedLayerId.value];
+  return [];
+}
+
+function toggleRevealKeyframes() {
+  const ids = layersForKeyframeRevealCommand();
+  if (ids.length === 0) return;
+
+  const next = new Set(keyframesRevealed.value);
+  const allRevealed = ids.every((id) => next.has(id));
+  for (const id of ids) {
+    if (allRevealed) next.delete(id);
+    else next.add(id);
+  }
+  keyframesRevealed.value = next;
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return !!(target as HTMLElement | null)?.closest(
+    "input, textarea, select, [contenteditable='true']",
+  );
+}
+
 function enabledTracksForLayer(layerId: string): PropertyTrack[] {
-  return tracks.value.filter((t) => t.layerId === layerId && t.enabled);
+  return tracks.value.filter((t) => t.layerId === layerId && isPropertyTrackActive(t));
 }
 
 function keyframeableUniforms(layer: LayerInstance) {
@@ -386,26 +425,26 @@ function keyframeableUniforms(layer: LayerInstance) {
 function visibleProperties(layer: LayerInstance) {
   const all = keyframeableUniforms(layer);
   if (isExpanded(layer.id)) return all;
-  const enabledNames = new Set(
-    enabledTracksForLayer(layer.id).map((t) => t.paramName),
+  if (!isKeyframesRevealed(layer.id)) return [];
+  return all.filter((def) =>
+    isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, def.name)),
   );
-  return all.filter((def) => enabledNames.has(def.name));
 }
 
 function showPropertyRow(layer: LayerInstance, paramName: string): boolean {
   if (isExpanded(layer.id)) return true;
-  const track = findPropertyTrack(tracks.value, layer.id, paramName);
-  return !!track?.enabled;
+  if (!isKeyframesRevealed(layer.id)) return false;
+  return isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, paramName));
 }
 
 function trackEnabled(layerId: string, paramName: string): boolean {
-  return !!findPropertyTrack(tracks.value, layerId, paramName)?.enabled;
+  return isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, paramName));
 }
 
 function valueAt(layer: LayerInstance, paramName: string, fallback: number): number {
   const track = findPropertyTrack(tracks.value, layer.id, paramName);
   const base = (layer.values[paramName] as number) ?? fallback;
-  return evaluatePropertyTrack(track, currentTime.value, base);
+  return evaluatePropertyTrack(track, displayTime.value, base);
 }
 
 function formatTime(seconds: number): string {
@@ -423,15 +462,29 @@ function onRulerPointerDown(e: PointerEvent) {
   e.preventDefault();
   playing.value = false;
   selectedKeyframes.value = [];
+  scrubbing.value = true;
+
+  const captureEl = rulerScrollRef.value;
+  captureEl?.setPointerCapture(e.pointerId);
   scrubFromEvent(e);
 
   function onMove(ev: PointerEvent) {
-    scrubFromEvent(ev);
+    const events = typeof ev.getCoalescedEvents === "function" ? ev.getCoalescedEvents() : [ev];
+    scrubFromEvent(events[events.length - 1]!);
   }
+
   function onUp() {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    try {
+      captureEl?.releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+    scrubbing.value = false;
+    displayTime.value = currentTime.value;
   }
+
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
 }
@@ -581,6 +634,20 @@ useEventListener(bodyScrollRef, "wheel", onTimelineWheel, { passive: false });
 useEventListener(rulerScrollRef, "wheel", onTimelineWheel, { passive: false });
 useEventListener(labelsScrollRef, "wheel", onTimelineWheel, { passive: false });
 
+useEventListener(window, "keydown", (e: KeyboardEvent) => {
+  if (isTypingTarget(e.target)) return;
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+    e.preventDefault();
+    selectAllLayers();
+    return;
+  }
+
+  if (e.key.toLowerCase() !== "u" || e.metaKey || e.ctrlKey || e.altKey) return;
+  e.preventDefault();
+  toggleRevealKeyframes();
+});
+
 function togglePlay() {
   playing.value = !playing.value;
 }
@@ -642,6 +709,16 @@ function selectLayer(id: string, e?: MouseEvent) {
   }
 
   selectedLayerId.value = id;
+  selectedKeyframes.value = [];
+}
+
+function selectAllLayers() {
+  if (layers.value.length === 0) return;
+  selectedLayerIds.value = new Set(layers.value.map((l) => l.id));
+  if (!selectedLayerId.value || !selectedLayerIds.value.has(selectedLayerId.value)) {
+    selectedLayerId.value = layers.value[0]!.id;
+  }
+  selectionAnchorId.value = selectedLayerId.value;
   selectedKeyframes.value = [];
 }
 </script>
@@ -757,7 +834,11 @@ function selectLayer(id: string, e?: MouseEvent) {
                     {{ layerLabel(layer) }}
                   </span>
                   <span
-                    v-if="enabledTracksForLayer(layer.id).length && !isExpanded(layer.id)"
+                    v-if="
+                      enabledTracksForLayer(layer.id).length &&
+                      !isExpanded(layer.id) &&
+                      !isKeyframesRevealed(layer.id)
+                    "
                     class="shrink-0 text-copy-xs text-neutral-subtle group-hover/h:opacity-0"
                   >
                     {{ enabledTracksForLayer(layer.id).length }}

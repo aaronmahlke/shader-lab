@@ -22,5 +22,5 @@ export type CompositionSettings = {
 
 export const DEFAULT_COMPOSITION_SETTINGS: CompositionSettings = {
   duration: 5,
-  fps: 30,
+  fps: 60,
 };

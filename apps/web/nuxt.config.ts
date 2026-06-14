@@ -1,5 +1,9 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import glsl from "vite-plugin-glsl";
+
+const coreSrc = resolve(dirname(fileURLToPath(import.meta.url)), "../../packages/core/src");
 
 export default defineNuxtConfig({
   devtools: { enabled: false },
@@ -13,6 +17,12 @@ export default defineNuxtConfig({
   },
   vite: {
     plugins: [tailwindcss(), glsl()],
+    resolve: {
+      alias: {
+        "@shader-lab/core/server": resolve(coreSrc, "server.ts"),
+        "@shader-lab/core": resolve(coreSrc, "index.ts"),
+      },
+    },
     optimizeDeps: {
       include: ["@heroicons/vue/16/solid"],
       exclude: ["@shader-lab/core", "@shader-lab/core/server"],
