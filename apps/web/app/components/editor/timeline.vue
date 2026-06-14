@@ -318,6 +318,8 @@ function onRulerScroll() {
 const LAYER_ROW_H = 28;
 const PROP_ROW_H = 24;
 const KEY_HIT_R = 8;
+/** Keep playhead this far from the viewport edge while scrubbing. */
+const SCRUB_SCROLL_MARGIN = 24;
 
 type MarqueeRect = { x0: number; y0: number; x1: number; y1: number };
 const marquee = ref<MarqueeRect | null>(null);
@@ -657,8 +659,59 @@ function formatTime(seconds: number): string {
   return `${s.toFixed(2)}s`;
 }
 
+function scrollTimelineForScrub(e: PointerEvent) {
+  const body = bodyScrollRef.value;
+  if (!body) return;
+
+  const rect = body.getBoundingClientRect();
+  let next = body.scrollLeft;
+
+  if (e.clientX < rect.left) {
+    next -= rect.left - e.clientX;
+  } else if (e.clientX > rect.right) {
+    next += e.clientX - rect.right;
+  }
+
+  const playheadPx = timeToX(currentTime.value);
+  const viewRight = next + body.clientWidth;
+  if (playheadPx < next) {
+    next = playheadPx - SCRUB_SCROLL_MARGIN;
+  } else if (playheadPx > viewRight) {
+    next = playheadPx - body.clientWidth + SCRUB_SCROLL_MARGIN;
+  }
+
+  if (Math.abs(next - body.scrollLeft) > 0.5) {
+    applyScrollLeft(next);
+  }
+}
+
+let lastScrubPointer: PointerEvent | null = null;
+let scrubScrollRaf = 0;
+
+function scheduleScrubScrollLoop() {
+  if (scrubScrollRaf) return;
+  scrubScrollRaf = requestAnimationFrame(scrubScrollTick);
+}
+
+function scrubScrollTick() {
+  scrubScrollRaf = 0;
+  if (!scrubbing.value || !lastScrubPointer) return;
+
+  const body = bodyScrollRef.value;
+  if (!body) return;
+
+  const rect = body.getBoundingClientRect();
+  const e = lastScrubPointer;
+  if (e.clientX < rect.left || e.clientX > rect.right) {
+    scrubFromEvent(e);
+    scrubScrollRaf = requestAnimationFrame(scrubScrollTick);
+  }
+}
+
 function scrubFromEvent(e: PointerEvent) {
+  scrollTimelineForScrub(e);
   currentTime.value = snapTime(timeFromPointerEvent(e));
+  scrollTimelineForScrub(e);
 }
 
 function onRulerPointerDown(e: PointerEvent) {
@@ -666,19 +719,28 @@ function onRulerPointerDown(e: PointerEvent) {
   playing.value = false;
   selectedKeyframes.value = [];
   scrubbing.value = true;
+  lastScrubPointer = e;
 
   const captureEl = rulerScrollRef.value;
   captureEl?.setPointerCapture(e.pointerId);
   scrubFromEvent(e);
+  scheduleScrubScrollLoop();
 
   function onMove(ev: PointerEvent) {
     const events = typeof ev.getCoalescedEvents === "function" ? ev.getCoalescedEvents() : [ev];
-    scrubFromEvent(events[events.length - 1]!);
+    lastScrubPointer = events[events.length - 1]!;
+    scrubFromEvent(lastScrubPointer);
+    scheduleScrubScrollLoop();
   }
 
   function onUp() {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    if (scrubScrollRaf) {
+      cancelAnimationFrame(scrubScrollRaf);
+      scrubScrollRaf = 0;
+    }
+    lastScrubPointer = null;
     try {
       captureEl?.releasePointerCapture(e.pointerId);
     } catch {
