@@ -5,7 +5,12 @@ import { STBN_TEXTURE_PATH } from "../modulation/stbn";
 import { GRADIENT_RESOLUTION } from "../shaders";
 import type { GlContext } from "./gl-utils";
 import { createGlContext } from "./gl-utils";
-import { renderPasses } from "./render-passes";
+import {
+  createRenderPipelineCache,
+  disposeRenderPipelineCache,
+  renderPasses,
+  type RenderPipelineCache,
+} from "./render-passes";
 
 export type CompositionRendererOptions = {
   pixelRatio?: number;
@@ -21,6 +26,7 @@ export class CompositionRenderer {
   private options: CompositionRendererOptions;
   private stbnTexture: WebGLTexture | null = null;
   private gradientTextures = new Map<string, WebGLTexture>();
+  private pipelineCache: RenderPipelineCache = createRenderPipelineCache();
   private pixelRatio: number;
 
   constructor(canvas: HTMLCanvasElement, options: CompositionRendererOptions = {}) {
@@ -137,8 +143,6 @@ export class CompositionRenderer {
       return;
     }
 
-    this.gradientTextures.clear();
-
     renderPasses(passes, {
       gl,
       width,
@@ -150,9 +154,7 @@ export class CompositionRenderer {
       createGradientData: (stops) => this.createGradientData(stops),
       findLayer: this.options.findLayer,
       getModulatedValue: modFn ?? this.options.getModulatedValue ?? null,
-    }, { readPixels: false, disposeResources: true });
-
-    this.gradientTextures.clear();
+    }, { readPixels: false, pipelineCache: this.pipelineCache });
   }
 
   async captureBlob(): Promise<Blob | null> {
@@ -166,6 +168,7 @@ export class CompositionRenderer {
   }
 
   dispose(): void {
+    disposeRenderPipelineCache(this.gl, this.pipelineCache);
     if (this.stbnTexture) {
       this.gl.deleteTexture(this.stbnTexture);
       this.stbnTexture = null;

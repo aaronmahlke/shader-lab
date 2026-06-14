@@ -44,7 +44,7 @@ export function useMultiPassRenderer(
   } | null = null;
   let compositionRenderRaf: number | null = null;
 
-  function scheduleCompositionRender() {
+  function scheduleRender() {
     if (import.meta.server || !renderer) return;
     if (compositionRenderRaf !== null) return;
     compositionRenderRaf = requestAnimationFrame(() => {
@@ -183,13 +183,13 @@ export function useMultiPassRenderer(
   );
 
   if (compositionTime) {
-    watch(compositionTime, scheduleCompositionRender, { immediate: true });
+    watch(compositionTime, scheduleRender, { immediate: true });
   }
 
   if (layersRef || tracksRef) {
     watch(
       [layersRef, tracksRef].filter(Boolean) as Ref<unknown>[],
-      () => render(),
+      scheduleRender,
       { deep: true },
     );
   }

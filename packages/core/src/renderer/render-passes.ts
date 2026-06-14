@@ -139,31 +139,32 @@ function setPassUniforms(
       } else if (value.length > 0 && typeof value[0] === "object" && "color" in value[0]) {
         const stops = value as GradientStop[];
         const key = `${pass.layerId}_${name}`;
+        const data = ctx.createGradientData(stops);
         let tex = gradientTextures.get(key);
         if (!tex) {
-          const data = ctx.createGradientData(stops);
           tex = gl.createTexture()!;
-          // Must select the target unit before upload — otherwise bindTexture clobbers
-          // whatever is already on the active unit (usually u_input on TEXTURE0).
+          gradientTextures.set(key, tex);
           gl.activeTexture(gl.TEXTURE0 + texUnit);
           gl.bindTexture(gl.TEXTURE_2D, tex);
-          gl.texImage2D(
-            gl.TEXTURE_2D,
-            0,
-            gl.RGBA,
-            GRADIENT_RESOLUTION,
-            1,
-            0,
-            gl.RGBA,
-            gl.UNSIGNED_BYTE,
-            data,
-          );
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          gradientTextures.set(key, tex);
+        } else {
+          gl.activeTexture(gl.TEXTURE0 + texUnit);
+          gl.bindTexture(gl.TEXTURE_2D, tex);
         }
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.RGBA,
+          GRADIENT_RESOLUTION,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          data,
+        );
         gl.activeTexture(gl.TEXTURE0 + texUnit);
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.uniform1i(loc, texUnit);
@@ -177,25 +178,59 @@ export type RenderPassesResult = {
   pixels?: Uint8Array;
 };
 
-export type RenderPassOptions = {
-  /** When true, read pixels after rendering (headless export). Default false for live canvas. */
-  readPixels?: boolean;
-  /** When true, delete GPU resources after rendering. Default true. */
-  disposeResources?: boolean;
+export type FboEntry = { framebuffer: WebGLFramebuffer; texture: WebGLTexture };
+
+export type RenderPipelineCache = {
+  passSignature: string;
+  sizeKey: string;
+  programs: Map<RenderPass["layerType"], WebGLProgram>;
+  fbos: Map<string, FboEntry>;
+  quadBuffers: Map<WebGLProgram, WebGLBuffer>;
+  neutralTexture: WebGLTexture | null;
+  blackTexture: WebGLTexture | null;
 };
 
-export function renderPasses(
+export function createRenderPipelineCache(): RenderPipelineCache {
+  return {
+    passSignature: "",
+    sizeKey: "",
+    programs: new Map(),
+    fbos: new Map(),
+    quadBuffers: new Map(),
+    neutralTexture: null,
+    blackTexture: null,
+  };
+}
+
+export function disposeRenderPipelineCache(gl: GlContext, cache: RenderPipelineCache): void {
+  for (const program of cache.programs.values()) gl.deleteProgram(program);
+  for (const fbo of cache.fbos.values()) {
+    gl.deleteFramebuffer(fbo.framebuffer);
+    gl.deleteTexture(fbo.texture);
+  }
+  for (const buffer of cache.quadBuffers.values()) gl.deleteBuffer(buffer);
+  if (cache.neutralTexture) gl.deleteTexture(cache.neutralTexture);
+  if (cache.blackTexture) gl.deleteTexture(cache.blackTexture);
+  cache.programs.clear();
+  cache.fbos.clear();
+  cache.quadBuffers.clear();
+  cache.neutralTexture = null;
+  cache.blackTexture = null;
+  cache.passSignature = "";
+  cache.sizeKey = "";
+}
+
+function passGraphSignature(passes: RenderPass[]): string {
+  return passes.map((p) =>
+    `${p.layerId}:${p.layerType}:${p.isOutput ? 1 : 0}:${p.inputLayerId ?? ""}:${p.colorSourceLayerId ?? ""}`,
+  ).join("|");
+}
+
+function ensurePrograms(
+  gl: GlContext,
   passes: RenderPass[],
-  ctx: RenderPassContext,
-  options: RenderPassOptions = {},
-): RenderPassesResult {
-  const { readPixels = false, disposeResources = true } = options;
-  const { gl, width, height } = ctx;
-  if (passes.length === 0) return {};
-
-  gl.viewport(0, 0, width, height);
-
-  const programs = new Map<RenderPass["layerType"], WebGLProgram>();
+  programs: Map<RenderPass["layerType"], WebGLProgram>,
+): void {
   for (const pass of passes) {
     if (programs.has(pass.layerType)) continue;
     const fragSrc = FRAG_SHADERS[pass.layerType as LayerType | "resolve" | "blit"];
@@ -210,39 +245,132 @@ export function renderPasses(
     const program = createProgram(gl, RAW_VERT, fragSrc);
     if (program) programs.set(pass.layerType, program);
   }
+}
 
-  const fbos = new Map<string, { framebuffer: WebGLFramebuffer; texture: WebGLTexture }>();
+function ensureFbos(
+  gl: GlContext,
+  passes: RenderPass[],
+  width: number,
+  height: number,
+  fbos: Map<string, FboEntry>,
+): void {
   for (const pass of passes) {
-    if (!pass.isOutput) {
+    if (!pass.isOutput && !fbos.has(pass.layerId)) {
       fbos.set(pass.layerId, createFBO(gl, width, height, pass.layerType === "distortion"));
     }
   }
+}
 
-  let neutralTexture: WebGLTexture | null = null;
-  let blackTexture: WebGLTexture | null = null;
+function disposeFbos(gl: GlContext, fbos: Map<string, FboEntry>): void {
+  for (const fbo of fbos.values()) {
+    gl.deleteFramebuffer(fbo.framebuffer);
+    gl.deleteTexture(fbo.texture);
+  }
+  fbos.clear();
+}
+
+function getQuadBuffer(
+  gl: GlContext,
+  program: WebGLProgram,
+  quadBuffers: Map<WebGLProgram, WebGLBuffer> | null,
+): WebGLBuffer {
+  if (quadBuffers) {
+    let buffer = quadBuffers.get(program);
+    if (!buffer) {
+      buffer = createFullscreenQuad(gl, program);
+      quadBuffers.set(program, buffer);
+    }
+    return buffer;
+  }
+  return createFullscreenQuad(gl, program);
+}
+
+function createFallbackTextures(gl: GlContext): {
+  neutralTexture: WebGLTexture;
+  blackTexture: WebGLTexture;
+} {
+  const neutralTexture = gl.createTexture()!;
+  const neutralData = new Uint8Array([128, 128, 255, 255]);
+  gl.bindTexture(gl.TEXTURE_2D, neutralTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, neutralData);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  const blackTexture = gl.createTexture()!;
+  const blackData = new Uint8Array([0, 0, 0, 255]);
+  gl.bindTexture(gl.TEXTURE_2D, blackTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, blackData);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  return { neutralTexture, blackTexture };
+}
+
+export type RenderPassOptions = {
+  /** When true, read pixels after rendering (headless export). Default false for live canvas. */
+  readPixels?: boolean;
+  /** When true, delete GPU resources after rendering. Default true unless pipelineCache is set. */
+  disposeResources?: boolean;
+  /** Reuse GPU programs, FBOs, and quad buffers across frames (live canvas). */
+  pipelineCache?: RenderPipelineCache;
+};
+
+export function renderPasses(
+  passes: RenderPass[],
+  ctx: RenderPassContext,
+  options: RenderPassOptions = {},
+): RenderPassesResult {
+  const pipelineCache = options.pipelineCache;
+  const readPixels = options.readPixels ?? false;
+  const disposeResources = options.disposeResources ?? !pipelineCache;
+  const { gl, width, height } = ctx;
+  if (passes.length === 0) return {};
+
+  gl.viewport(0, 0, width, height);
+
+  const sizeKey = `${width}x${height}`;
+  const passSignature = passGraphSignature(passes);
+
+  let programs: Map<RenderPass["layerType"], WebGLProgram>;
+  let fbos: Map<string, FboEntry>;
+  let quadBuffers: Map<WebGLProgram, WebGLBuffer> | null = null;
+  let neutralTexture: WebGLTexture | null;
+  let blackTexture: WebGLTexture | null;
+
+  if (pipelineCache) {
+    if (pipelineCache.sizeKey !== sizeKey || pipelineCache.passSignature !== passSignature) {
+      disposeFbos(gl, pipelineCache.fbos);
+      pipelineCache.sizeKey = sizeKey;
+      pipelineCache.passSignature = passSignature;
+    }
+    ensurePrograms(gl, passes, pipelineCache.programs);
+    ensureFbos(gl, passes, width, height, pipelineCache.fbos);
+    programs = pipelineCache.programs;
+    fbos = pipelineCache.fbos;
+    quadBuffers = pipelineCache.quadBuffers;
+    neutralTexture = pipelineCache.neutralTexture;
+    blackTexture = pipelineCache.blackTexture;
+    if (!neutralTexture || !blackTexture) {
+      const fallback = createFallbackTextures(gl);
+      neutralTexture = pipelineCache.neutralTexture = fallback.neutralTexture;
+      blackTexture = pipelineCache.blackTexture = fallback.blackTexture;
+    }
+  } else {
+    programs = new Map();
+    ensurePrograms(gl, passes, programs);
+    fbos = new Map();
+    ensureFbos(gl, passes, width, height, fbos);
+    const fallback = createFallbackTextures(gl);
+    neutralTexture = fallback.neutralTexture;
+    blackTexture = fallback.blackTexture;
+  }
 
   function getNeutralTexture(): WebGLTexture {
-    if (!neutralTexture) {
-      neutralTexture = gl.createTexture()!;
-      const data = new Uint8Array([128, 128, 255, 255]);
-      gl.bindTexture(gl.TEXTURE_2D, neutralTexture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    }
-    return neutralTexture;
+    return neutralTexture!;
   }
 
   function getBlackTexture(): WebGLTexture {
-    if (!blackTexture) {
-      blackTexture = gl.createTexture()!;
-      const data = new Uint8Array([0, 0, 0, 255]);
-      gl.bindTexture(gl.TEXTURE_2D, blackTexture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    }
-    return blackTexture;
+    return blackTexture!;
   }
 
   for (const pass of passes) {
@@ -255,7 +383,7 @@ export function renderPasses(
     }
 
     gl.useProgram(program);
-    const quadBuffer = createFullscreenQuad(gl, program);
+    getQuadBuffer(gl, program, quadBuffers);
 
     if (pass.isOutput) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -304,8 +432,6 @@ export function renderPasses(
         };
       }
     }
-
-    gl.deleteBuffer(quadBuffer);
   }
 
   const pixels = readPixels ? new Uint8Array(width * height * 4) : undefined;
@@ -314,12 +440,9 @@ export function renderPasses(
   }
 
   if (disposeResources) {
-    for (const [, program] of programs) gl.deleteProgram(program);
-    for (const [, fbo] of fbos) {
-      gl.deleteFramebuffer(fbo.framebuffer);
-      gl.deleteTexture(fbo.texture);
-    }
-    for (const [, tex] of ctx.gradientTextures) gl.deleteTexture(tex);
+    for (const program of programs.values()) gl.deleteProgram(program);
+    disposeFbos(gl, fbos);
+    for (const tex of ctx.gradientTextures.values()) gl.deleteTexture(tex);
     if (neutralTexture) gl.deleteTexture(neutralTexture);
     if (blackTexture) gl.deleteTexture(blackTexture);
   }

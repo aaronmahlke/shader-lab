@@ -377,6 +377,32 @@ function layerLabel(layer: LayerInstance): string {
   return layer.name ?? LAYER_TEMPLATES[layer.type]?.label ?? layer.type;
 }
 
+type LayerNameEditor = { startEditing: () => void; editing: boolean };
+const layerNameRefs: Partial<Record<string, LayerNameEditor>> = {};
+
+function bindLayerNameRef(layerId: string, el: unknown) {
+  if (el && typeof el === "object" && "startEditing" in el) {
+    layerNameRefs[layerId] = el as LayerNameEditor;
+  } else {
+    delete layerNameRefs[layerId];
+  }
+}
+
+function setLayerName(layer: LayerInstance, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  layer.name = trimmed;
+  history?.record();
+}
+
+function startRenameSelectedLayer() {
+  const id = selectedLayerId.value;
+  if (!id) return;
+  const editor = layerNameRefs[id];
+  if (!editor || editor.editing) return;
+  editor.startEditing();
+}
+
 function isExpanded(layerId: string): boolean {
   return expanded.value.has(layerId);
 }
@@ -647,6 +673,14 @@ useEventListener(labelsScrollRef, "wheel", onTimelineWheel, { passive: false });
 useEventListener(window, "keydown", (e: KeyboardEvent) => {
   if (isTypingTarget(e.target)) return;
 
+  if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    if (selectedKeyframes.value.length === 0 && selectedLayerId.value) {
+      e.preventDefault();
+      startRenameSelectedLayer();
+    }
+    return;
+  }
+
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
     e.preventDefault();
     selectAllLayers();
@@ -838,16 +872,19 @@ function selectAllLayers() {
                       :class="isExpanded(layer.id) && 'rotate-90'"
                     />
                   </button>
-                  <span
-                    class="min-w-0 flex-1 truncate px-1 text-copy-xs"
+                  <UiEditableText
+                    :ref="(el) => bindLayerNameRef(layer.id, el)"
+                    :model-value="layerLabel(layer)"
+                    fill
+                    data-drag-exclude
+                    class="min-w-0 flex-1 px-1 text-copy-xs"
                     :class="
                       isLayerSelected(layer.id)
                         ? 'text-neutral-strong'
                         : 'text-neutral-subtle group-hover/h:text-neutral-strong'
                     "
-                  >
-                    {{ layerLabel(layer) }}
-                  </span>
+                    @update:model-value="setLayerName(layer, $event)"
+                  />
                   <span
                     v-if="
                       enabledTracksForLayer(layer.id).length &&

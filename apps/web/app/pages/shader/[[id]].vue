@@ -441,9 +441,13 @@ function removeLayer(id: string) {
   history.record();
 }
 
-function duplicateLayer(id: string) {
+function duplicateLayer(
+  id: string,
+  options: { record?: boolean; updateSelection?: boolean } = {},
+): string | null {
+  const { record = true, updateSelection = true } = options;
   const source = layers.value.find((l) => l.id === id);
-  if (!source) return;
+  if (!source) return null;
   const newId = `${source.type}-${++layerCounter}`;
   const values = JSON.parse(JSON.stringify(source.values)) as Record<string, unknown>;
   if (source.type === "waveFill") {
@@ -457,17 +461,50 @@ function duplicateLayer(id: string) {
     type: source.type,
     enabled: source.enabled,
     values,
+    ...(source.name ? { name: source.name } : {}),
   };
   const idx = layers.value.findIndex((l) => l.id === id);
   layers.value.splice(idx, 0, clone);
-  selectedLayerId.value = newId;
 
   const clonedAssignments = assignments.value
     .filter((a) => a.layerId === id)
     .map((a) => ({ ...a, layerId: newId }));
   assignments.value.push(...clonedAssignments);
-  selectedLayerIds.value = new Set([newId]);
-  selectionAnchorId.value = newId;
+
+  if (updateSelection) {
+    selectedLayerId.value = newId;
+    selectedLayerIds.value = new Set([newId]);
+    selectionAnchorId.value = newId;
+  }
+  if (record) history.record();
+  return newId;
+}
+
+function duplicateSelectedLayers() {
+  const ids =
+    selectedLayerIds.value.size > 0
+      ? [...selectedLayerIds.value]
+      : selectedLayerId.value
+        ? [selectedLayerId.value]
+        : [];
+  if (ids.length === 0) return;
+
+  const byIndexDesc = ids
+    .map((id) => ({ id, index: layers.value.findIndex((l) => l.id === id) }))
+    .filter((entry) => entry.index >= 0)
+    .sort((a, b) => b.index - a.index);
+
+  const newIds: string[] = [];
+  for (const { id } of byIndexDesc) {
+    const newId = duplicateLayer(id, { record: false, updateSelection: false });
+    if (newId) newIds.push(newId);
+  }
+  if (newIds.length === 0) return;
+
+  const ordered = layers.value.filter((l) => newIds.includes(l.id)).map((l) => l.id);
+  selectedLayerIds.value = new Set(ordered);
+  selectedLayerId.value = ordered[0] ?? null;
+  selectionAnchorId.value = ordered[0] ?? null;
   history.record();
 }
 
@@ -577,6 +614,18 @@ const selectedLayerAssignments = computed(() => {
   return assignments.value.filter((a) => a.layerId === selectedLayer.value!.id);
 });
 
+function getGizmoFloat(layer: LayerInstance, paramName: string, fallback: number): number {
+  return paramValue(layer.id, paramName, fallback);
+}
+
+function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
+  if (isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, paramName))) {
+    setAnimatedValue(layer.id, paramName, value);
+    return;
+  }
+  layer.values[paramName] = value;
+}
+
 const waveFillTemplate = LAYER_TEMPLATES.waveFill;
 const wavePosXDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_X)!;
 const wavePosYDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_Y)!;
@@ -592,7 +641,7 @@ function getWaveFloat(
   key: typeof WAVE_POS_X | typeof WAVE_POS_Y | typeof WAVE_AMPLITUDE | typeof WAVE_CYCLE_WIDTH,
   fallback: number,
 ) {
-  return (layer.values[key] as number) ?? fallback;
+  return getGizmoFloat(layer, key, fallback);
 }
 
 function setWaveFloat(
@@ -600,7 +649,7 @@ function setWaveFloat(
   key: typeof WAVE_POS_X | typeof WAVE_POS_Y | typeof WAVE_AMPLITUDE | typeof WAVE_CYCLE_WIDTH,
   value: number,
 ) {
-  layer.values[key] = value;
+  setGizmoFloat(layer, key, value);
 }
 
 const meshTemplate = LAYER_TEMPLATES.mesh;
@@ -719,6 +768,14 @@ useEventListener(window, "keydown", (e: KeyboardEvent) => {
     if (getKeyframeClipboard()) {
       e.preventDefault();
       pasteKeyframesAtPlayhead();
+    }
+    return;
+  }
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
+    if (selectedLayerIds.value.size > 0 || selectedLayerId.value) {
+      e.preventDefault();
+      duplicateSelectedLayers();
     }
     return;
   }

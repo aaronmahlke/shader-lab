@@ -24,7 +24,7 @@ export function useUndoHistory(
   const future = ref<EditorSnapshot[]>([]);
   const isApplying = ref(false);
   let checkpoint = cloneSnapshot(capture());
-  let gestureStart: EditorSnapshot | null = null;
+  let gestureDepth = 0;
 
   const canUndo = computed(() => past.value.length > 0);
   const canRedo = computed(() => future.value.length > 0);
@@ -36,7 +36,7 @@ export function useUndoHistory(
   }
 
   function record() {
-    if (isApplying.value) return;
+    if (isApplying.value || gestureDepth > 0) return;
     const now = capture();
     if (snapshotsEqual(now, checkpoint)) return;
     past.value.push(cloneSnapshot(checkpoint));
@@ -46,24 +46,26 @@ export function useUndoHistory(
   }
 
   function beginGesture() {
-    if (isApplying.value || gestureStart) return;
-    gestureStart = cloneSnapshot(capture());
+    if (isApplying.value) return;
+    gestureDepth++;
   }
 
   function commitGesture() {
-    if (isApplying.value || !gestureStart) return;
+    if (gestureDepth <= 0) return;
+    gestureDepth--;
+    if (gestureDepth > 0) return;
+
     const now = capture();
-    if (!snapshotsEqual(now, gestureStart)) {
-      past.value.push(gestureStart);
+    if (!snapshotsEqual(now, checkpoint)) {
+      past.value.push(cloneSnapshot(checkpoint));
       trimPast();
       future.value = [];
       checkpoint = cloneSnapshot(now);
     }
-    gestureStart = null;
   }
 
   function cancelGesture() {
-    gestureStart = null;
+    gestureDepth = 0;
   }
 
   function undo() {
@@ -89,7 +91,7 @@ export function useUndoHistory(
   function reset() {
     past.value = [];
     future.value = [];
-    gestureStart = null;
+    gestureDepth = 0;
     checkpoint = cloneSnapshot(capture());
   }
 

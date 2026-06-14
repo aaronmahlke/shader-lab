@@ -58,7 +58,7 @@ defineExpose({ startEditing, editing });
     <input
       v-if="editing"
       ref="inputRef"
-      :value="model"
+      :value="currentText"
       type="text"
       :class="['min-w-0 flex-1 bg-transparent outline-none', className]"
       @input="onInput"
