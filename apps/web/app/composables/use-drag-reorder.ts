@@ -47,6 +47,18 @@ function commitMultiReorder<T>(list: T[], indices: number[], targetIndex: number
   return remaining;
 }
 
+/** Insert selected block at `insertAt` in the list with selected rows removed. */
+function commitBlockAtInsert<T>(list: T[], indices: number[], insertAt: number): T[] | null {
+  const sorted = [...indices].sort((a, b) => a - b);
+  const selectedSet = new Set(sorted);
+  const selected = sorted.map((i) => list[i]!);
+  const remaining = list.filter((_, i) => !selectedSet.has(i));
+  const at = Math.max(0, Math.min(remaining.length, insertAt));
+  remaining.splice(at, 0, ...selected);
+  if (arraysEqual(remaining, list)) return null;
+  return remaining;
+}
+
 /**
  * Composable for smooth drag-to-reorder on a vertical list.
  * Supports multi-select drag when `getSelectedIndices` is provided.
@@ -86,6 +98,8 @@ export function useDragReorder<T>(
   /** Row center Y synced to the current preview layout. */
   let rowCenters: number[] = [];
   let previewDeltaY = 0;
+  /** After swapping up past row R, block down-swap on R until it unstraddles R's center. */
+  let gateDownRow = -1;
   let active = false;
   let didDrag = false;
   let debugRoot: HTMLElement | null = null;
@@ -198,11 +212,11 @@ export function useDragReorder<T>(
     });
   }
 
-  /** Close gaps between selected rows (computed once at drag start, no pointer delta). */
+  /** Close gaps between selected rows only when non-contiguous (after grouping). */
   function computeCollapseOffsets(): Map<number, number> {
     const offsets = new Map<number, number>();
     const sorted = sortedSelection();
-    if (sorted.length <= 1) return offsets;
+    if (sorted.length <= 1 || isContiguousSelection()) return offsets;
 
     const grabPos = sorted.indexOf(dragFrom);
     let stackTop = rowRects[dragFrom]!.top;
@@ -233,17 +247,62 @@ export function useDragReorder<T>(
     return { top, bottom, center: (top + bottom) / 2 };
   }
 
-  /** Crossing anchor — always the grabbed row header (single layer or stack). */
-  function measureCrossingCenter(): number {
-    const r = rowRects[dragFrom];
-    if (r) {
-      return r.headerMidY + previewDeltaY + (collapseOffsets.get(dragFrom) ?? 0);
-    }
-    return measureDragBlockBoundsComputed().center;
-  }
-
   function compactHeight(): number {
     return dragIndices.reduce((sum, i) => sum + (rowRects[i]?.height ?? 0), 0);
+  }
+
+  function blockRange(): { lo: number; hi: number; span: number } {
+    const sorted = sortedSelection();
+    const lo = sorted[0] ?? dragFrom;
+    const hi = sorted[sorted.length - 1] ?? dragFrom;
+    return { lo, hi, span: hi - lo };
+  }
+
+  function rowPreviewTop(i: number, slot: number): number {
+    const r = rowRects[i];
+    if (!r) return 0;
+    return r.top + rowPreviewShift(i, slot);
+  }
+
+  /**
+   * Next rows to cross in preview — by gap adjacency to the block bbox, not slot indices.
+   * Rows shifted into the gap straddle an edge and count as that neighbor.
+   */
+  function crossingNeighbors(
+    block: { top: number; bottom: number },
+    slot: number,
+  ): { aboveIdx: number; belowIdx: number } {
+    let aboveIdx = -1;
+    let aboveBottom = -Infinity;
+    let belowIdx = -1;
+    let belowTop = Infinity;
+
+    for (let i = 0; i < rowRects.length; i++) {
+      if (dragIndexSet.has(i)) continue;
+      const top = rowPreviewTop(i, slot);
+      const bottom = top + rowRects[i]!.height;
+
+      if (top < block.top && bottom > block.top) {
+        aboveIdx = i;
+        aboveBottom = Infinity;
+        continue;
+      }
+      if (bottom <= block.top && bottom > aboveBottom) {
+        aboveBottom = bottom;
+        aboveIdx = i;
+      }
+
+      if (top < block.bottom && bottom > block.bottom) {
+        belowIdx = i;
+        belowTop = -Infinity;
+        continue;
+      }
+      if (top >= block.bottom && top < belowTop) {
+        belowTop = top;
+        belowIdx = i;
+      }
+    }
+    return { aboveIdx, belowIdx };
   }
 
   function rowPreviewShift(i: number, slot: number): number {
@@ -251,20 +310,9 @@ export function useDragReorder<T>(
       return previewDeltaY + (collapseOffsets.get(i) ?? 0);
     }
 
-    const sorted = sortedSelection();
-    const lo = sorted[0] ?? dragFrom;
-    const hi = sorted[sorted.length - 1] ?? dragFrom;
+    const { lo, hi, span } = blockRange();
     const height = compactHeight();
-    const single = sorted.length === 1;
-
-    if (single) {
-      const from = dragFrom;
-      const to = slot;
-      if (to > from && i > from && i <= to) return -height;
-      if (to < from && i >= to && i < from) return height;
-      return 0;
-    }
-    if (slot > hi && i > hi && i < slot) return -height;
+    if (slot > lo && i > hi && i <= slot + span) return -height;
     if (slot < lo && i >= slot && i < lo) return height;
     return 0;
   }
@@ -272,7 +320,7 @@ export function useDragReorder<T>(
   function rowCrossingCenterY(i: number, slot: number): number {
     const r = rowRects[i];
     if (!r) return 0;
-    return r.headerMidY + rowPreviewShift(i, slot);
+    return r.top + r.height / 2 + rowPreviewShift(i, slot);
   }
 
   function syncRowCenters(slot: number) {
@@ -286,35 +334,33 @@ export function useDragReorder<T>(
   }
 
   /**
-   * Target slot from geometry — count how many row centers the crossing point
-   * has passed. Uses rowCenters already synced to the current preview layout.
+   * Single-step adjacent swap: selection bbox edges vs neighbor full-row centers.
+   * rowCenters must already be synced to the current preview layout.
    */
-  function computeTargetSlot(): number {
+  function clearDownGate(block: { top: number; bottom: number }) {
+    if (gateDownRow < 0) return;
+    const y = rowCenters[gateDownRow];
+    if (y === undefined || block.top >= y || block.bottom <= y) gateDownRow = -1;
+  }
+
+  function computeTargetSlot(baseSlot: number): number {
+    const block = measureDragBlockBoundsComputed();
+    clearDownGate(block);
+    const { aboveIdx, belowIdx } = crossingNeighbors(block, baseSlot);
     const n = rowRects.length;
-    if (n === 0) return 0;
 
-    const center = measureCrossingCenter();
-
-    if (dragIndices.length === 1) {
-      let target = 0;
-      for (let i = 0; i < n; i++) {
-        if (i === dragFrom) continue;
-        if (center > rowCenters[i]!) target++;
-      }
-      return target;
+    if (
+      belowIdx >= 0 &&
+      belowIdx < n &&
+      belowIdx !== gateDownRow &&
+      block.bottom > rowCenters[belowIdx]!
+    ) {
+      return baseSlot + 1;
     }
-
-    const sorted = sortedSelection();
-    const lo = sorted[0]!;
-    const hi = sorted[sorted.length - 1]!;
-
-    let target = lo;
-    for (let i = 0; i < n; i++) {
-      if (dragIndexSet.has(i)) continue;
-      if (i < lo && center < rowCenters[i]!) target = Math.min(target, i);
-      if (i > hi && center > rowCenters[i]!) target = Math.max(target, i + 1);
+    if (aboveIdx >= 0 && aboveIdx < n && block.top < rowCenters[aboveIdx]!) {
+      return baseSlot - 1;
     }
-    return target;
+    return baseSlot;
   }
 
   function laneRect(): { left: number; width: number } {
@@ -369,8 +415,9 @@ export function useDragReorder<T>(
     const n = children.length;
     const lane = laneRect();
     const block = measureDragBlockBoundsComputed();
-    const crossingCenter = measureCrossingCenter();
     const slot = currentTarget;
+    const sorted = sortedSelection();
+    const { aboveIdx, belowIdx } = crossingNeighbors(block, slot);
 
     if (!debugRoot) {
       debugRoot = document.createElement("div");
@@ -393,36 +440,34 @@ export function useDragReorder<T>(
 
     if (Number.isFinite(block.top)) {
       parts.push(
-        `<div style="${boxStyle(block.top, lane.left, lane.width, block.bottom - block.top, "#22c55e")}" title="drag block union"></div>`,
-        `<div style="${lineStyle(crossingCenter, lane.left, lane.width, "#22c55e")}" title="crossing anchor (grabbed row header)"></div>`,
+        `<div style="${boxStyle(block.top, lane.left, lane.width, block.bottom - block.top, "rgb(34 197 94 / 0.25)")}" title="selection bbox"></div>`,
+        `<div style="${lineStyle(block.top, lane.left, lane.width, "#22c55e")}" title="selection top (cross up vs prev center)"></div>`,
+        `<div style="${lineStyle(block.bottom, lane.left, lane.width, "#4ade80")}" title="selection bottom (cross down vs next center)"></div>`,
       );
     }
 
     for (let i = 0; i < n; i++) {
       const y = rowCenters[i];
       if (y === undefined) continue;
-      const crossed =
-        dragIndexSet.has(i)
-          ? " (selected)"
-          : crossingCenter > y
-            ? " ✓ crossed down"
-            : crossingCenter < y
-              ? " ✓ crossed up"
-              : "";
+      let crossed = "";
+      if (dragIndexSet.has(i)) {
+        crossed = " (selected)";
+      } else if (i === belowIdx && block.bottom > y && i !== gateDownRow) {
+        crossed = " ✓ cross down";
+      } else if (i === aboveIdx && block.top < y) {
+        crossed = " ✓ cross up";
+      }
       parts.push(
-        `<div style="${lineStyle(y, lane.left, lane.width, "#eab308", true)}" title="row ${i} center${crossed}"></div>`,
+        `<div style="${lineStyle(y, lane.left, lane.width, "#eab308", true)}" title="row ${i} full center${crossed}"></div>`,
       );
     }
 
     const centerText = rowCenters
       .map((y, i) => {
-        const mark = dragIndexSet.has(i)
-          ? " sel"
-          : crossingCenter > y
-            ? " ↓"
-            : crossingCenter < y
-              ? " ↑"
-              : "";
+        let mark = "";
+        if (dragIndexSet.has(i)) mark = " sel";
+        else if (i === belowIdx && block.bottom > y && i !== gateDownRow) mark = " ↓";
+        else if (i === aboveIdx && block.top < y) mark = " ↑";
         return `  ${i} @ ${Math.round(y)}px${mark}`;
       })
       .join("\n");
@@ -431,12 +476,13 @@ export function useDragReorder<T>(
       <div style="position:fixed;top:8px;right:8px;z-index:10000;max-width:280px;padding:8px 10px;border-radius:8px;background:rgb(0 0 0 / 0.85);color:#f5f5f5;font:11px/1.45 ui-monospace,Menlo,monospace;pointer-events:none;white-space:pre">
 <b style="color:#22c55e">layer drag debug</b>
 insertSlot: ${insertSlot}  currentTarget: ${currentTarget}
-crossing center: ${Math.round(crossingCenter)}px
 block top/bottom: ${Math.round(block.top)} / ${Math.round(block.bottom)}px
-selected: [${sortedSelection().join(", ")}]
-row centers (yellow, synced to preview):
+selected: [${sorted.join(", ")}]
+row full centers (yellow, synced to preview):
 ${centerText || "  —"}
-swap when green passes a yellow line (target = rows above crossing point)
+swap down: bottom > center  |  swap up: top < center
+gate down: ${gateDownRow >= 0 ? gateDownRow : "—"}
+neighbors (from bbox): above=${aboveIdx >= 0 ? aboveIdx : "—"} below=${belowIdx >= 0 ? belowIdx : "—"}
 
 localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
       </div>
@@ -569,8 +615,11 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     for (let pass = 0; pass < rowRects.length + 1; pass++) {
       applyTransforms(slot);
       syncRowCenters(slot);
-      const next = computeTargetSlot();
+      const block = measureDragBlockBoundsComputed();
+      const { aboveIdx } = crossingNeighbors(block, slot);
+      const next = computeTargetSlot(slot);
       if (next === slot) break;
+      if (next < slot && aboveIdx >= 0) gateDownRow = aboveIdx;
       slot = next;
     }
     currentTarget = slot;
@@ -617,7 +666,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
 
     const next =
       dragIndexSet.size > 1
-        ? commitMultiReorder(list.value, dragIndices, currentTarget)
+        ? commitBlockAtInsert(list.value, dragIndices, currentTarget)
         : commitSingleReorder(list.value, dragFrom, currentTarget);
 
     if (!next) {
@@ -711,6 +760,7 @@ localStorage.removeItem('${LAYER_DRAG_DEBUG_KEY}') to hide
     preGroupList = null;
     rowCenters = [];
     previewDeltaY = 0;
+    gateDownRow = -1;
     removeDebugOverlay();
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
