@@ -1,3 +1,6 @@
+/** Base z-index for dragged rows — above list neighbors and inline controls. */
+const DRAG_Z_BASE = 50;
+
 type DragReorderOptions = {
   /** Transition duration in ms for non-dragged items sliding into place. Default: 200 */
   animation?: number;
@@ -218,6 +221,8 @@ export function useDragReorder<T>(
       startStackPhase();
     }
 
+    blockNonDraggedHovers();
+    elevateDraggedRows();
     syncRowCenters(currentTarget);
   }
 
@@ -391,6 +396,23 @@ export function useDragReorder<T>(
     }
   }
 
+  function dragZIndex(index: number): string {
+    if (dragIndices.length <= 1) return String(DRAG_Z_BASE);
+    const sorted = sortedSelection();
+    if (index === dragFrom) return String(DRAG_Z_BASE + sorted.length);
+    return String(DRAG_Z_BASE + sorted.indexOf(index));
+  }
+
+  function elevateDraggedRows() {
+    const children = getChildren();
+    for (const i of dragIndices) {
+      const el = children[i];
+      if (!el) continue;
+      el.style.position = "relative";
+      el.style.zIndex = dragZIndex(i);
+    }
+  }
+
   function applyDragTransforms(deltaY: number) {
     const children = getChildren();
 
@@ -400,7 +422,7 @@ export function useDragReorder<T>(
       const collapse = appliedStackOffset(i);
       el.style.transform = `translateY(${deltaY + collapse}px)`;
       el.style.position = "relative";
-      el.style.zIndex = "10";
+      el.style.zIndex = dragZIndex(i);
       el.style.transition = "none";
     }
   }
@@ -411,6 +433,14 @@ export function useDragReorder<T>(
       el.style.transform = "";
       el.style.position = "";
       el.style.zIndex = "";
+      el.style.pointerEvents = "";
+    }
+  }
+
+  function blockNonDraggedHovers() {
+    const children = getChildren();
+    for (let i = 0; i < children.length; i++) {
+      if (!dragIndexSet.has(i)) children[i]!.style.pointerEvents = "none";
     }
   }
 

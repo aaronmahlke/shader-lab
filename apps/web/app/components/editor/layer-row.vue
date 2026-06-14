@@ -55,7 +55,7 @@ const visibilityIcon = computed(() => (layer.enabled ? EyeIcon : EyeSlashIcon));
 </script>
 
 <template>
-  <UiContextMenu :class="overlapsPrevious && '-mt-px'">
+  <UiContextMenu :class="[overlapsPrevious && '-mt-px', dragging && 'relative z-50']">
     <UiHover
       solid
       :active="selected || dragging"

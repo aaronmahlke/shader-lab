@@ -711,7 +711,7 @@ function selectLayer(id: string, e?: MouseEvent) {
               class="layer-group"
               :class="[
                 !layer.enabled && 'opacity-50',
-                draggingIndices.has(i) && 'relative z-10 scale-[1.01] shadow-lg',
+                draggingIndices.has(i) && 'relative z-50 scale-[1.01] shadow-lg',
               ]"
             >
               <UiHover
