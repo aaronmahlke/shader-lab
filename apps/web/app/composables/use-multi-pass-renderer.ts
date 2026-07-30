@@ -55,7 +55,8 @@ export function useMultiPassRenderer(
 
   function findLayerForPass(pass: RenderPass): LayerInstance | undefined {
     if (!layersRef?.value) return undefined;
-    return layersRef.value.find((l) => l.id === pass.layerId);
+    const id = pass.sourceLayerId ?? pass.layerId;
+    return layersRef.value.find((l) => l.id === id);
   }
 
   function render() {

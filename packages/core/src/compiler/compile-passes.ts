@@ -1,14 +1,13 @@
 import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
 import { expandMeshUniforms } from "./mesh-uniforms";
+import { buildUniversalUniforms, layerOpacityValue } from "./universal-uniforms";
 
 export type ModulationFn = (
   layerId: string,
   paramName: string,
   baseValue: number,
 ) => number;
-
-const COMPOSITE_LAYER_TYPES = new Set<LayerInstance["type"]>(["waveFill", "bandFill"]);
 
 /** Build shader uniforms from a layer's current values (and optional LFO modulation). */
 export function buildLayerUniforms(
@@ -27,6 +26,14 @@ export function buildLayerUniforms(
     uniforms[def.name] = value;
   }
 
+  // Universal opacity: effects crossfade in-shader; distortion scales its displacement.
+  if (template.category === "effect") {
+    uniforms.layerOpacity = layerOpacityValue(layer, modFn);
+  } else if (template.category === "distortion") {
+    const opacity = layerOpacityValue(layer, modFn) / 100;
+    uniforms.amplitude = ((uniforms.amplitude as number) ?? 0) * opacity;
+  }
+
   if (layer.type === "mesh") {
     return expandMeshUniforms(uniforms, modFn, layer.id);
   }
@@ -34,11 +41,26 @@ export function buildLayerUniforms(
   return uniforms;
 }
 
-function compositeUniforms(
+/** Synthetic pass id for a generator layer's transform/opacity composite step. */
+export function compositePassId(layerId: string): string {
+  return `composite-${layerId}`;
+}
+
+/** Composite pass: blends a generator's content FBO onto the stack below with transform + opacity. */
+function makeCompositePass(
   layer: LayerInstance,
+  belowLayerId: string | null,
   modFn: ModulationFn | null,
-): Record<string, unknown> {
-  return buildLayerUniforms(layer, modFn);
+): RenderPass {
+  return {
+    layerId: compositePassId(layer.id),
+    layerType: "layerComposite",
+    uniforms: buildUniversalUniforms(layer, modFn),
+    inputLayerId: belowLayerId,
+    colorSourceLayerId: layer.id,
+    sourceLayerId: layer.id,
+    isOutput: false,
+  };
 }
 
 /** Exclusive end index of a contiguous distortion run starting at `start`. */
@@ -99,19 +121,6 @@ export function compilePasses(
     const layer = enabled[i]!;
     const template = LAYER_TEMPLATES[layer.type];
     if (!template) {
-      i++;
-      continue;
-    }
-
-    if (COMPOSITE_LAYER_TYPES.has(layer.type)) {
-      result.push({
-        layerId: layer.id,
-        layerType: layer.type,
-        uniforms: compositeUniforms(layer, modFn),
-        inputLayerId: previousLayerId,
-        isOutput: false,
-      });
-      previousLayerId = layer.id;
       i++;
       continue;
     }
@@ -179,7 +188,14 @@ export function compilePasses(
       isOutput: false,
     });
 
-    previousLayerId = layer.id;
+    if (isGenerator) {
+      // Generators render pure content (alpha = coverage); the composite pass
+      // applies universal transform + opacity and blends onto the stack below.
+      result.push(makeCompositePass(layer, previousLayerId, modFn));
+      previousLayerId = compositePassId(layer.id);
+    } else {
+      previousLayerId = layer.id;
+    }
     i++;
   }
 

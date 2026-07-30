@@ -36,20 +36,30 @@ export type LayerTemplate = {
   uniforms: LayerUniformDef[];
 };
 
+/** Layer visibility window on the timeline, in seconds. Missing bounds fall back to the comp bounds. */
+export type LayerTiming = {
+  in?: number;
+  out?: number;
+};
+
 export type LayerInstance = {
   id: string;
   type: LayerType;
   name?: string;
   enabled: boolean;
   values: Record<string, unknown>;
+  /** In/out points; layer contributes nothing outside this window. */
+  timing?: LayerTiming;
 };
 
 export type RenderPass = {
   layerId: string;
-  layerType: LayerType | "resolve" | "blit";
+  layerType: LayerType | "resolve" | "blit" | "layerComposite";
   uniforms: Record<string, unknown>;
   inputLayerId: string | null;
-  colorSourceLayerId?: string | null;  // for resolve pass: which layer has the color texture
+  colorSourceLayerId?: string | null;  // resolve: color texture; layerComposite: layer content texture
+  /** Layer that owns this pass when layerId is synthetic (e.g. composite passes). Used for live uniform lookup. */
+  sourceLayerId?: string | null;
   isOutput: boolean;
 };
 

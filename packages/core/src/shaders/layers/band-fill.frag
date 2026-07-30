@@ -5,8 +5,6 @@ precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform float u_scale;
-uniform sampler2D u_input;
-uniform bool u_hasInput;
 
 uniform float edge;
 uniform float bandY;
@@ -46,11 +44,10 @@ vec3 sampleEdgeGradient(sampler2D grad, float t) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
-  vec3 below = u_hasInput ? texture2D(u_input, uv).rgb : vec3(0.0);
 
   float mBand = shapeAt(coverageMask(bandY, uv.y, edge, 1.0), edge);
   vec3 belowAt = sampleEdgeGradient(u_gradientBelow, gradientTBelowLine(bandY, uv.y));
   vec3 aboveAt = sampleEdgeGradient(u_gradientAbove, gradientTAboveLine(bandY, uv.y));
   vec3 fill = mix(belowAt, aboveAt, mBand);
-  gl_FragColor = vec4(mix(below, fill, 1.0), 1.0);
+  gl_FragColor = vec4(fill, 1.0);
 }

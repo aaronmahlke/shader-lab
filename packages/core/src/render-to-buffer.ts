@@ -1,6 +1,7 @@
 import type { CompositionConfig } from "./types/composition";
 import { compilePasses } from "./compiler/compile-passes";
-import { createModulationFn } from "./modulation/engine";
+import { createAnimatedModulationFn } from "./animation/create-modulation-fn";
+import { ModulationEngine } from "./modulation/engine";
 import { destroyGlContext, renderPasses } from "./renderer/render-passes";
 import { createHeadlessGlContext, loadHeadlessGl } from "./renderer/headless-gl";
 import {
@@ -32,7 +33,11 @@ export async function renderCompositionToBuffer(
     return null;
   }
 
-  const modFn = createModulationFn(config.lfos, config.assignments, time);
+  const engine = new ModulationEngine();
+  engine.setLfos(config.lfos);
+  engine.setAssignments(config.assignments);
+  engine.sampleAt(time);
+  const modFn = createAnimatedModulationFn(time, config.tracks ?? [], engine);
   const passes = compilePasses(config.layers, modFn);
   if (passes.length === 0) return null;
 

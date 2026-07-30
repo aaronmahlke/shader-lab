@@ -32,6 +32,8 @@ export function createComposition(
 
   const renderer = new CompositionRenderer(canvas, {
     ...options,
+    findLayer: (pass) =>
+      currentConfig.layers.find((l) => l.id === (pass.sourceLayerId ?? pass.layerId)),
     getModulatedValue: engine.getModulatedValue,
   });
 
@@ -140,6 +142,7 @@ export type { ModulationFn, CompositionRendererOptions, CompositionConfig };
 
 export type {
   LayerInstance,
+  LayerTiming,
   LayerType,
   LayerTemplate,
   RenderPass,
@@ -149,6 +152,20 @@ export type {
   LFOWaveShape,
   LFOPlaybackMode,
 } from "./types/editor";
+
+export {
+  UNIVERSAL_LAYER_UNIFORMS,
+  TRANSFORM_UNIFORMS,
+  OPACITY_UNIFORM,
+  universalUniformsFor,
+  findLayerParamDef,
+  isUniversalParamName,
+  buildUniversalUniforms,
+  layerOpacityValue,
+  layerTimingFactor,
+  isIdentityTransform,
+} from "./compiler/universal-uniforms";
+export { compositePassId } from "./compiler/compile-passes";
 
 export type { GradientStop } from "./types";
 

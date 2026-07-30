@@ -29,6 +29,14 @@ Not a separate “artworks” pipeline. Not Three.js as the 2D compositor (v1 mi
 
 Shared properties and timeline UX that apply to **all** layer types.
 
+Status:
+
+- [x] Universal properties in data model + inspector + timeline (opacity, position, scale, rotation, anchor, in/out points) — `layer.values` reserved names + `layer.timing`, rendered via the per-generator `layerComposite` pass; effects crossfade by opacity, distortion scales displacement
+- [x] AE-style P/S/R/T reveal shortcuts (timeline)
+- [x] In/out layer bar on the timeline (drag to move, edges to trim, double-click to reset)
+- [ ] 3D layer toggle (Phase 7 prerequisite; add `positionZ`/`rotationX/Y` when scene3d lands)
+- [ ] Timeline value editing (scrub/click values in the labels column)
+
 ### Universal layer properties
 
 Every layer should have a common set (in data model + inspector + timeline):

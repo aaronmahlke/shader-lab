@@ -9,6 +9,7 @@ import {
   hasKeyframeAt,
   isKeyframeableUniform,
   isPropertyTrackActive,
+  universalUniformsFor,
 } from "@shader-lab/core";
 
 type Props = {
@@ -141,7 +142,14 @@ function randomizeUniforms(defs: LayerUniformDef[], target: Record<string, unkno
   }
 }
 
+/** Universal transform/opacity params shown for every layer (generators get the full set). */
+const universalDefs = universalUniformsFor(layer);
+
 function resetToDefaults() {
+  for (const def of universalDefs) {
+    layer.values[def.name] = def.default;
+  }
+  layer.timing = undefined;
   for (const def of template.uniforms) {
     if (def.type === "gradient" && Array.isArray(def.default)) {
       layer.values[def.name] = (def.default as GradientStop[]).map((s) => ({ ...s }));
@@ -271,6 +279,45 @@ function isUniformVisible(def: LayerUniformDef): boolean {
         :pulse-width="getModulatedFloat('pulseWidth', 0)"
         :skew="getModulatedFloat('skew', 0)"
       />
+    </div>
+
+    <div class="flex flex-col gap-2.5 border-b border-neutral p-3">
+      <span class="text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
+        Transform
+      </span>
+      <template v-for="def in universalDefs" :key="`universal-${def.name}`">
+        <UiContextMenu>
+          <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
+            <UiSliderField
+              :model-value="getFloat(def, layer.values)"
+              :label="def.label"
+              :min="def.min"
+              :max="def.max"
+              :step="def.step ?? 0.01"
+              :mod-color="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.color"
+              :mod-depth="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.depth"
+              :mod-live-value="isTrackEnabled(def.name) ? undefined : getLiveValue(def)"
+              :is-drop-target="draggingLfoId !== null && !isTrackEnabled(def.name)"
+              :animatable="isKeyframeableUniform(def)"
+              :track-enabled="isTrackEnabled(def.name)"
+              :keyed-at-playhead="isKeyedAtPlayhead(def.name)"
+              @update:model-value="setFloat(def, layer.values, $event)"
+              @update:mod-depth="onDepthUpdate(def, $event)"
+              @toggle-track="emit('toggle-stopwatch', def.name)"
+              @toggle-keyframe="emit('toggle-keyframe', def.name)"
+            />
+          </div>
+          <template #menu>
+            <UiContextMenuItem @click="resetUniform(def)">Reset to default</UiContextMenuItem>
+            <template v-if="getAssignment(def.name)">
+              <UiContextMenuSeparator />
+              <UiContextMenuItem @click="emit('remove-assignment', getAssignment(def.name)!.sourceId, def.name)">
+                Remove {{ lfos.find(l => l.id === getAssignment(def.name)!.sourceId)?.label }}
+              </UiContextMenuItem>
+            </template>
+          </template>
+        </UiContextMenu>
+      </template>
     </div>
 
     <div class="flex flex-col gap-2.5 p-3">

@@ -1,5 +1,6 @@
-import type { LayerInstance } from "../types/editor";
+import type { LayerInstance, LayerTiming } from "../types/editor";
 import type { CompositionConfig } from "../types/composition";
+import { UNIVERSAL_LAYER_UNIFORMS } from "./universal-uniforms";
 import type { GradientStop } from "../types";
 import { DEFAULT_COMPOSITION_SETTINGS } from "../types/animation";
 import { MESH_BLOOM_POINTS } from "./mesh-uniforms";
@@ -113,6 +114,30 @@ export function migrateDiffuseValues(values: Record<string, unknown>): void {
   delete values.seed;
 }
 
+/** Seed universal transform/opacity values and sanitize the in/out window. */
+export function normalizeUniversalLayerProps(layer: LayerInstance, duration: number): void {
+  for (const def of UNIVERSAL_LAYER_UNIFORMS) {
+    if (typeof layer.values[def.name] !== "number") {
+      layer.values[def.name] = def.default;
+    }
+  }
+
+  if (!layer.timing) return;
+  let inPoint = typeof layer.timing.in === "number" ? Math.max(0, layer.timing.in) : undefined;
+  let outPoint = typeof layer.timing.out === "number" ? Math.min(duration, layer.timing.out) : undefined;
+  if (inPoint !== undefined && outPoint !== undefined && outPoint < inPoint) {
+    [inPoint, outPoint] = [outPoint, inPoint];
+  }
+  const timing: LayerTiming = {};
+  if (inPoint !== undefined && inPoint > 0) timing.in = inPoint;
+  if (outPoint !== undefined && outPoint < duration) timing.out = outPoint;
+  if (timing.in === undefined && timing.out === undefined) {
+    delete layer.timing;
+  } else {
+    layer.timing = timing;
+  }
+}
+
 export function normalizeComposition(config: CompositionConfig): void {
   normalizeCompositeLayers(config.layers);
   if (!config.settings) {
@@ -122,6 +147,9 @@ export function normalizeComposition(config: CompositionConfig): void {
       duration: config.settings.duration ?? DEFAULT_COMPOSITION_SETTINGS.duration,
       fps: config.settings.fps ?? DEFAULT_COMPOSITION_SETTINGS.fps,
     };
+  }
+  for (const layer of config.layers) {
+    normalizeUniversalLayerProps(layer, config.settings.duration);
   }
   if (!config.tracks) {
     config.tracks = [];

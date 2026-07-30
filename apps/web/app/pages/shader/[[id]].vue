@@ -10,6 +10,7 @@ import type {
 import {
   LAYER_TEMPLATES,
   DEFAULT_COMPOSITION_SETTINGS,
+  findLayerParamDef,
   normalizeComposition,
   setTrackEnabled,
   upsertKeyframe,
@@ -295,8 +296,7 @@ function toggleStopwatch(layerId: string, paramName: string) {
     return;
   }
   const layer = layers.value.find((l) => l.id === layerId);
-  const template = layer ? LAYER_TEMPLATES[layer.type] : null;
-  const def = template?.uniforms.find((u) => u.name === paramName);
+  const def = layer ? findLayerParamDef(layer, paramName) : undefined;
   const fallback = (def?.default as number) ?? 0;
   const value = paramValue(layerId, paramName, fallback);
   tracks.value = setTrackEnabled(
@@ -345,8 +345,7 @@ function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
   }
 
   const layer = layers.value.find((l) => l.id === layerId);
-  const template = layer ? LAYER_TEMPLATES[layer.type] : null;
-  const def = template?.uniforms.find((u) => u.name === paramName);
+  const def = layer ? findLayerParamDef(layer, paramName) : undefined;
   const fallback = (def?.default as number) ?? 0;
   const value = paramValue(layerId, paramName, fallback);
   tracks.value = upsertKeyframe(
@@ -580,8 +579,7 @@ function assignLfo(paramName: string) {
   assignments.value = assignments.value.filter(
     (a) => !(a.layerId === selectedLayer.value!.id && a.paramName === paramName),
   );
-  const template = selectedTemplate.value;
-  const def = template?.uniforms.find((u) => u.name === paramName);
+  const def = findLayerParamDef(selectedLayer.value, paramName);
   const range = ((def?.max ?? 1) - (def?.min ?? 0)) * 0.15;
 
   assignments.value.push({

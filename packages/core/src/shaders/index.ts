@@ -14,9 +14,10 @@ import waveFillFrag from "./layers/wave-fill.frag";
 import bandFillFrag from "./layers/band-fill.frag";
 import resolveFrag from "./layers/resolve.frag";
 import outputFrag from "./layers/output.frag";
+import layerCompositeFrag from "./layers/layer-composite.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
 
-export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit", string> = {
+export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit" | "layerComposite", string> = {
   gradient: gradientFrag,
   mesh: meshFrag,
   solid: solidFrag,
@@ -32,6 +33,7 @@ export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit", string> = {
   chromaticAberration: chromaticAberrationFrag,
   resolve: resolveFrag,
   blit: outputFrag,
+  layerComposite: layerCompositeFrag,
 };
 
 export const FULLSCREEN_VERT = fullscreenVert;

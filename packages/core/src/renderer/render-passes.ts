@@ -2,6 +2,7 @@ import type { GradientStop } from "../types";
 import type { LayerInstance, LayerType, RenderPass } from "../types/editor";
 import type { ModulationFn } from "../compiler/compile-passes";
 import { buildLayerUniforms } from "../compiler/compile-passes";
+import { buildUniversalUniforms, layerTimingFactor } from "../compiler/universal-uniforms";
 import { stbnFrameIndex } from "../modulation/stbn";
 import {
   FRAG_SHADERS,
@@ -34,18 +35,37 @@ export type RenderPassContext = {
   getModulatedValue?: ModulationFn | null;
 };
 
+/** Zero out a layer's contribution while the playhead is outside its in/out window. */
+function applyTimingGate(
+  uniforms: Record<string, unknown>,
+  layer: LayerInstance,
+  pass: RenderPass,
+  time: number,
+): void {
+  if (layerTimingFactor(layer, time) === 1) return;
+  if (pass.layerType === "distortion") {
+    uniforms.amplitude = 0;
+  } else {
+    uniforms.layerOpacity = 0;
+  }
+}
+
 function resolvePassUniformValues(
   pass: RenderPass,
   ctx: RenderPassContext,
 ): Record<string, unknown> {
-  if (pass.layerType === "resolve") return pass.uniforms;
+  if (pass.layerType === "resolve" || pass.layerType === "blit") return pass.uniforms;
 
   const layer = ctx.findLayer?.(pass);
-  const merged = layer
-    ? buildLayerUniforms(layer, ctx.getModulatedValue ?? null)
-    : { ...pass.uniforms };
+  if (!layer) return { ...pass.uniforms };
 
   // Pass-graph only — not stored on layer templates.
+  const merged: Record<string, unknown> =
+    pass.layerType === "layerComposite"
+      ? buildUniversalUniforms(layer, ctx.getModulatedValue ?? null)
+      : buildLayerUniforms(layer, ctx.getModulatedValue ?? null);
+
+  applyTimingGate(merged, layer, pass, ctx.time);
   return merged;
 }
 
@@ -233,7 +253,7 @@ function ensurePrograms(
 ): void {
   for (const pass of passes) {
     if (programs.has(pass.layerType)) continue;
-    const fragSrc = FRAG_SHADERS[pass.layerType as LayerType | "resolve" | "blit"];
+    const fragSrc = FRAG_SHADERS[pass.layerType];
     if (!fragSrc) continue;
     if (!fragSrc.includes("uniform") && fragSrc.endsWith(".frag")) {
       console.error(
@@ -377,7 +397,7 @@ export function renderPasses(
     const program = programs.get(pass.layerType);
     if (!program) continue;
 
-    if (pass.layerType === "resolve") {
+    if (pass.layerType === "resolve" || pass.layerType === "layerComposite") {
       const hasColor = pass.colorSourceLayerId && fbos.has(pass.colorSourceLayerId);
       if (!hasColor) continue;
     }
@@ -397,6 +417,9 @@ export function renderPasses(
       inputTexture = fbos.get(pass.inputLayerId)?.texture ?? getBlackTexture();
     } else if (pass.layerType === "distortion") {
       inputTexture = getNeutralTexture();
+    } else if (pass.layerType === "layerComposite") {
+      // Bottom layer: composite onto black.
+      inputTexture = getBlackTexture();
     }
 
     const colorTexture = pass.colorSourceLayerId

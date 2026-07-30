@@ -21,6 +21,7 @@ import {
   isKeyframeableUniform,
   isPropertyTrackActive,
   offsetKeyframes,
+  universalUniformsFor,
   type CompositionSettings,
   type LayerInstance,
   type PropertyTrack,
@@ -580,7 +581,10 @@ function enabledTracksForLayer(layerId: string): PropertyTrack[] {
 function keyframeableUniforms(layer: LayerInstance) {
   const template = LAYER_TEMPLATES[layer.type];
   if (!template) return [];
-  return template.uniforms.filter(isKeyframeableUniform);
+  return [
+    ...universalUniformsFor(layer),
+    ...template.uniforms.filter(isKeyframeableUniform),
+  ];
 }
 
 function visibleProperties(layer: LayerInstance) {
@@ -951,6 +955,155 @@ registerKeyboard({
   },
 });
 
+/** AE-style property reveal shortcuts on the selected layer(s). */
+const PROPERTY_SHORTCUT_PARAMS: Record<string, string[]> = {
+  p: ["layerPositionX", "layerPositionY"],
+  s: ["layerScale"],
+  r: ["layerRotation"],
+  t: ["layerOpacity"],
+};
+
+registerKeyboard({
+  id: "timeline:reveal-transform-property",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    const params = PROPERTY_SHORTCUT_PARAMS[e.key.toLowerCase()];
+    if (!params) return false;
+    return toggleUniversalPropertyReveal(params);
+  },
+});
+
+function toggleUniversalPropertyReveal(params: string[]): boolean {
+  const ids = layersForKeyframeRevealCommand();
+  if (ids.length === 0) return false;
+
+  // Only params that exist on each layer (effects expose opacity only).
+  const targets: Array<[string, string]> = [];
+  for (const id of ids) {
+    const layer = layers.value.find((l) => l.id === id);
+    if (!layer) continue;
+    const names = new Set(universalUniformsFor(layer).map((d) => d.name));
+    for (const param of params) {
+      if (names.has(param)) targets.push([id, param]);
+    }
+  }
+  if (targets.length === 0) return false;
+
+  const allShowing = targets.every(
+    ([id, param]) =>
+      isExpanded(id) ||
+      (isKeyframesRevealed(id) && isPinnedInUView(id, param)),
+  );
+
+  const nextPins = new Set(pinnedUViewProperties.value);
+  const nextRevealed = new Set(keyframesRevealed.value);
+
+  if (allShowing) {
+    for (const [id, param] of targets) nextPins.delete(uViewPropertyKey(id, param));
+  } else {
+    for (const [id, param] of targets) {
+      nextPins.add(uViewPropertyKey(id, param));
+      if (!isExpanded(id)) nextRevealed.add(id);
+    }
+  }
+
+  pinnedUViewProperties.value = nextPins;
+  keyframesRevealed.value = nextRevealed;
+  return true;
+}
+
+// --- Layer in/out bar (visibility window) ---
+
+type LayerBarDragMode = "move" | "in" | "out";
+
+function layerInPoint(layer: LayerInstance): number {
+  return layer.timing?.in ?? 0;
+}
+
+function layerOutPoint(layer: LayerInstance): number {
+  return layer.timing?.out ?? settings.duration;
+}
+
+function layerBarStyle(layer: LayerInstance) {
+  const left = layerInPoint(layer) * pxPerSecond.value;
+  const width = Math.max(
+    pxPerFrame.value,
+    (layerOutPoint(layer) - layerInPoint(layer)) * pxPerSecond.value,
+  );
+  return { left: `${left}px`, width: `${width}px` };
+}
+
+/** Persist the window; a full-width window is stored as "no timing". */
+function writeLayerTiming(layer: LayerInstance, inPoint: number, outPoint: number) {
+  const frame = 1 / settings.fps;
+  const nextIn = Math.max(0, Math.min(inPoint, settings.duration - frame));
+  const nextOut = Math.min(settings.duration, Math.max(outPoint, nextIn + frame));
+
+  if (nextIn <= 0 && nextOut >= settings.duration) {
+    if (layer.timing) layer.timing = undefined;
+    return;
+  }
+  layer.timing = {
+    ...(nextIn > 0 ? { in: nextIn } : {}),
+    ...(nextOut < settings.duration ? { out: nextOut } : {}),
+  };
+}
+
+function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: PointerEvent) {
+  if (e.button !== 0) return;
+  if (!selectedLayerIds.value.has(layer.id)) {
+    selectedLayerId.value = layer.id;
+    selectedLayerIds.value = new Set([layer.id]);
+    selectionAnchorId.value = layer.id;
+  }
+
+  const startX = e.clientX;
+  const startIn = layerInPoint(layer);
+  const startOut = layerOutPoint(layer);
+  const frame = 1 / settings.fps;
+  let dragging = false;
+
+  function onMove(ev: PointerEvent) {
+    if (!dragging && Math.abs(ev.clientX - startX) < 3) return;
+    if (!dragging) {
+      dragging = true;
+      history?.beginGesture();
+    }
+
+    const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
+    if (mode === "move") {
+      const length = startOut - startIn;
+      const nextIn = Math.max(
+        0,
+        Math.min(snapTime(startIn + deltaTime), settings.duration - length),
+      );
+      writeLayerTiming(layer, nextIn, nextIn + length);
+    } else if (mode === "in") {
+      const nextIn = Math.min(snapTime(startIn + deltaTime), startOut - frame);
+      writeLayerTiming(layer, nextIn, startOut);
+    } else {
+      const nextOut = Math.max(snapTime(startOut + deltaTime), startIn + frame);
+      writeLayerTiming(layer, startIn, nextOut);
+    }
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    if (dragging) history?.commitGesture();
+  }
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+
+function resetLayerTiming(layer: LayerInstance) {
+  if (!layer.timing) return;
+  layer.timing = undefined;
+  history?.record();
+}
+
 function togglePlay() {
   playing.value = !playing.value;
 }
@@ -1229,7 +1382,25 @@ function selectAllLayers() {
                 class="layer-group"
                 :class="!layer.enabled && 'opacity-50'"
               >
-                <div class="h-7 border-b border-neutral/40 bg-layer-1/50" />
+                <div class="relative h-7 border-b border-neutral/40 bg-layer-1/50">
+                  <div
+                    class="group/bar absolute inset-y-[5px] cursor-grab rounded-[5px] transition-colors"
+                    :class="selectedLayerIds.has(layer.id) ? 'bg-neutral/60' : 'bg-neutral/35 hover:bg-neutral/50'"
+                    :style="layerBarStyle(layer)"
+                    :title="`${layerInPoint(layer).toFixed(2)}s – ${layerOutPoint(layer).toFixed(2)}s (double-click to reset)`"
+                    @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'move', $event)"
+                    @dblclick.stop="resetLayerTiming(layer)"
+                  >
+                    <div
+                      class="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize rounded-l-[5px] opacity-0 transition-opacity group-hover/bar:opacity-100 bg-layer-2"
+                      @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'in', $event)"
+                    />
+                    <div
+                      class="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize rounded-r-[5px] opacity-0 transition-opacity group-hover/bar:opacity-100 bg-layer-2"
+                      @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'out', $event)"
+                    />
+                  </div>
+                </div>
 
                 <template v-for="def in visibleProperties(layer)" :key="`t-${layer.id}-${def.name}`">
                   <div

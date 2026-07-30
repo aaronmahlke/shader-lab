@@ -70,7 +70,8 @@ describe("waveFill compositing", () => {
         gradientTextures: new Map<string, WebGLTexture>(),
         stbnTexture: null,
         createGradientData: createNodeGradientData,
-        findLayer: (pass: { layerId: string }) => layers.find((l) => l.id === pass.layerId),
+        findLayer: (pass: { layerId: string; sourceLayerId?: string | null }) =>
+          layers.find((l) => l.id === (pass.sourceLayerId ?? pass.layerId)),
       };
 
       const meshOnly = renderPasses(compilePasses([layers[1]!]), ctx, {
