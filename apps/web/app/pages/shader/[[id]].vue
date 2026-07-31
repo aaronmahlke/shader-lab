@@ -1051,8 +1051,11 @@ registerKeyboard({
               <div class="absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-lg border border-neutral bg-layer-1/90 p-0.5 backdrop-blur">
                 <button
                   type="button"
-                  class="rounded-md px-1.5 py-1 text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
-                  title="Zoom to fit (⌘0)"
+                  class="rounded-md px-1.5 py-1 text-copy-xs transition-colors"
+                  :class="viewport.fitMode.value
+                    ? 'bg-accent/25 text-neutral-strong ring-1 ring-accent/50'
+                    : 'text-neutral-subtle hover:bg-control hover:text-neutral-strong'"
+                  title="Zoom to fit — stays fitted until you zoom or pan (⌘0)"
                   @click="viewport.fit()"
                 >
                   Fit

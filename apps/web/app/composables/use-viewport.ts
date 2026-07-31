@@ -9,12 +9,17 @@ export type ViewportSize = { width: number; height: number };
 const MIN_ZOOM = 0.02;
 const MAX_ZOOM = 16;
 const FIT_PADDING = 48;
+/** At least this many screen px of artboard must stay inside the viewport. */
+const MIN_VISIBLE_PX = 64;
 const ZOOM_STEPS = [0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
 
 /**
  * Figma-style viewport: the composition is an artboard on a pasteboard.
- * Ctrl/cmd+wheel zooms to the cursor, plain wheel pans, space/middle-mouse
- * drags pan. Zoom 1 = one composition pixel per CSS pixel.
+ * Ctrl/cmd+wheel zooms to the cursor, plain wheel pans, middle-mouse drags
+ * pan. Zoom 1 = one composition pixel per CSS pixel.
+ *
+ * Starts in fit mode: the artboard auto-fits on container/composition size
+ * changes until the user zooms or pans manually. `fit()` re-enters the mode.
  */
 export function useViewport(
   containerRef: Ref<HTMLElement | null>,
@@ -23,9 +28,8 @@ export function useViewport(
   const zoom = ref(1);
   const pan = ref({ x: 0, y: 0 });
   const panning = ref(false);
-  /** True once the user zoomed/panned manually — stops auto-fit on resize. */
-  let userAdjusted = false;
-  let didInitialFit = false;
+  /** Sticky fit: keep the artboard fitted until the user takes over. */
+  const fitMode = ref(true);
 
   const { width: containerW, height: containerH } = useElementSize(containerRef);
 
@@ -42,15 +46,29 @@ export function useViewport(
     return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
   }
 
+  /** Keep some artboard on screen — the view can never be lost entirely. */
+  function clampPan(p: { x: number; y: number }, z: number): { x: number; y: number } {
+    const aw = artboardSize.value.width * z;
+    const ah = artboardSize.value.height * z;
+    const cw = containerW.value;
+    const ch = containerH.value;
+    if (cw < 1 || ch < 1) return p;
+    const margin = Math.min(MIN_VISIBLE_PX, aw / 2, ah / 2);
+    return {
+      x: Math.min(cw - margin, Math.max(margin - aw, p.x)),
+      y: Math.min(ch - margin, Math.max(margin - ah, p.y)),
+    };
+  }
+
   /** Zoom keeping the given container-space point stationary. */
   function zoomAt(nextZoom: number, focal?: { x: number; y: number }) {
     const z = clampZoom(nextZoom);
     const f = focal ?? { x: containerW.value / 2, y: containerH.value / 2 };
     const worldX = (f.x - pan.value.x) / zoom.value;
     const worldY = (f.y - pan.value.y) / zoom.value;
-    pan.value = { x: f.x - worldX * z, y: f.y - worldY * z };
+    pan.value = clampPan({ x: f.x - worldX * z, y: f.y - worldY * z }, z);
     zoom.value = z;
-    userAdjusted = true;
+    fitMode.value = false;
   }
 
   function fit() {
@@ -63,7 +81,7 @@ export function useViewport(
     );
     zoom.value = z;
     pan.value = { x: (cw - aw * z) / 2, y: (ch - ah * z) / 2 };
-    userAdjusted = false;
+    fitMode.value = true;
   }
 
   function zoomTo100() {
@@ -88,8 +106,11 @@ export function useViewport(
       const factor = Math.exp(-e.deltaY * 0.01);
       zoomAt(zoom.value * factor, { x: e.clientX - rect.left, y: e.clientY - rect.top });
     } else {
-      pan.value = { x: pan.value.x - e.deltaX, y: pan.value.y - e.deltaY };
-      userAdjusted = true;
+      pan.value = clampPan(
+        { x: pan.value.x - e.deltaX, y: pan.value.y - e.deltaY },
+        zoom.value,
+      );
+      fitMode.value = false;
     }
   }
 
@@ -103,11 +124,14 @@ export function useViewport(
     const startPan = { ...pan.value };
 
     function onMove(ev: PointerEvent) {
-      pan.value = {
-        x: startPan.x + (ev.clientX - start.x),
-        y: startPan.y + (ev.clientY - start.y),
-      };
-      userAdjusted = true;
+      pan.value = clampPan(
+        {
+          x: startPan.x + (ev.clientX - start.x),
+          y: startPan.y + (ev.clientY - start.y),
+        },
+        zoom.value,
+      );
+      fitMode.value = false;
     }
     function onUp() {
       window.removeEventListener("pointermove", onMove);
@@ -146,16 +170,15 @@ export function useViewport(
     },
   });
 
-  // Fit once the container has a size; refit on resize until the user takes over.
+  // Fit mode: track container and composition size changes.
   watch([containerW, containerH], ([w, h]) => {
     if (w < 1 || h < 1) return;
-    if (!didInitialFit || !userAdjusted) {
-      fit();
-      didInitialFit = true;
-    }
+    if (fitMode.value) fit();
+    else pan.value = clampPan(pan.value, zoom.value);
   });
   watch(artboardSize, () => {
-    if (!userAdjusted) fit();
+    if (fitMode.value) fit();
+    else pan.value = clampPan(pan.value, zoom.value);
   });
 
   return {
@@ -163,6 +186,7 @@ export function useViewport(
     pan,
     zoomPercent,
     panning,
+    fitMode,
     artboardStyle,
     fit,
     zoomTo100,
