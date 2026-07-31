@@ -14,6 +14,23 @@ uniform float layerRotation;  // degrees, positive = clockwise
 uniform float layerAnchorX;   // rotation/scale origin in layer UV space (0..1)
 uniform float layerAnchorY;
 uniform float layerOpacity;   // percent, 0..100 (pre-gated by in/out points)
+uniform int layerBlendMode;   // 0 normal, 1 multiply, 2 screen, 3 overlay, 4 add, 5 darken, 6 lighten
+
+vec3 blendOverlay(vec3 b, vec3 s) {
+  vec3 lo = 2.0 * b * s;
+  vec3 hi = 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
+  return mix(lo, hi, step(0.5, b));
+}
+
+vec3 applyBlend(vec3 below, vec3 src, int mode) {
+  if (mode == 1) return below * src;
+  if (mode == 2) return 1.0 - (1.0 - below) * (1.0 - src);
+  if (mode == 3) return blendOverlay(below, src);
+  if (mode == 4) return min(below + src, 1.0);
+  if (mode == 5) return min(below, src);
+  if (mode == 6) return max(below, src);
+  return src;
+}
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
@@ -47,5 +64,6 @@ void main() {
   vec4 content = texture2D(u_color, clamp(luv, 0.0, 1.0));
   float alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
 
-  gl_FragColor = vec4(mix(below, content.rgb, alpha), 1.0);
+  vec3 blended = applyBlend(below, content.rgb, layerBlendMode);
+  gl_FragColor = vec4(mix(below, blended, alpha), 1.0);
 }

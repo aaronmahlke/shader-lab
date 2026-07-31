@@ -480,7 +480,14 @@ function isUniformVisible(def: LayerUniformDef): boolean {
         </UiTooltip>
       </div>
       <template v-for="def in universalDefs" :key="`universal-${def.name}`">
-        <UiContextMenu>
+        <UiSelect
+          v-if="def.type === 'select'"
+          :model-value="getSelect(def, layer.values) as string | number"
+          :options="def.options ?? []"
+          :label="def.label"
+          @update:model-value="setSelect(def, layer.values, $event as string | number)"
+        />
+        <UiContextMenu v-else>
           <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
             <UiSliderField
               :model-value="getFloat(def, layer.values)"

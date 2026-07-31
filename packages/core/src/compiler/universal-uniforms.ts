@@ -23,9 +23,27 @@ export const OPACITY_UNIFORM: LayerUniformDef = {
   name: "layerOpacity", type: "float", label: "Opacity", default: 100, min: 0, max: 100, step: 0.1,
 };
 
+/** How a generator's content blends onto the stack below (composite pass). */
+export const BLEND_MODE_UNIFORM: LayerUniformDef = {
+  name: "layerBlendMode",
+  type: "select",
+  label: "Blend",
+  default: 0,
+  options: [
+    { label: "Normal", value: 0 },
+    { label: "Multiply", value: 1 },
+    { label: "Screen", value: 2 },
+    { label: "Overlay", value: 3 },
+    { label: "Add", value: 4 },
+    { label: "Darken", value: 5 },
+    { label: "Lighten", value: 6 },
+  ],
+};
+
 export const UNIVERSAL_LAYER_UNIFORMS: LayerUniformDef[] = [
   ...TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
+  BLEND_MODE_UNIFORM,
 ];
 
 const UNIVERSAL_NAMES = new Set(UNIVERSAL_LAYER_UNIFORMS.map((def) => def.name));

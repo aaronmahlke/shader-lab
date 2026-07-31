@@ -77,6 +77,7 @@ export const INT_UNIFORMS = new Set([
   // Uploading it as float is silently ignored by WebGL, leaving it 0 and
   // making the DOF pass early-out on every pixel (no blur at any aperture).
   "dofSamples",
+  "layerBlendMode",
 ]);
 
 export const GRADIENT_RESOLUTION = 256;
