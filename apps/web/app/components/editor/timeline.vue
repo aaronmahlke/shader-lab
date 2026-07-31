@@ -22,8 +22,10 @@ import {
   isPropertyTrackActive,
   offsetKeyframes,
   universalUniformsFor,
+  upsertKeyframe,
   type CompositionSettings,
   type LayerInstance,
+  type LayerUniformDef,
   type PropertyTrack,
 } from "@shader-lab/core";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
@@ -654,6 +656,106 @@ function valueAt(layer: LayerInstance, paramName: string, fallback: number): num
   const track = findPropertyTrack(tracks.value, layer.id, paramName);
   const base = (layer.values[paramName] as number) ?? fallback;
   return evaluatePropertyTrack(track, displayTime.value, base);
+}
+
+// --- Timeline value editing (scrub + click to type) ---
+
+const editingValue = ref<{ layerId: string; paramName: string; text: string } | null>(null);
+
+function isEditingValue(layerId: string, paramName: string): boolean {
+  return editingValue.value?.layerId === layerId && editingValue.value?.paramName === paramName;
+}
+
+function defStep(def: LayerUniformDef): number {
+  return def.step ?? (def.type === "int" ? 1 : 0.01);
+}
+
+function clampToDef(def: LayerUniformDef, value: number): number {
+  const step = defStep(def);
+  let v = Math.round(value / step) * step;
+  if (def.type === "int") v = Math.round(v);
+  if (def.min !== undefined) v = Math.max(def.min, v);
+  if (def.max !== undefined) v = Math.min(def.max, v);
+  // Kill float noise from step rounding.
+  return Number(v.toFixed(6));
+}
+
+/** Keyframe-aware write: keys the playhead when the stopwatch is on, else sets the base value. */
+function writeParamValue(layer: LayerInstance, def: LayerUniformDef, value: number) {
+  const v = clampToDef(def, value);
+  if (trackEnabled(layer.id, def.name)) {
+    tracks.value = upsertKeyframe(tracks.value, layer.id, def.name, snapTime(currentTime.value), v);
+  } else {
+    layer.values[def.name] = v;
+  }
+}
+
+function onValuePointerDown(layer: LayerInstance, def: LayerUniformDef, e: PointerEvent) {
+  if (e.button !== 0) return;
+
+  const startX = e.clientX;
+  const startValue = valueAt(layer, def.name, def.default as number);
+  let dragging = false;
+
+  function onMove(ev: PointerEvent) {
+    if (!dragging && Math.abs(ev.clientX - startX) < 3) return;
+    if (!dragging) {
+      dragging = true;
+      history?.beginGesture();
+      document.body.style.cursor = "ew-resize";
+    }
+    // 1px per step, shift for 10x finer.
+    const fine = ev.shiftKey ? 0.1 : 1;
+    const next = startValue + (ev.clientX - startX) * defStep(def) * fine;
+    writeParamValue(layer, def, next);
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    document.body.style.cursor = "";
+    if (dragging) {
+      history?.commitGesture();
+    } else {
+      openValueEditor(layer, def);
+    }
+  }
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+
+function openValueEditor(layer: LayerInstance, def: LayerUniformDef) {
+  const current = valueAt(layer, def.name, def.default as number);
+  editingValue.value = {
+    layerId: layer.id,
+    paramName: def.name,
+    text: String(Number(current.toFixed(4))),
+  };
+}
+
+function focusValueInput(el: unknown) {
+  const input = el as HTMLInputElement | null;
+  if (input) {
+    input.focus();
+    input.select();
+  }
+}
+
+function commitValueEditor(layer: LayerInstance, def: LayerUniformDef) {
+  const editing = editingValue.value;
+  if (!editing) return;
+  editingValue.value = null;
+  const parsed = Number.parseFloat(editing.text.replace(",", "."));
+  if (!Number.isFinite(parsed)) return;
+  const clamped = clampToDef(def, parsed);
+  if (clamped === valueAt(layer, def.name, def.default as number)) return;
+  writeParamValue(layer, def, clamped);
+  history?.record();
+}
+
+function cancelValueEditor() {
+  editingValue.value = null;
 }
 
 function formatTime(seconds: number): string {
@@ -1375,7 +1477,26 @@ function selectAllLayers() {
                       {{ def.label }}
                     </span>
                   </div>
-                  <span class="shrink-0 font-mono text-copy-xs text-neutral-subtle">
+                  <input
+                    v-if="isEditingValue(layer.id, def.name)"
+                    :ref="focusValueInput"
+                    v-model="editingValue!.text"
+                    data-drag-exclude
+                    class="w-16 shrink-0 rounded-sm bg-layer-2 px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                    spellcheck="false"
+                    @keydown.enter.stop.prevent="commitValueEditor(layer, def)"
+                    @keydown.esc.stop.prevent="cancelValueEditor"
+                    @keydown.stop
+                    @blur="commitValueEditor(layer, def)"
+                    @pointerdown.stop
+                  />
+                  <span
+                    v-else
+                    data-drag-exclude
+                    class="shrink-0 cursor-ew-resize rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-layer-2 hover:text-neutral-strong"
+                    title="Drag to scrub, click to type (⇧ fine)"
+                    @pointerdown.stop.prevent="onValuePointerDown(layer, def, $event)"
+                  >
                     {{ valueAt(layer, def.name, def.default as number).toFixed(2) }}
                   </span>
                 </div>
