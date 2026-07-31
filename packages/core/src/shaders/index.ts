@@ -15,6 +15,7 @@ import bandFillFrag from "./layers/band-fill.frag";
 import resolveFrag from "./layers/resolve.frag";
 import outputFrag from "./layers/output.frag";
 import layerCompositeFrag from "./layers/layer-composite.frag";
+import textSourceFrag from "./layers/text-source.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
 
 export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit" | "layerComposite", string> = {
@@ -22,6 +23,7 @@ export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit" | "layerComposi
   mesh: meshFrag,
   solid: solidFrag,
   noise: noiseFrag,
+  text: textSourceFrag,
   waveFill: waveFillFrag,
   bandFill: bandFillFrag,
   distortion: distortionFrag,

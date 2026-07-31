@@ -6,6 +6,7 @@ import { destroyGlContext, renderPasses } from "./renderer/render-passes";
 import { createHeadlessGlContext, loadHeadlessGl } from "./renderer/headless-gl";
 import {
   createNodeGradientData,
+  createNodeTextImage,
   createStbnGlTexture,
   pixelsToPngBuffer,
 } from "./renderer/stbn-node";
@@ -64,7 +65,12 @@ export async function renderCompositionToBuffer(
         gradientTextures,
         stbnTexture,
         createGradientData: createNodeGradientData,
-        findLayer: (pass) => config.layers.find((l) => l.id === pass.layerId),
+        textTextures: new Map(),
+        createTextImage: createNodeTextImage,
+        contentScale: height / (config.settings?.height ?? height),
+        findLayer: (pass) =>
+          config.layers.find((l) => l.id === (pass.sourceLayerId ?? pass.layerId)),
+        getModulatedValue: modFn,
       },
       { readPixels: true, disposeResources: true },
     );

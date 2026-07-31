@@ -257,6 +257,7 @@ const renderBufferSize = computed(() => {
   };
 });
 const compositionWidth = computed(() => settings.value.width);
+const compositionHeight = computed(() => settings.value.height);
 
 const COMP_SIZE_PRESETS = [
   { label: "Landscape 16:9", width: 1920, height: 1080 },
@@ -289,6 +290,7 @@ const {
   tracks,
   fixedBufferSize: renderBufferSize,
   scaleReferenceWidth: compositionWidth,
+  contentReferenceHeight: compositionHeight,
   getModulatedValue: modFn,
   sampleLfosAtTime,
   compositionTime: currentTime,
@@ -705,7 +707,7 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
 
 // --- Universal transform gizmo (generators without a specialized gizmo) ---
 
-const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise"]);
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text"]);
 
 const showTransformGizmo = computed(
   () =>

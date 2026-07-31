@@ -317,6 +317,15 @@ function setFloat(def: LayerUniformDef, target: Record<string, unknown>, v: numb
   target[def.name] = v;
 }
 
+function getText(def: LayerUniformDef, target: Record<string, unknown>): string {
+  return (target[def.name] as string) ?? (def.default as string);
+}
+
+function setText(def: LayerUniformDef, target: Record<string, unknown>, v: string) {
+  target[def.name] = v;
+  history?.record();
+}
+
 function getColor(def: LayerUniformDef, target: Record<string, unknown>): string {
   return (target[def.name] as string) ?? (def.default as string);
 }
@@ -529,6 +538,16 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               </template>
             </template>
           </UiContextMenu>
+          <div v-else-if="def.type === 'text'" class="flex flex-col gap-1">
+            <span class="text-copy-xs text-neutral-subtle">{{ def.label }}</span>
+            <textarea
+              :value="getText(def, layer.values)"
+              rows="2"
+              spellcheck="false"
+              class="w-full resize-y rounded-lg bg-control px-2.5 py-2 font-sans text-copy-sm text-neutral-strong outline-none focus:ring-1 focus:ring-accent/50"
+              @change="setText(def, layer.values, ($event.target as HTMLTextAreaElement).value)"
+            />
+          </div>
           <UiColorField
             v-else-if="def.type === 'color'"
             :model-value="getColor(def, layer.values)"

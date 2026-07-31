@@ -5,6 +5,7 @@ export type LayerType =
   | "mesh"
   | "solid"
   | "noise"
+  | "text"
   | "waveFill"
   | "bandFill"
   | "distortion"
@@ -17,7 +18,7 @@ export type LayerType =
 
 export type LayerUniformDef = {
   name: string;
-  type: "float" | "int" | "color" | "vec2" | "gradient" | "meshPoints" | "bool" | "select";
+  type: "float" | "int" | "color" | "vec2" | "gradient" | "meshPoints" | "bool" | "select" | "text";
   label: string;
   default: unknown;
   min?: number;

@@ -10,6 +10,7 @@ export const PICKABLE_LAYER_TYPES = new Set<LayerInstance["type"]>([
   "gradient",
   "solid",
   "noise",
+  "text",
   "waveFill",
   "bandFill",
   "mesh",

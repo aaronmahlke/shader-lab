@@ -13,6 +13,8 @@ type RendererOptions = {
   fixedBufferSize?: Ref<{ width: number; height: number }>;
   /** Reference width for u_scale (composition native width). */
   scaleReferenceWidth?: Ref<number>;
+  /** Composition height — reference for text raster scale. */
+  contentReferenceHeight?: Ref<number>;
   globalSpeed?: Ref<number>;
   paused?: Ref<boolean>;
   /** When set, drives render time instead of internal clock. */
@@ -121,6 +123,7 @@ export function useMultiPassRenderer(
     renderer = new CompositionRenderer(canvas, {
       fixedBufferSize: fixedBufferSize?.value,
       scaleReferenceWidth: options.scaleReferenceWidth?.value,
+      contentReferenceHeight: options.contentReferenceHeight?.value,
       findLayer: findLayerForPass,
       getModulatedValue: getModulatedValue?.value ?? null,
     });
