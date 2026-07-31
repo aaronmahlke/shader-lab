@@ -10,6 +10,7 @@ import type {
 import {
   LAYER_TEMPLATES,
   DEFAULT_COMPOSITION_SETTINGS,
+  UNIVERSAL_LAYER_UNIFORMS,
   findLayerParamDef,
   normalizeComposition,
   setTrackEnabled,
@@ -658,6 +659,33 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
   layer.values[paramName] = value;
 }
 
+// --- Universal transform gizmo (generators without a specialized gizmo) ---
+
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise"]);
+
+const showTransformGizmo = computed(
+  () =>
+    !!selectedLayer.value &&
+    selectedLayer.value.enabled &&
+    TRANSFORM_GIZMO_TYPES.has(selectedLayer.value.type),
+);
+
+function transformDef(name: string) {
+  return UNIVERSAL_LAYER_UNIFORMS.find((def) => def.name === name)!;
+}
+
+const transformPosDef = transformDef("layerPositionX");
+const transformScaleDef = transformDef("layerScale");
+const transformRotationDef = transformDef("layerRotation");
+
+function getTransformFloat(layer: LayerInstance, name: string): number {
+  return paramValue(layer.id, name, transformDef(name).default as number);
+}
+
+function setTransformFloat(layer: LayerInstance, name: string, value: number) {
+  setGizmoFloat(layer, name, value);
+}
+
 const waveFillTemplate = LAYER_TEMPLATES.waveFill;
 const wavePosXDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_X)!;
 const wavePosYDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_Y)!;
@@ -906,6 +934,25 @@ registerKeyboard({
                 :edge-max="bandEdgeDef.max ?? 1"
                 @update:band-y="setBandFloat(selectedLayer, BAND_Y, $event)"
                 @update:edge="setBandFloat(selectedLayer, BAND_EDGE, $event)"
+              />
+              <EditorLayerTransformGizmo
+                v-if="showTransformGizmo && selectedLayer"
+                :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
+                :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
+                :scale="getTransformFloat(selectedLayer, 'layerScale')"
+                :rotation="getTransformFloat(selectedLayer, 'layerRotation')"
+                :anchor-x="getTransformFloat(selectedLayer, 'layerAnchorX')"
+                :anchor-y="getTransformFloat(selectedLayer, 'layerAnchorY')"
+                :position-min="transformPosDef.min ?? -1"
+                :position-max="transformPosDef.max ?? 1"
+                :scale-min="transformScaleDef.min ?? 0"
+                :scale-max="transformScaleDef.max ?? 400"
+                :rotation-min="transformRotationDef.min ?? -360"
+                :rotation-max="transformRotationDef.max ?? 360"
+                @update:position-x="setTransformFloat(selectedLayer, 'layerPositionX', $event)"
+                @update:position-y="setTransformFloat(selectedLayer, 'layerPositionY', $event)"
+                @update:scale="setTransformFloat(selectedLayer, 'layerScale', $event)"
+                @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
               />
             </div>
           </div>
