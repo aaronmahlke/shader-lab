@@ -3,12 +3,12 @@ import { useElementSize } from "@vueuse/core";
 import type { LayerInstance } from "@shader-lab/core";
 import {
   compUvToScreen,
-  isPointInLayer,
   layerCornersInCompUv,
   screenToCompUv,
   type LayerTransformValues,
   type Vec2,
 } from "#shared/editor/layer-transform";
+import { topLayerAt } from "#shared/editor/canvas-picking";
 
 /**
  * Canvas selection surface: hover a layer for a light outline, click to
@@ -33,16 +33,6 @@ const stageRef = ref<HTMLElement | null>(null);
 const { width, height } = useElementSize(stageRef);
 const aspect = computed(() => (height.value > 0 ? width.value / height.value : 1));
 
-/** Full-frame effects are not pickable; generators are. */
-const PICKABLE_TYPES = new Set<LayerInstance["type"]>([
-  "gradient",
-  "solid",
-  "noise",
-  "waveFill",
-  "bandFill",
-  "mesh",
-]);
-
 const hoveredLayerId = ref<string | null>(null);
 
 function pointerCompUv(e: PointerEvent | MouseEvent): Vec2 | null {
@@ -55,13 +45,8 @@ function pointerCompUv(e: PointerEvent | MouseEvent): Vec2 | null {
   );
 }
 
-/** Topmost pickable layer under the point (layers are stored top-first). */
 function layerAt(uv: Vec2): LayerInstance | null {
-  for (const layer of props.layers) {
-    if (!layer.enabled || !PICKABLE_TYPES.has(layer.type)) continue;
-    if (isPointInLayer(uv, props.getTransform(layer), aspect.value)) return layer;
-  }
-  return null;
+  return topLayerAt(props.layers, uv, aspect.value, props.getTransform);
 }
 
 function onPointerMove(e: PointerEvent) {

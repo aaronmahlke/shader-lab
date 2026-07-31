@@ -26,6 +26,7 @@ import {
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import type { LayerTransformValues } from "#shared/editor/layer-transform";
+import { topLayerAt } from "#shared/editor/canvas-picking";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
@@ -699,6 +700,11 @@ function layerTransformValues(layer: LayerInstance): LayerTransformValues {
   };
 }
 
+/** Topmost pickable layer id at a comp UV point (gizmo click-through). */
+function canvasLayerAt(uv: { x: number; y: number }, aspect: number): string | null {
+  return topLayerAt(layers.value, uv, aspect, layerTransformValues)?.id ?? null;
+}
+
 function onCanvasSelect(layerId: string | null) {
   if (layerId) {
     selectedLayerId.value = layerId;
@@ -969,6 +975,8 @@ registerKeyboard({
               />
               <EditorLayerTransformGizmo
                 v-if="showTransformGizmo && selectedLayer"
+                :layer-id="selectedLayer.id"
+                :pick-at="canvasLayerAt"
                 :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
                 :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
                 :scale="getTransformFloat(selectedLayer, 'layerScale')"
@@ -985,6 +993,7 @@ registerKeyboard({
                 @update:position-y="setTransformFloat(selectedLayer, 'layerPositionY', $event)"
                 @update:scale="setTransformFloat(selectedLayer, 'layerScale', $event)"
                 @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
+                @pick="onCanvasSelect($event)"
               />
             </div>
           </div>

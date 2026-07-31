@@ -15,6 +15,8 @@ import {
 } from "#shared/editor/layer-transform";
 
 type Props = {
+  /** The layer this gizmo controls. */
+  layerId: string;
   positionX: number;
   positionY: number;
   scale: number;
@@ -27,6 +29,8 @@ type Props = {
   scaleMax: number;
   rotationMin: number;
   rotationMax: number;
+  /** Topmost pickable layer at a comp UV point — lets clicks fall through to layers above. */
+  pickAt?: (uv: Vec2, aspect: number) => string | null;
 };
 
 type Emits = {
@@ -34,6 +38,8 @@ type Emits = {
   "update:positionY": [value: number];
   "update:scale": [value: number];
   "update:rotation": [value: number];
+  /** A different layer sits on top at the clicked point — select it instead. */
+  pick: [layerId: string];
 };
 
 const props = defineProps<Props>();
@@ -99,10 +105,10 @@ function resizeCursorFor(p: Vec2): string {
   return "nesw-resize";
 }
 
-/** Figma-style curved-arrow rotate cursor, oriented toward its corner. */
+/** Figma-style curved-arrow rotate cursor wrapping around its corner (concave side faces the box). */
 function rotateCursorFor(zone: Vec2): string {
   const deg = Math.round(
-    (Math.atan2(zone.y - centerPoint.value.y, zone.x - centerPoint.value.x) * 180) / Math.PI - 45,
+    (Math.atan2(zone.y - centerPoint.value.y, zone.x - centerPoint.value.x) * 180) / Math.PI + 135,
   );
   const svg =
     `<svg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'>` +
@@ -157,6 +163,16 @@ function onHandlePointerDown(mode: DragMode, e: PointerEvent) {
 
   const uv = pointerCompUv(e);
   if (!uv) return;
+
+  // Figma behavior: when a different layer sits on top at this point,
+  // the click selects it instead of dragging the current selection.
+  if (mode === "move" && !e.altKey && props.pickAt) {
+    const topId = props.pickAt(uv, aspect.value);
+    if (topId && topId !== props.layerId) {
+      emit("pick", topId);
+      return;
+    }
+  }
 
   // Alt-drag on the body rotates — the rotation stem can sit outside the
   // clipped canvas when the layer fills the frame.
