@@ -150,10 +150,6 @@ function presetPath(curve: CubicBezierEase): string {
   const py = (y: number) => s - pad - y * (s - pad * 2);
   return `M ${px(0)} ${py(0)} C ${px(curve[0])} ${py(curve[1])}, ${px(curve[2])} ${py(curve[3])}, ${px(1)} ${py(1)}`;
 }
-
-const curveLabel = computed(() =>
-  displayCurve.value.map((v) => Number(v.toFixed(2))).join(", "),
-);
 </script>
 
 <template>
@@ -206,9 +202,6 @@ const curveLabel = computed(() =>
         @pointerdown="onHandlePointerDown(1, $event)"
       />
     </svg>
-    <div class="text-center font-mono text-copy-2xs text-neutral-weak">
-      cubic-bezier({{ curveLabel }})
-    </div>
 
     <!-- Named eases -->
     <div class="flex gap-1">
@@ -228,27 +221,31 @@ const curveLabel = computed(() =>
 
     <!-- Preset grid -->
     <div class="grid grid-cols-6 gap-1">
-      <button
+      <UiTooltip
         v-for="preset in EASING_PRESETS"
         :key="preset.id"
-        type="button"
-        class="flex aspect-square items-center justify-center rounded-md transition-colors"
-        :class="activeEasingId === preset.id
-          ? 'bg-accent/25 ring-1 ring-accent/50'
-          : 'bg-control/60 hover:bg-control'"
-        :title="preset.label"
-        @click="pickEasing(preset.curve)"
+        :label="preset.label"
+        side="top"
       >
-        <svg viewBox="0 0 22 22" class="size-5 overflow-visible">
-          <path
-            :d="presetPath(preset.curve)"
-            fill="none"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            :class="activeEasingId === preset.id ? 'stroke-accent' : 'stroke-white/50'"
-          />
-        </svg>
-      </button>
+        <button
+          type="button"
+          class="flex aspect-square w-full items-center justify-center rounded-md transition-colors"
+          :class="activeEasingId === preset.id
+            ? 'bg-accent/25 ring-1 ring-accent/50'
+            : 'bg-control/60 hover:bg-control'"
+          @click="pickEasing(preset.curve)"
+        >
+          <svg viewBox="0 0 22 22" class="size-5 overflow-visible">
+            <path
+              :d="presetPath(preset.curve)"
+              fill="none"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              :class="activeEasingId === preset.id ? 'stroke-accent' : 'stroke-white/50'"
+            />
+          </svg>
+        </button>
+      </UiTooltip>
     </div>
   </div>
 </template>
