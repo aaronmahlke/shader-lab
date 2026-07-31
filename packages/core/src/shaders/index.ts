@@ -23,6 +23,7 @@ import bloomPrefilterFrag from "./layers/bloom-prefilter.frag";
 import bloomDownFrag from "./layers/bloom-down.frag";
 import bloomUpFrag from "./layers/bloom-up.frag";
 import cameraCompositeFrag from "./layers/camera-composite.frag";
+import shapeFrag from "./layers/shape.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
 import type { RenderPassType } from "../types/editor";
 
@@ -33,6 +34,7 @@ export const FRAG_SHADERS: Record<Exclude<RenderPassType, "camera">, string> & {
   noise: noiseFrag,
   text: textSourceFrag,
   component: componentSourceFrag,
+  shape: shapeFrag,
   waveFill: waveFillFrag,
   bandFill: bandFillFrag,
   distortion: distortionFrag,
