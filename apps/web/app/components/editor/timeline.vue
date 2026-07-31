@@ -1064,6 +1064,26 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
   const frame = 1 / settings.fps;
   let dragging = false;
 
+  // Moving the bar shifts the layer in time: keyframes travel with it.
+  const startKeyTimes = new Map(
+    tracks.value
+      .filter((t) => t.layerId === layer.id)
+      .map((t) => [t.paramName, t.keys.map((k) => k.time)]),
+  );
+
+  function shiftLayerKeyframes(delta: number) {
+    if (startKeyTimes.size === 0) return;
+    tracks.value = tracks.value.map((track) => {
+      if (track.layerId !== layer.id) return track;
+      const startTimes = startKeyTimes.get(track.paramName);
+      if (!startTimes) return track;
+      return {
+        ...track,
+        keys: track.keys.map((key, i) => ({ ...key, time: startTimes[i]! + delta })),
+      };
+    });
+  }
+
   function onMove(ev: PointerEvent) {
     if (!dragging && Math.abs(ev.clientX - startX) < 3) return;
     if (!dragging) {
@@ -1079,6 +1099,7 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
         Math.min(snapTime(startIn + deltaTime), settings.duration - length),
       );
       writeLayerTiming(layer, nextIn, nextIn + length);
+      shiftLayerKeyframes(nextIn - startIn);
     } else if (mode === "in") {
       const nextIn = Math.min(snapTime(startIn + deltaTime), startOut - frame);
       writeLayerTiming(layer, nextIn, startOut);
