@@ -23,6 +23,7 @@ import {
   buildKeyframePasteItems,
   pasteKeyframesAtTime,
 } from "@shader-lab/core";
+import { refDebounced } from "@vueuse/core";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import type { LayerTransformValues } from "#shared/editor/layer-transform";
@@ -233,6 +234,44 @@ onBeforeUnmount(() => {
   if (playbackId !== null) cancelAnimationFrame(playbackId);
 });
 
+// --- Viewport (artboard + zoom/pan) ---
+
+const viewportRef = ref<HTMLElement | null>(null);
+const artboardSize = computed(() => ({
+  width: settings.value.width,
+  height: settings.value.height,
+}));
+const viewport = useViewport(viewportRef, artboardSize);
+
+/** Render buffer follows the displayed size (crisp zoom), capped for VRAM. */
+const debouncedZoom = refDebounced(viewport.zoom, 150);
+const renderBufferSize = computed(() => {
+  const { width, height } = settings.value;
+  const dpr = import.meta.client ? window.devicePixelRatio || 1 : 1;
+  let scale = Math.min(Math.max(debouncedZoom.value * dpr, 0.05), 2);
+  scale = Math.min(scale, 4096 / Math.max(width, height));
+  return {
+    width: Math.max(2, Math.round(width * scale)),
+    height: Math.max(2, Math.round(height * scale)),
+  };
+});
+const compositionWidth = computed(() => settings.value.width);
+
+const COMP_SIZE_PRESETS = [
+  { label: "Landscape 16:9", width: 1920, height: 1080 },
+  { label: "Portrait 9:16", width: 1080, height: 1920 },
+  { label: "Square 1:1", width: 1080, height: 1080 },
+  { label: "Social 4:5", width: 1080, height: 1350 },
+] as const;
+
+function setCompositionSize(width: number, height: number) {
+  const w = Math.min(8192, Math.max(16, Math.round(width) || 0));
+  const h = Math.min(8192, Math.max(16, Math.round(height) || 0));
+  if (!w || !h || (w === settings.value.width && h === settings.value.height)) return;
+  settings.value = { ...settings.value, width: w, height: h };
+  history.record();
+}
+
 // --- Layer Compiler + Renderer ---
 
 const { passes } = useLayerCompiler(layers, modFn, lfos, assignments);
@@ -247,6 +286,8 @@ const {
 } = useMultiPassRenderer(canvasRef, passes, {
   layers,
   tracks,
+  fixedBufferSize: renderBufferSize,
+  scaleReferenceWidth: compositionWidth,
   getModulatedValue: modFn,
   sampleLfosAtTime,
   compositionTime: currentTime,
@@ -923,11 +964,20 @@ registerKeyboard({
       <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-layer-1">
         <ClientOnly>
           <div class="size-full min-h-0 select-none">
-            <div class="absolute inset-0 overflow-hidden">
-              <canvas
-                ref="canvasRef"
-                class="pointer-events-none size-full"
-              />
+            <div
+              ref="viewportRef"
+              class="absolute inset-0 overflow-hidden bg-base-0"
+              :class="viewport.panning.value && 'cursor-grabbing'"
+              @wheel.prevent="viewport.onWheel"
+              @pointerdown.capture="viewport.onPointerDown"
+            >
+              <div class="absolute top-0 left-0" :style="viewport.artboardStyle.value">
+                <div class="absolute inset-0 overflow-hidden bg-black shadow-2xl ring-1 ring-white/10">
+                  <canvas
+                    ref="canvasRef"
+                    class="pointer-events-none size-full"
+                  />
+                </div>
               <EditorCanvasPicker
                 :layers="layers"
                 :selected-layer-id="selectedLayerId"
@@ -995,12 +1045,99 @@ registerKeyboard({
                 @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
                 @pick="onCanvasSelect($event)"
               />
+              </div>
+
+              <!-- Zoom controls -->
+              <div class="absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-lg border border-neutral bg-layer-1/90 p-0.5 backdrop-blur">
+                <button
+                  type="button"
+                  class="rounded-md px-1.5 py-1 text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  title="Zoom to fit (⌘0)"
+                  @click="viewport.fit()"
+                >
+                  Fit
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md px-1.5 py-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  title="Zoom out (⌘−)"
+                  @click="viewport.stepZoom(-1)"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  class="min-w-12 rounded-md px-1 py-1 text-center font-mono text-copy-xs text-neutral-strong transition-colors hover:bg-control"
+                  title="Zoom to 100% (⌘1)"
+                  @click="viewport.zoomTo100()"
+                >
+                  {{ viewport.zoomPercent.value }}%
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md px-1.5 py-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  title="Zoom in (⌘+)"
+                  @click="viewport.stepZoom(1)"
+                >
+                  +
+                </button>
+              </div>
             </div>
           </div>
         </ClientOnly>
 
-        <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center">
+        <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">
           <EditorLayerAddBar class="pointer-events-auto" @select="addLayer" />
+          <UiPopover side="bottom" align="center">
+            <template #trigger>
+              <button
+                type="button"
+                class="pointer-events-auto flex h-9 items-center rounded-xl border border-neutral bg-layer-1/90 px-3 font-mono text-copy-xs text-neutral-subtle backdrop-blur transition-colors hover:text-neutral-strong"
+                title="Composition size"
+              >
+                {{ settings.width }} × {{ settings.height }}
+              </button>
+            </template>
+            <div class="flex w-56 flex-col gap-2 p-1">
+              <span class="px-1 text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
+                Composition size
+              </span>
+              <div class="flex items-center gap-1.5 px-1">
+                <input
+                  :value="settings.width"
+                  type="text"
+                  inputmode="numeric"
+                  class="w-full rounded-md bg-control px-2 py-1 text-right font-mono text-copy-xs text-neutral-strong outline-none"
+                  @change="setCompositionSize(Number(($event.target as HTMLInputElement).value), settings.height)"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
+                />
+                <span class="text-copy-xs text-neutral-weak">×</span>
+                <input
+                  :value="settings.height"
+                  type="text"
+                  inputmode="numeric"
+                  class="w-full rounded-md bg-control px-2 py-1 text-right font-mono text-copy-xs text-neutral-strong outline-none"
+                  @change="setCompositionSize(settings.width, Number(($event.target as HTMLInputElement).value))"
+                  @keydown.enter="($event.target as HTMLInputElement).blur()"
+                />
+              </div>
+              <div class="flex flex-col">
+                <button
+                  v-for="preset in COMP_SIZE_PRESETS"
+                  :key="preset.label"
+                  type="button"
+                  class="flex items-center justify-between rounded-md px-2 py-1.5 text-copy-xs transition-colors hover:bg-control"
+                  :class="settings.width === preset.width && settings.height === preset.height
+                    ? 'text-neutral-strong'
+                    : 'text-neutral-subtle'"
+                  @click="setCompositionSize(preset.width, preset.height)"
+                >
+                  <span>{{ preset.label }}</span>
+                  <span class="font-mono text-copy-2xs text-neutral-weak">{{ preset.width }}×{{ preset.height }}</span>
+                </button>
+              </div>
+            </div>
+          </UiPopover>
         </div>
       </div>
 
@@ -1150,5 +1287,6 @@ registerKeyboard({
     :experiment-id="shaderId ?? 'shader'"
     :shader="shaderExport"
     :composition-duration="settings.duration"
+    :design-canvas="{ width: settings.width, height: settings.height }"
   />
 </template>

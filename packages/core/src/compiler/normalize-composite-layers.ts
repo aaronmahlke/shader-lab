@@ -146,6 +146,8 @@ export function normalizeComposition(config: CompositionConfig): void {
     config.settings = {
       duration: config.settings.duration ?? DEFAULT_COMPOSITION_SETTINGS.duration,
       fps: config.settings.fps ?? DEFAULT_COMPOSITION_SETTINGS.fps,
+      width: config.settings.width ?? DEFAULT_COMPOSITION_SETTINGS.width,
+      height: config.settings.height ?? DEFAULT_COMPOSITION_SETTINGS.height,
     };
   }
   for (const layer of config.layers) {

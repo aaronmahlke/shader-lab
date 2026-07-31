@@ -16,6 +16,12 @@ export type CompositionRendererOptions = {
   pixelRatio?: number;
   stbnTexturePath?: string;
   fixedBufferSize?: { width: number; height: number };
+  /**
+   * Reference width for the u_scale uniform when rendering into a fixed
+   * buffer (e.g. the composition's native width). Keeps pixel-sized effects
+   * like dither/grain stable across viewport zoom. Defaults to the window width.
+   */
+  scaleReferenceWidth?: number;
   findLayer?: (pass: RenderPass) => LayerInstance | undefined;
   getModulatedValue?: ModulationFn | null;
 };
@@ -78,6 +84,18 @@ export class CompositionRenderer {
 
   getGl(): GlContext {
     return this.gl;
+  }
+
+  /** Swap the fixed render buffer size at runtime (viewport zoom, export). */
+  setFixedBufferSize(
+    size: { width: number; height: number } | undefined,
+    scaleReferenceWidth?: number,
+  ): void {
+    this.options.fixedBufferSize = size;
+    if (scaleReferenceWidth !== undefined) {
+      this.options.scaleReferenceWidth = scaleReferenceWidth;
+    }
+    this.syncCanvasSize();
   }
 
   resize(width: number, height: number, pixelRatio?: number): void {

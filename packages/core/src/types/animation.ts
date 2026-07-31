@@ -23,9 +23,14 @@ export type PropertyTrack = {
 export type CompositionSettings = {
   duration: number;
   fps: number;
+  /** Composition size in pixels — the artboard in the editor and the export base. */
+  width: number;
+  height: number;
 };
 
 export const DEFAULT_COMPOSITION_SETTINGS: CompositionSettings = {
   duration: 5,
   fps: 60,
+  width: 1920,
+  height: 1080,
 };
