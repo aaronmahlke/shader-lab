@@ -124,14 +124,14 @@ watch(
 const timelineWidth = computed(() => settings.duration * pxPerSecond.value);
 const playheadX = computed(() => timeToX(currentTime.value));
 const scrubbing = ref(false);
-/** Property value labels — frozen while scrubbing so the playhead stays responsive. */
+/** Time driving the property value labels (follows the playhead live). */
 const displayTime = ref(currentTime.value);
 const zoomPercent = computed(() =>
   Math.round((pxPerSecond.value / DEFAULT_PX_PER_SECOND) * 100),
 );
 
 watch(currentTime, (t) => {
-  if (!scrubbing.value) displayTime.value = t;
+  displayTime.value = t;
 });
 
 const rulerStep = computed(() => {
@@ -1482,7 +1482,7 @@ function selectAllLayers() {
                     :ref="focusValueInput"
                     v-model="editingValue!.text"
                     data-drag-exclude
-                    class="w-16 shrink-0 rounded-sm bg-layer-2 px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                    class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                     spellcheck="false"
                     @keydown.enter.stop.prevent="commitValueEditor(layer, def)"
                     @keydown.esc.stop.prevent="cancelValueEditor"
@@ -1493,7 +1493,7 @@ function selectAllLayers() {
                   <span
                     v-else
                     data-drag-exclude
-                    class="shrink-0 cursor-ew-resize rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-layer-2 hover:text-neutral-strong"
+                    class="shrink-0 cursor-ew-resize rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
                     title="Drag to scrub, click to type (⇧ fine)"
                     @pointerdown.stop.prevent="onValuePointerDown(layer, def, $event)"
                   >
