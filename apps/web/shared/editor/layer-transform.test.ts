@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   angleAroundCenter,
+  compToLayerUv,
   compUvToScreen,
+  isPointInLayer,
   layerCornersInCompUv,
   layerToCompUv,
   screenToCompUv,
@@ -69,6 +71,25 @@ describe("layerToCompUv", () => {
     const uv = layerToCompUv({ x: 0.5, y: 0.5 }, values, 1);
     expect(uv.x).toBeCloseTo(0.7); // anchor stays at the center
     expect(uv.y).toBeCloseTo(0.5);
+  });
+});
+
+describe("compToLayerUv", () => {
+  it("round-trips with the forward map under arbitrary transforms", () => {
+    const values = v({ positionX: 0.2, positionY: -0.1, scale: 65, rotation: 33, anchorX: 0.4 });
+    const aspect = 1.9;
+    for (const luv of [{ x: 0.1, y: 0.9 }, { x: 0.5, y: 0.5 }, { x: 1, y: 0 }]) {
+      const uv = layerToCompUv(luv, values, aspect);
+      const back = compToLayerUv(uv, values, aspect);
+      expect(back.x).toBeCloseTo(luv.x);
+      expect(back.y).toBeCloseTo(luv.y);
+    }
+  });
+
+  it("hit-tests transformed bounds", () => {
+    const values = v({ scale: 50 });
+    expect(isPointInLayer({ x: 0.5, y: 0.5 }, values, 1)).toBe(true);
+    expect(isPointInLayer({ x: 0.1, y: 0.1 }, values, 1)).toBe(false);
   });
 });
 

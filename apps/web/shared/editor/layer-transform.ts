@@ -69,6 +69,30 @@ export function screenToCompUv(p: Vec2, width: number, height: number): Vec2 {
   return { x: p.x / width, y: 1 - p.y / height };
 }
 
+/** Inverse map: comp UV → layer UV (mirrors the shader's sampling transform). */
+export function compToLayerUv(uv: Vec2, v: LayerTransformValues, aspect: number): Vec2 {
+  const center = transformCenter(v);
+  let dx = (uv.x - center.x) * aspect;
+  const dy = uv.y - center.y;
+
+  const a = (v.rotation * Math.PI) / 180;
+  const c = Math.cos(a);
+  const sn = Math.sin(a);
+  // The shader's mat2(c, s, -s, c).
+  const rx = c * dx - sn * dy;
+  const ry = sn * dx + c * dy;
+
+  const s = Math.max(v.scale / 100, 1e-4);
+  dx = rx / s / aspect;
+  return { x: dx + v.anchorX, y: ry / s + v.anchorY };
+}
+
+/** True when a comp UV point falls inside the layer's transformed bounds. */
+export function isPointInLayer(uv: Vec2, v: LayerTransformValues, aspect: number): boolean {
+  const luv = compToLayerUv(uv, v, aspect);
+  return luv.x >= 0 && luv.x <= 1 && luv.y >= 0 && luv.y <= 1;
+}
+
 /** Aspect-corrected offset of a comp UV point from the transform center. */
 function centeredAspect(uv: Vec2, v: LayerTransformValues, aspect: number): Vec2 {
   const center = transformCenter(v);

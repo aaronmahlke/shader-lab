@@ -25,6 +25,7 @@ import {
 } from "@shader-lab/core";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
+import type { LayerTransformValues } from "#shared/editor/layer-transform";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
@@ -686,6 +687,31 @@ function setTransformFloat(layer: LayerInstance, name: string, value: number) {
   setGizmoFloat(layer, name, value);
 }
 
+/** Live transform values for canvas hit-testing and hover outlines. */
+function layerTransformValues(layer: LayerInstance): LayerTransformValues {
+  return {
+    positionX: getTransformFloat(layer, "layerPositionX"),
+    positionY: getTransformFloat(layer, "layerPositionY"),
+    scale: getTransformFloat(layer, "layerScale"),
+    rotation: getTransformFloat(layer, "layerRotation"),
+    anchorX: getTransformFloat(layer, "layerAnchorX"),
+    anchorY: getTransformFloat(layer, "layerAnchorY"),
+  };
+}
+
+function onCanvasSelect(layerId: string | null) {
+  if (layerId) {
+    selectedLayerId.value = layerId;
+    selectedLayerIds.value = new Set([layerId]);
+    selectionAnchorId.value = layerId;
+  } else {
+    selectedLayerId.value = null;
+    selectedLayerIds.value = new Set();
+    selectionAnchorId.value = null;
+    selectedKeyframes.value = [];
+  }
+}
+
 const waveFillTemplate = LAYER_TEMPLATES.waveFill;
 const wavePosXDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_X)!;
 const wavePosYDef = waveFillTemplate.uniforms.find((u) => u.name === WAVE_POS_Y)!;
@@ -895,6 +921,12 @@ registerKeyboard({
               <canvas
                 ref="canvasRef"
                 class="pointer-events-none size-full"
+              />
+              <EditorCanvasPicker
+                :layers="layers"
+                :selected-layer-id="selectedLayerId"
+                :get-transform="layerTransformValues"
+                @select="onCanvasSelect"
               />
               <EditorWavePositionGizmo
                 v-if="showWavePositionGizmo && selectedLayer"
