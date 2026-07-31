@@ -6,7 +6,6 @@ import {
   compUvToScreen,
   distanceFromCenter,
   layerCornersInCompUv,
-  layerToCompUv,
   screenToCompUv,
   shortestAngleDelta,
   snapValue,
@@ -69,43 +68,38 @@ const centerPoint = computed(() =>
   compUvToScreen(transformCenter(values.value), width.value, height.value),
 );
 
-const ROTATION_HANDLE_OFFSET = 22;
+/**
+ * Figma-style rotation zones: invisible circular hit areas just outside each
+ * corner. Rendered under the corner squares so scaling wins where they overlap.
+ */
+const ROTATION_ZONE_OFFSET = 11;
+const ROTATION_ZONE_RADIUS = 14;
 
-const rotationHandlePoint = computed<Vec2>(() => {
-  // Midpoint of the layer's top edge, pushed outward from the center.
-  const topMid = compUvToScreen(
-    layerToCompUv({ x: 0.5, y: 1 }, values.value, aspect.value),
-    width.value,
-    height.value,
-  );
-  const dx = topMid.x - centerPoint.value.x;
-  const dy = topMid.y - centerPoint.value.y;
-  const len = Math.hypot(dx, dy) || 1;
-  return {
-    x: topMid.x + (dx / len) * ROTATION_HANDLE_OFFSET,
-    y: topMid.y + (dy / len) * ROTATION_HANDLE_OFFSET,
-  };
+const rotationZones = computed(() =>
+  cornerPoints.value.map((corner) => {
+    const dx = corner.x - centerPoint.value.x;
+    const dy = corner.y - centerPoint.value.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return {
+      x: corner.x + (dx / len) * ROTATION_ZONE_OFFSET,
+      y: corner.y + (dy / len) * ROTATION_ZONE_OFFSET,
+    };
+  }),
+);
+
+/** Diagonal resize cursor per corner (bl, br, tr, tl). */
+const CORNER_CURSORS = [
+  "cursor-nesw-resize",
+  "cursor-nwse-resize",
+  "cursor-nesw-resize",
+  "cursor-nwse-resize",
+] as const;
+
+/** Invisible edge bands for scaling when corners are clipped at full frame. */
+const edgeSegments = computed(() => {
+  const c = cornerPoints.value;
+  return [0, 1, 2, 3].map((i) => ({ a: c[i]!, b: c[(i + 1) % 4]! }));
 });
-
-const topMidPoint = computed(() =>
-  compUvToScreen(
-    layerToCompUv({ x: 0.5, y: 1 }, values.value, aspect.value),
-    width.value,
-    height.value,
-  ),
-);
-
-/** Edge midpoint handles (easier to grab than corners when the layer fills the frame). */
-const edgeMidPoints = computed(() =>
-  [
-    { x: 0.5, y: 0 },
-    { x: 1, y: 0.5 },
-    { x: 0.5, y: 1 },
-    { x: 0, y: 0.5 },
-  ].map((luv) =>
-    compUvToScreen(layerToCompUv(luv, values.value, aspect.value), width.value, height.value),
-  ),
-);
 
 // --- Dragging ---
 
@@ -236,63 +230,60 @@ const stageCursor = computed(() => {
       class="absolute inset-0 size-full overflow-visible"
       :viewBox="`0 0 ${width} ${height}`"
     >
-      <!-- Bounds: fill drags position, outline is visual only -->
-      <polygon
-        :points="polygonPoints"
-        class="pointer-events-auto cursor-grab fill-transparent stroke-gizmo-ring"
-        stroke-width="1.5"
-        @pointerdown="onHandlePointerDown('move', $event)"
-      />
-
-      <!-- Rotation handle stem -->
-      <line
-        :x1="topMidPoint.x"
-        :y1="topMidPoint.y"
-        :x2="rotationHandlePoint.x"
-        :y2="rotationHandlePoint.y"
-        class="stroke-gizmo-ring"
-        stroke-width="1.5"
-      />
+      <!-- Rotation zones: invisible hit areas just outside each corner -->
       <circle
-        :cx="rotationHandlePoint.x"
-        :cy="rotationHandlePoint.y"
-        r="5.5"
-        class="pointer-events-auto cursor-crosshair fill-gizmo-handle stroke-gizmo-handle-outer"
-        stroke-width="2.5"
+        v-for="(zone, i) in rotationZones"
+        :key="`r-${i}`"
+        :cx="zone.x"
+        :cy="zone.y"
+        :r="ROTATION_ZONE_RADIUS"
+        class="pointer-events-auto cursor-crosshair fill-transparent"
         @pointerdown="onHandlePointerDown('rotate', $event)"
       />
 
-      <!-- Corner scale handles -->
+      <!-- Bounds: fill drags position, accent outline like a selection box -->
+      <polygon
+        :points="polygonPoints"
+        class="pointer-events-auto fill-transparent stroke-accent"
+        stroke-width="2"
+        @pointerdown="onHandlePointerDown('move', $event)"
+      />
+
+      <!-- Invisible edge bands: scale even when corners are clipped at full frame -->
+      <line
+        v-for="(edge, i) in edgeSegments"
+        :key="`e-${i}`"
+        :x1="edge.a.x"
+        :y1="edge.a.y"
+        :x2="edge.b.x"
+        :y2="edge.b.y"
+        stroke="transparent"
+        stroke-width="10"
+        class="pointer-events-auto cursor-nwse-resize"
+        style="pointer-events: stroke"
+        @pointerdown="onHandlePointerDown('scale', $event)"
+      />
+
+      <!-- Corner scale handles: Figma-style white squares -->
       <rect
         v-for="(corner, i) in cornerPoints"
         :key="`c-${i}`"
-        :x="corner.x - 4"
-        :y="corner.y - 4"
-        width="8"
-        height="8"
-        rx="1.5"
-        class="pointer-events-auto cursor-nwse-resize fill-gizmo-handle stroke-gizmo-handle-outer"
-        stroke-width="2.5"
+        :x="corner.x - 4.5"
+        :y="corner.y - 4.5"
+        width="9"
+        height="9"
+        rx="1"
+        class="pointer-events-auto fill-white stroke-accent"
+        :class="CORNER_CURSORS[i]"
+        stroke-width="1.5"
         @pointerdown="onHandlePointerDown('scale', $event)"
       />
 
-      <!-- Edge midpoint scale handles -->
-      <circle
-        v-for="(mid, i) in edgeMidPoints"
-        :key="`m-${i}`"
-        :cx="mid.x"
-        :cy="mid.y"
-        r="4"
-        class="pointer-events-auto cursor-nwse-resize fill-gizmo-handle stroke-gizmo-handle-outer"
-        stroke-width="2"
-        @pointerdown="onHandlePointerDown('scale', $event)"
-      />
-
-      <!-- Anchor / pivot crosshair -->
-      <g class="pointer-events-none" aria-hidden="true">
-        <circle :cx="centerPoint.x" :cy="centerPoint.y" r="3" class="fill-transparent stroke-gizmo-handle" stroke-width="1.5" />
-        <line :x1="centerPoint.x - 7" :y1="centerPoint.y" :x2="centerPoint.x + 7" :y2="centerPoint.y" class="stroke-gizmo-handle" stroke-width="1" />
-        <line :x1="centerPoint.x" :y1="centerPoint.y - 7" :x2="centerPoint.x" :y2="centerPoint.y + 7" class="stroke-gizmo-handle" stroke-width="1" />
+      <!-- Anchor / pivot marker -->
+      <g v-if="dragMode" class="pointer-events-none" aria-hidden="true">
+        <circle :cx="centerPoint.x" :cy="centerPoint.y" r="3" class="fill-transparent stroke-accent" stroke-width="1.5" />
+        <line :x1="centerPoint.x - 7" :y1="centerPoint.y" :x2="centerPoint.x + 7" :y2="centerPoint.y" class="stroke-accent" stroke-width="1" />
+        <line :x1="centerPoint.x" :y1="centerPoint.y - 7" :x2="centerPoint.x" :y2="centerPoint.y + 7" class="stroke-accent" stroke-width="1" />
       </g>
     </svg>
   </div>
