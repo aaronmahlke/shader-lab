@@ -216,19 +216,68 @@ function alignLayer(edge: AlignEdge) {
   history?.record();
 }
 
-/** Icon geometry: a frame edge line plus the layer box (14x14 viewbox). */
+/** Icon geometry, Figma-style: the alignment edge plus two object bars (14x14). */
+type IconLine = { x1: number; y1: number; x2: number; y2: number };
 const ALIGNMENTS: {
   id: AlignEdge;
   label: string;
-  line: { x1: number; y1: number; x2: number; y2: number };
-  rect: { x: number; y: number; w: number; h: number };
+  edge: IconLine;
+  bars: IconLine[];
 }[] = [
-  { id: "left", label: "Align left", line: { x1: 2, y1: 1.5, x2: 2, y2: 12.5 }, rect: { x: 4, y: 4.5, w: 7, h: 5 } },
-  { id: "centerX", label: "Align horizontal centers", line: { x1: 7, y1: 1.5, x2: 7, y2: 12.5 }, rect: { x: 3.5, y: 4.5, w: 7, h: 5 } },
-  { id: "right", label: "Align right", line: { x1: 12, y1: 1.5, x2: 12, y2: 12.5 }, rect: { x: 3, y: 4.5, w: 7, h: 5 } },
-  { id: "top", label: "Align top", line: { x1: 1.5, y1: 2, x2: 12.5, y2: 2 }, rect: { x: 4.5, y: 4, w: 5, h: 7 } },
-  { id: "centerY", label: "Align vertical centers", line: { x1: 1.5, y1: 7, x2: 12.5, y2: 7 }, rect: { x: 4.5, y: 3.5, w: 5, h: 7 } },
-  { id: "bottom", label: "Align bottom", line: { x1: 1.5, y1: 12, x2: 12.5, y2: 12 }, rect: { x: 4.5, y: 3, w: 5, h: 7 } },
+  {
+    id: "left",
+    label: "Align left",
+    edge: { x1: 2.5, y1: 2, x2: 2.5, y2: 12 },
+    bars: [
+      { x1: 5.5, y1: 5, x2: 12, y2: 5 },
+      { x1: 5.5, y1: 9, x2: 9.5, y2: 9 },
+    ],
+  },
+  {
+    id: "centerX",
+    label: "Align horizontal centers",
+    edge: { x1: 7, y1: 1.5, x2: 7, y2: 12.5 },
+    bars: [
+      { x1: 2.5, y1: 5, x2: 11.5, y2: 5 },
+      { x1: 4.5, y1: 9, x2: 9.5, y2: 9 },
+    ],
+  },
+  {
+    id: "right",
+    label: "Align right",
+    edge: { x1: 11.5, y1: 2, x2: 11.5, y2: 12 },
+    bars: [
+      { x1: 2, y1: 5, x2: 8.5, y2: 5 },
+      { x1: 4.5, y1: 9, x2: 8.5, y2: 9 },
+    ],
+  },
+  {
+    id: "top",
+    label: "Align top",
+    edge: { x1: 2, y1: 2.5, x2: 12, y2: 2.5 },
+    bars: [
+      { x1: 5, y1: 5.5, x2: 5, y2: 12 },
+      { x1: 9, y1: 5.5, x2: 9, y2: 9.5 },
+    ],
+  },
+  {
+    id: "centerY",
+    label: "Align vertical centers",
+    edge: { x1: 1.5, y1: 7, x2: 12.5, y2: 7 },
+    bars: [
+      { x1: 5, y1: 2.5, x2: 5, y2: 11.5 },
+      { x1: 9, y1: 4.5, x2: 9, y2: 9.5 },
+    ],
+  },
+  {
+    id: "bottom",
+    label: "Align bottom",
+    edge: { x1: 2, y1: 11.5, x2: 12, y2: 11.5 },
+    bars: [
+      { x1: 5, y1: 2, x2: 5, y2: 8.5 },
+      { x1: 9, y1: 4.5, x2: 9, y2: 8.5 },
+    ],
+  },
 ];
 
 function resetToDefaults() {
@@ -388,21 +437,24 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           >
             <svg viewBox="0 0 14 14" class="size-3.5">
               <line
-                :x1="align.line.x1"
-                :y1="align.line.y1"
-                :x2="align.line.x2"
-                :y2="align.line.y2"
-                class="stroke-current"
-                stroke-width="1.5"
+                :x1="align.edge.x1"
+                :y1="align.edge.y1"
+                :x2="align.edge.x2"
+                :y2="align.edge.y2"
+                class="stroke-current opacity-60"
+                stroke-width="1.2"
                 stroke-linecap="round"
               />
-              <rect
-                :x="align.rect.x"
-                :y="align.rect.y"
-                :width="align.rect.w"
-                :height="align.rect.h"
-                rx="1"
-                class="fill-current opacity-60"
+              <line
+                v-for="(bar, i) in align.bars"
+                :key="i"
+                :x1="bar.x1"
+                :y1="bar.y1"
+                :x2="bar.x2"
+                :y2="bar.y2"
+                class="stroke-current"
+                stroke-width="2"
+                stroke-linecap="round"
               />
             </svg>
           </button>
