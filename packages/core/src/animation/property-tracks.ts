@@ -1,4 +1,39 @@
-import type { Keyframe, KeyframeEasing, PropertyTrack } from "../types/animation";
+import type { CubicBezierEase, Keyframe, KeyframeEasing, PropertyTrack } from "../types/animation";
+import { evaluateCubicBezier } from "./easing";
+
+/**
+ * Set the outgoing easing of the referenced keyframes. Named eases clear any
+ * custom curve; a bezier tuple is stored on `curve` (which wins over `ease`).
+ */
+export function setKeyframesEasing(
+  tracks: PropertyTrack[],
+  refs: KeyframeRef[],
+  easing: KeyframeEasing | CubicBezierEase,
+): PropertyTrack[] {
+  const next = tracks.map((t) => ({
+    ...t,
+    keys: t.keys.map((k) => ({ ...k })),
+  }));
+
+  for (const ref of refs) {
+    const track = next.find(
+      (t) => t.layerId === ref.layerId && t.paramName === ref.paramName,
+    );
+    if (!track) continue;
+    const key = track.keys.find((k) => Math.abs(k.time - ref.time) < 1e-6);
+    if (!key) continue;
+
+    if (Array.isArray(easing)) {
+      key.curve = [...easing] as CubicBezierEase;
+      delete key.ease;
+    } else {
+      key.ease = easing;
+      delete key.curve;
+    }
+  }
+
+  return next;
+}
 
 export function trackId(layerId: string, paramName: string): string {
   return `${layerId}:${paramName}`;
@@ -50,7 +85,9 @@ export function evaluateKeyframes(keys: Keyframe[], time: number, fallback: numb
       const span = b.time - a.time;
       if (span <= 1e-9) return b.value;
       const raw = (time - a.time) / span;
-      const eased = easeProgress(raw, a.ease ?? "linear");
+      const eased = a.curve
+        ? evaluateCubicBezier(a.curve, raw)
+        : easeProgress(raw, a.ease ?? "linear");
       return a.value + (b.value - a.value) * eased;
     }
   }
@@ -182,6 +219,7 @@ export type KeyframeRef = {
 export type KeyframePasteItem = KeyframeRef & {
   value: number;
   ease?: Keyframe["ease"];
+  curve?: Keyframe["curve"];
 };
 
 export function buildKeyframePasteItems(
@@ -199,6 +237,7 @@ export function buildKeyframePasteItems(
       time: sel.time,
       value: key.value,
       ease: key.ease,
+      curve: key.curve ? ([...key.curve] as CubicBezierEase) : undefined,
     });
   }
   return items;

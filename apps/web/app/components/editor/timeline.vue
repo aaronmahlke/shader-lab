@@ -14,16 +14,21 @@ import {
   useEditorKeyboard,
 } from "~/composables/use-editor-keyboard";
 import {
+  EASING_PRESETS,
   LAYER_TEMPLATES,
   evaluatePropertyTrack,
   findPropertyTrack,
   hasKeyframeAt,
   isKeyframeableUniform,
   isPropertyTrackActive,
+  matchEasingPreset,
   offsetKeyframes,
+  setKeyframesEasing,
   universalUniformsFor,
   upsertKeyframe,
   type CompositionSettings,
+  type CubicBezierEase,
+  type KeyframeEasing,
   type LayerInstance,
   type LayerUniformDef,
   type PropertyTrack,
@@ -658,6 +663,39 @@ function valueAt(layer: LayerInstance, paramName: string, fallback: number): num
   return evaluatePropertyTrack(track, displayTime.value, base);
 }
 
+// --- Keyframe easing (context menu) ---
+
+const NAMED_EASINGS: { id: KeyframeEasing; label: string }[] = [
+  { id: "linear", label: "Linear" },
+  { id: "easeIn", label: "Ease In" },
+  { id: "easeOut", label: "Ease Out" },
+  { id: "easeInOut", label: "Ease In Out" },
+  { id: "hold", label: "Hold" },
+];
+
+/** Apply to the whole selection when the clicked key is part of it. */
+function applyKeyframeEasing(
+  layerId: string,
+  paramName: string,
+  time: number,
+  easing: KeyframeEasing | CubicBezierEase,
+) {
+  const refs = isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)
+    ? selectedKeyframes.value
+    : [{ layerId, paramName, time }];
+  tracks.value = setKeyframesEasing(tracks.value, refs, easing);
+  history?.record();
+}
+
+/** Current easing id of a key: named ease, preset id, or "custom". */
+function keyframeEasingId(layerId: string, paramName: string, time: number): string {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  const key = track?.keys.find((k) => Math.abs(k.time - time) < 1e-6);
+  if (!key) return "linear";
+  if (key.curve) return matchEasingPreset(key.curve) ?? "custom";
+  return key.ease ?? "linear";
+}
+
 // --- Timeline value editing (scrub + click to type) ---
 
 const editingValue = ref<{ layerId: string; paramName: string; text: string } | null>(null);
@@ -879,6 +917,14 @@ function onKeyframePointerDown(
   time: number,
   e: PointerEvent,
 ) {
+  if (e.button !== 0) {
+    // Right-click: make sure the key is selected so easing applies to it.
+    if (!isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)) {
+      selectedKeyframes.value = [{ layerId, paramName, time }];
+      selectedLayerId.value = layerId;
+    }
+    return;
+  }
   e.preventDefault();
   e.stopPropagation();
   playing.value = false;
@@ -1568,21 +1614,43 @@ function selectAllLayers() {
                     v-if="showPropertyRow(layer, def.name)"
                     class="relative h-6 border-b border-neutral/30 select-none"
                   >
-                    <button
+                    <UiContextMenu
                       v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
                       :key="`${layer.id}-${def.name}-${key.time}`"
-                      type="button"
-                      class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 outline-none"
-                      :style="{ left: keyLeft(key.time) }"
-                      :title="`${def.label} @ ${key.time.toFixed(2)}s`"
-                      @pointerdown.stop.prevent="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
                     >
-                      <UiKeyframeDiamond
-                        class="size-full"
-                        :selected="isKeyframeSelected(layer.id, def.name, key.time)"
-                        :at-playhead="isKeyframeAtPlayhead(key.time)"
-                      />
-                    </button>
+                      <button
+                        type="button"
+                        class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 outline-none"
+                        :style="{ left: keyLeft(key.time) }"
+                        :title="`${def.label} @ ${key.time.toFixed(2)}s`"
+                        @pointerdown.stop="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
+                      >
+                        <UiKeyframeDiamond
+                          class="size-full"
+                          :selected="isKeyframeSelected(layer.id, def.name, key.time)"
+                          :at-playhead="isKeyframeAtPlayhead(key.time)"
+                        />
+                      </button>
+                      <template #menu>
+                        <UiContextMenuItem
+                          v-for="named in NAMED_EASINGS"
+                          :key="named.id"
+                          @click="applyKeyframeEasing(layer.id, def.name, key.time, named.id)"
+                        >
+                          <span class="flex-1">{{ named.label }}</span>
+                          <span v-if="keyframeEasingId(layer.id, def.name, key.time) === named.id">✓</span>
+                        </UiContextMenuItem>
+                        <UiContextMenuSeparator />
+                        <UiContextMenuItem
+                          v-for="preset in EASING_PRESETS"
+                          :key="preset.id"
+                          @click="applyKeyframeEasing(layer.id, def.name, key.time, preset.curve)"
+                        >
+                          <span class="flex-1">{{ preset.label }}</span>
+                          <span v-if="keyframeEasingId(layer.id, def.name, key.time) === preset.id">✓</span>
+                        </UiContextMenuItem>
+                      </template>
+                    </UiContextMenu>
                   </div>
                 </template>
               </div>

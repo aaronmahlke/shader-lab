@@ -101,10 +101,10 @@ Related (not yet requested but likely soon):
 
 Core already supports named eases; need **Flow-style** curve editing.
 
-- Upgrade keyframe easing to **cubic bezier** (`x1, y1, x2, y2`) + named presets
-- UI: curve editor with handles, preset grid (expoOut, backIn, …), favorites
-- Apply to selected keyframe segment(s)
-- Evaluate in `evaluateKeyframes` (bezier solve for `y` given `x`)
+- [x] Upgrade keyframe easing to **cubic bezier** (`x1, y1, x2, y2`) + named presets — `Keyframe.curve` beats `ease`, presets in `core/animation/easing.ts`
+- [x] Apply to selected keyframe segment(s) — right-click a keyframe for the easing menu (applies to the whole selection)
+- [x] Evaluate in `evaluateKeyframes` (bezier solve for `y` given `x`)
+- [ ] UI: curve editor with handles, preset grid visualization, favorites
 
 ---
 

@@ -96,11 +96,21 @@ export {
   pasteKeyframesAtTime,
 } from "./animation/property-tracks";
 export type { KeyframePasteItem } from "./animation/property-tracks";
+export { setKeyframesEasing } from "./animation/property-tracks";
+export {
+  cubicBezierProgress,
+  evaluateCubicBezier,
+  EASING_PRESETS,
+  findEasingPreset,
+  matchEasingPreset,
+} from "./animation/easing";
+export type { EasingPreset } from "./animation/easing";
 export { isKeyframeableUniform } from "./animation/keyframeable";
 export { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 export { DEFAULT_COMPOSITION_SETTINGS } from "./types/animation";
 export type {
   CompositionSettings,
+  CubicBezierEase,
   Keyframe,
   KeyframeEasing,
   PropertyTrack,
