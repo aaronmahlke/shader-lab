@@ -6,9 +6,11 @@ defineOptions({ inheritAttrs: false });
 type Props = {
   selected?: boolean;
   atPlayhead?: boolean;
+  /** Outgoing easing shape: diamond = linear, circle = eased, half-square = hold. */
+  easing?: "linear" | "eased" | "hold";
 };
 
-const { selected = false, atPlayhead = false } = defineProps<Props>();
+const { selected = false, atPlayhead = false, easing = "linear" } = defineProps<Props>();
 
 const maskId = useId();
 
@@ -20,6 +22,18 @@ const INNER_MASK =
 
 const LEFT_HALF = "M10 3L3 10L10 17V3Z";
 const RIGHT_HALF = "M10 3L17 10L10 17V3Z";
+/** Eased keys render as circles (AE-style smooth interpolation). */
+const LEFT_HALF_ROUND = "M10 3A7 7 0 0 0 10 17V3Z";
+const RIGHT_HALF_ROUND = "M10 3A7 7 0 0 1 10 17V3Z";
+/** Hold keys square off the outgoing (right) side. */
+const RIGHT_HALF_SQUARE = "M10 3H15Q17 3 17 5V15Q17 17 15 17H10V3Z";
+
+const leftHalfPath = computed(() => (easing === "eased" ? LEFT_HALF_ROUND : LEFT_HALF));
+const rightHalfPath = computed(() => {
+  if (easing === "eased") return RIGHT_HALF_ROUND;
+  if (easing === "hold") return RIGHT_HALF_SQUARE;
+  return RIGHT_HALF;
+});
 
 const CX = 10;
 const CY = 10;
@@ -65,17 +79,17 @@ const filledAtPlayhead = computed(() => atPlayhead);
         </mask>
       </defs>
 
-      <g :mask="showOutlineRing ? `url(#${maskId})` : undefined">
+      <g :mask="showOutlineRing && easing === 'linear' ? `url(#${maskId})` : undefined">
         <path
           fill-rule="evenodd"
           clip-rule="evenodd"
-          :d="LEFT_HALF"
+          :d="leftHalfPath"
           :class="filledAtPlayhead ? 'fill-accent' : 'fill-white'"
         />
         <path
           fill-rule="evenodd"
           clip-rule="evenodd"
-          :d="RIGHT_HALF"
+          :d="rightHalfPath"
           :class="filledAtPlayhead ? 'fill-accent opacity-50' : 'fill-white opacity-50'"
         />
       </g>

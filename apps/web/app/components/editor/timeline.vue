@@ -16,6 +16,7 @@ import {
 import {
   EASING_PRESETS,
   LAYER_TEMPLATES,
+  evaluateKeyframes,
   evaluatePropertyTrack,
   findPropertyTrack,
   hasKeyframeAt,
@@ -28,6 +29,7 @@ import {
   upsertKeyframe,
   type CompositionSettings,
   type CubicBezierEase,
+  type Keyframe,
   type KeyframeEasing,
   type LayerInstance,
   type LayerUniformDef,
@@ -685,6 +687,56 @@ function applyKeyframeEasing(
     : [{ layerId, paramName, time }];
   tracks.value = setKeyframesEasing(tracks.value, refs, easing);
   history?.record();
+}
+
+/** Shape variant for a key's diamond: linear, eased (curve/named), or hold. */
+function keyframeShape(key: Keyframe): "linear" | "eased" | "hold" {
+  if (key.ease === "hold") return "hold";
+  if (key.curve) return "eased";
+  if (key.ease && key.ease !== "linear") return "eased";
+  return "linear";
+}
+
+/** Mini value curves drawn between adjacent keys in a property row. */
+function segmentPaths(layerId: string, paramName: string): string[] {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  if (!track || track.keys.length < 2) return [];
+
+  const keys = [...track.keys].sort((a, b) => a.time - b.time);
+  const top = 5;
+  const bottom = PROP_ROW_H - 5;
+  const paths: string[] = [];
+
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i]!;
+    const b = keys[i + 1]!;
+    const x0 = timeToX(a.time);
+    const x1 = timeToX(b.time);
+    if (x1 - x0 < 6) continue;
+
+    if (Math.abs(b.value - a.value) < 1e-9) {
+      const mid = (top + bottom) / 2;
+      paths.push(`M ${x0.toFixed(1)} ${mid} L ${x1.toFixed(1)} ${mid}`);
+      continue;
+    }
+
+    const rising = b.value > a.value;
+    const yStart = rising ? bottom : top;
+    const yEnd = rising ? top : bottom;
+    const steps = 24;
+    const points: string[] = [];
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const value = evaluateKeyframes([a, b], a.time + t * (b.time - a.time), a.value);
+      const norm = (value - a.value) / (b.value - a.value);
+      const x = x0 + (x1 - x0) * t;
+      const y = yStart + (yEnd - yStart) * norm;
+      points.push(`${x.toFixed(1)} ${y.toFixed(1)}`);
+    }
+    paths.push(`M ${points.join(" L ")}`);
+  }
+
+  return paths;
 }
 
 /** Current easing id of a key: named ease, preset id, or "custom". */
@@ -1614,6 +1666,19 @@ function selectAllLayers() {
                     v-if="showPropertyRow(layer, def.name)"
                     class="relative h-6 border-b border-neutral/30 select-none"
                   >
+                    <svg
+                      class="pointer-events-none absolute inset-0 size-full"
+                      aria-hidden="true"
+                    >
+                      <path
+                        v-for="(seg, si) in segmentPaths(layer.id, def.name)"
+                        :key="`s-${si}`"
+                        :d="seg"
+                        fill="none"
+                        class="stroke-accent/40"
+                        stroke-width="1.5"
+                      />
+                    </svg>
                     <UiContextMenu
                       v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
                       :key="`${layer.id}-${def.name}-${key.time}`"
@@ -1629,6 +1694,7 @@ function selectAllLayers() {
                           class="size-full"
                           :selected="isKeyframeSelected(layer.id, def.name, key.time)"
                           :at-playhead="isKeyframeAtPlayhead(key.time)"
+                          :easing="keyframeShape(key)"
                         />
                       </button>
                       <template #menu>

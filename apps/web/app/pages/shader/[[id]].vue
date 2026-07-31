@@ -1082,6 +1082,12 @@ registerKeyboard({
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <EditorEasingPanel
+            v-if="selectedKeyframes.length > 0"
+            v-model:tracks="tracks"
+            class="shrink-0"
+            :selection="selectedKeyframes"
+          />
           <EditorLayerSettings
             v-if="selectedLayer && selectedTemplate"
             ref="layerSettingsRef"
