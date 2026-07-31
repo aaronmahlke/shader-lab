@@ -102,14 +102,17 @@ function tickOpacity(t: number): number {
   return 1;
 }
 
+/** Uncontrolled while editing: reactive re-renders must not reset typing. */
+const editText = ref("");
+
 function startEdit() {
+  editText.value = String(displayValue.value);
   isEditing.value = true;
   nextTick(() => inputRef.value?.select());
 }
 
-function commitValue(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const parsed = parseFloat(input.value);
+function commitValue() {
+  const parsed = parseFloat(editText.value.replace(",", "."));
   if (!isNaN(parsed)) {
     const snapped = Math.round(parsed / step) * step;
     model.value = Math.min(max, Math.max(min, snapped));
@@ -227,7 +230,7 @@ function onPointerEnd() {
           <input
             v-if="isEditing"
             ref="inputRef"
-            :value="displayValue"
+            v-model="editText"
             type="text"
             class="w-12 rounded bg-tint-subtle px-1 text-right font-mono text-copy-sm text-neutral-strong outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
             @blur="commitValue"

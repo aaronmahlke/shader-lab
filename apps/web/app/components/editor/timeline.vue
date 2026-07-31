@@ -946,6 +946,14 @@ function onKeyframePointerDown(
   window.addEventListener("pointerup", onUp);
 }
 
+/** Clear layer and keyframe selection (clicks on empty space). */
+function clearSelection() {
+  selectedLayerId.value = null;
+  selectedLayerIds.value = new Set();
+  selectionAnchorId.value = null;
+  selectedKeyframes.value = [];
+}
+
 function onTracksMarqueePointerDown(e: PointerEvent) {
   if (e.button !== 0) return;
   e.preventDefault();
@@ -995,6 +1003,11 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
 
     if (dragging) {
       history?.record();
+    } else if (!addToSelection) {
+      // Plain click on empty tracks space: clear the whole selection.
+      selectedLayerId.value = null;
+      selectedLayerIds.value = new Set();
+      selectionAnchorId.value = null;
     }
     marquee.value = null;
   }
@@ -1382,7 +1395,7 @@ function selectAllLayers() {
           class="shrink-0 overflow-hidden border-r border-neutral bg-layer-1"
           :style="{ width: `${labelWidth}px` }"
         >
-          <div ref="layerListRef" class="min-h-full">
+          <div ref="layerListRef" class="min-h-full" @click.self="clearSelection">
             <div
               v-for="(layer, i) in layers"
               :key="layer.id"
