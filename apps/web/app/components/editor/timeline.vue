@@ -1384,21 +1384,27 @@ function selectAllLayers() {
               >
                 <div class="relative h-7 border-b border-neutral/40 bg-layer-1/50">
                   <div
-                    class="group/bar absolute inset-y-[5px] cursor-grab rounded-[5px] transition-colors"
-                    :class="selectedLayerIds.has(layer.id) ? 'bg-neutral/60' : 'bg-neutral/35 hover:bg-neutral/50'"
+                    class="group/bar absolute inset-y-[5px] cursor-grab rounded-[5px] ring-1 ring-inset transition-colors"
+                    :class="selectedLayerIds.has(layer.id)
+                      ? 'bg-accent/35 ring-accent/60 hover:bg-accent/45'
+                      : 'bg-neutral-700/70 ring-white/10 hover:bg-neutral-600/70'"
                     :style="layerBarStyle(layer)"
                     :title="`${layerInPoint(layer).toFixed(2)}s – ${layerOutPoint(layer).toFixed(2)}s (double-click to reset)`"
                     @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'move', $event)"
                     @dblclick.stop="resetLayerTiming(layer)"
                   >
                     <div
-                      class="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize rounded-l-[5px] opacity-0 transition-opacity group-hover/bar:opacity-100 bg-layer-2"
+                      class="absolute inset-y-0 left-0 flex w-2 cursor-ew-resize items-center justify-center rounded-l-[5px] bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
                       @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'in', $event)"
-                    />
+                    >
+                      <div class="h-3 w-0.5 rounded-full bg-white/60" />
+                    </div>
                     <div
-                      class="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize rounded-r-[5px] opacity-0 transition-opacity group-hover/bar:opacity-100 bg-layer-2"
+                      class="absolute inset-y-0 right-0 flex w-2 cursor-ew-resize items-center justify-center rounded-r-[5px] bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
                       @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'out', $event)"
-                    />
+                    >
+                      <div class="h-3 w-0.5 rounded-full bg-white/60" />
+                    </div>
                   </div>
                 </div>
 
