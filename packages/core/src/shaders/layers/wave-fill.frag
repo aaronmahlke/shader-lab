@@ -5,8 +5,6 @@ precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform float u_scale;
-uniform sampler2D u_input;
-uniform bool u_hasInput;
 
 uniform float edge;
 uniform float centerY;
@@ -59,15 +57,15 @@ vec3 sampleEdgeGradient(sampler2D grad, float t) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
-  vec3 below = u_hasInput ? texture2D(u_input, uv).rgb : vec3(0.0);
 
   float lineY = bumpLine(uv.x, centerY, amplitude, cycleWidth, cycleX);
   float distBelow = lineY - uv.y;
   float soft = seamSoft(edge);
-  // Above the curve (distBelow <= 0): mask = 0 → pass through u_input.
-  // Below the curve: mask → 1 with soft feather at the boundary.
+  // Above the curve (distBelow <= 0): mask = 0 → transparent, the layer
+  // composite pass shows the stack below. Below the curve: mask → 1 with a
+  // soft feather at the boundary. Coverage is carried in the alpha channel.
   float coverage = smoothstep(0.0, soft, distBelow);
   float mask = shapeAt(coverage, edge);
   vec3 fill = sampleEdgeGradient(u_gradient, gradientTFromCurve(uv.x, uv.y));
-  gl_FragColor = vec4(mix(below, fill, mask), 1.0);
+  gl_FragColor = vec4(fill, mask);
 }

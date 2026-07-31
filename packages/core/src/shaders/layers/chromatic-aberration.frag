@@ -4,6 +4,7 @@ precision highp float;
 
 uniform vec2 u_resolution;
 uniform sampler2D u_input;
+uniform float layerOpacity; // universal layer opacity, 0-100
 
 uniform int mode;
 uniform float amount;
@@ -76,5 +77,5 @@ void main() {
     );
   }
 
-  gl_FragColor = vec4(mix(original, aberration, blend), 1.0);
+  gl_FragColor = vec4(mix(original, aberration, blend * clamp(layerOpacity / 100.0, 0.0, 1.0)), 1.0);
 }

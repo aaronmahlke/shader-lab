@@ -32,6 +32,8 @@ export function createComposition(
 
   const renderer = new CompositionRenderer(canvas, {
     ...options,
+    findLayer: (pass) =>
+      currentConfig.layers.find((l) => l.id === (pass.sourceLayerId ?? pass.layerId)),
     getModulatedValue: engine.getModulatedValue,
   });
 
@@ -94,11 +96,21 @@ export {
   pasteKeyframesAtTime,
 } from "./animation/property-tracks";
 export type { KeyframePasteItem } from "./animation/property-tracks";
+export { setKeyframesEasing } from "./animation/property-tracks";
+export {
+  cubicBezierProgress,
+  evaluateCubicBezier,
+  EASING_PRESETS,
+  findEasingPreset,
+  matchEasingPreset,
+} from "./animation/easing";
+export type { EasingPreset } from "./animation/easing";
 export { isKeyframeableUniform } from "./animation/keyframeable";
 export { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 export { DEFAULT_COMPOSITION_SETTINGS } from "./types/animation";
 export type {
   CompositionSettings,
+  CubicBezierEase,
   Keyframe,
   KeyframeEasing,
   PropertyTrack,
@@ -140,6 +152,7 @@ export type { ModulationFn, CompositionRendererOptions, CompositionConfig };
 
 export type {
   LayerInstance,
+  LayerTiming,
   LayerType,
   LayerTemplate,
   RenderPass,
@@ -149,6 +162,20 @@ export type {
   LFOWaveShape,
   LFOPlaybackMode,
 } from "./types/editor";
+
+export {
+  UNIVERSAL_LAYER_UNIFORMS,
+  TRANSFORM_UNIFORMS,
+  OPACITY_UNIFORM,
+  universalUniformsFor,
+  findLayerParamDef,
+  isUniversalParamName,
+  buildUniversalUniforms,
+  layerOpacityValue,
+  layerTimingFactor,
+  isIdentityTransform,
+} from "./compiler/universal-uniforms";
+export { compositePassId } from "./compiler/compile-passes";
 
 export type { GradientStop } from "./types";
 

@@ -4,6 +4,7 @@ precision mediump float;
 
 uniform vec2 u_resolution;
 uniform sampler2D u_input;
+uniform float layerOpacity; // universal layer opacity, 0-100
 
 uniform int shape;
 uniform float vignetteIntensity;
@@ -30,5 +31,6 @@ void main() {
 
   color = mix(color, color * mask, vignetteIntensity);
 
-  gl_FragColor = vec4(color, 1.0);
+  vec3 base = texture2D(u_input, uv).rgb;
+  gl_FragColor = vec4(mix(base, color, clamp(layerOpacity / 100.0, 0.0, 1.0)), 1.0);
 }

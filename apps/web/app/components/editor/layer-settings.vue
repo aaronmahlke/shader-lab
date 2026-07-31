@@ -9,7 +9,12 @@ import {
   hasKeyframeAt,
   isKeyframeableUniform,
   isPropertyTrackActive,
+  universalUniformsFor,
 } from "@shader-lab/core";
+import {
+  layerBoundsInCompUv,
+  type LayerTransformValues,
+} from "#shared/editor/layer-transform";
 
 type Props = {
   layer: LayerInstance;
@@ -20,6 +25,8 @@ type Props = {
   meshSelectedPointIndex?: number;
   currentTime: number;
   tracks: PropertyTrack[];
+  /** Composition width/height ratio — enables the align buttons. */
+  compositionAspect?: number;
 };
 
 type Emits = {
@@ -141,7 +148,143 @@ function randomizeUniforms(defs: LayerUniformDef[], target: Record<string, unkno
   }
 }
 
+/** Universal transform/opacity params shown for every layer (generators get the full set). */
+const universalDefs = universalUniformsFor(layer);
+
+// --- Alignment (Figma-style, relative to the composition frame) ---
+
+const isGenerator = computed(() => template.category === "generator");
+
+function universalDef(name: string): LayerUniformDef {
+  return universalDefs.find((def) => def.name === name)!;
+}
+
+function currentTransform(): LayerTransformValues {
+  const get = (name: string) => {
+    const def = universalDef(name);
+    return getFloat(def, layer.values);
+  };
+  return {
+    positionX: get("layerPositionX"),
+    positionY: get("layerPositionY"),
+    scale: get("layerScale"),
+    rotation: get("layerRotation"),
+    anchorX: get("layerAnchorX"),
+    anchorY: get("layerAnchorY"),
+  };
+}
+
+type AlignEdge = "left" | "centerX" | "right" | "top" | "centerY" | "bottom";
+
+/** Move the layer's transformed bounds flush to the frame (comp UV is y-up). */
+function alignLayer(edge: AlignEdge) {
+  const aspect = props.compositionAspect;
+  if (!aspect) return;
+  const v = currentTransform();
+  const bounds = layerBoundsInCompUv(v, aspect);
+
+  let def: LayerUniformDef;
+  let next: number;
+  switch (edge) {
+    case "left":
+      def = universalDef("layerPositionX");
+      next = v.positionX - bounds.minX;
+      break;
+    case "centerX":
+      def = universalDef("layerPositionX");
+      next = v.positionX + (0.5 - bounds.centerX);
+      break;
+    case "right":
+      def = universalDef("layerPositionX");
+      next = v.positionX + (1 - bounds.maxX);
+      break;
+    case "bottom":
+      def = universalDef("layerPositionY");
+      next = v.positionY - bounds.minY;
+      break;
+    case "centerY":
+      def = universalDef("layerPositionY");
+      next = v.positionY + (0.5 - bounds.centerY);
+      break;
+    case "top":
+      def = universalDef("layerPositionY");
+      next = v.positionY + (1 - bounds.maxY);
+      break;
+  }
+
+  setFloat(def, layer.values, Number(next.toFixed(4)));
+  history?.record();
+}
+
+/** Icon geometry, Figma-style: the alignment edge plus two object bars (14x14). */
+type IconLine = { x1: number; y1: number; x2: number; y2: number };
+const ALIGNMENTS: {
+  id: AlignEdge;
+  label: string;
+  edge: IconLine;
+  bars: IconLine[];
+}[] = [
+  {
+    id: "left",
+    label: "Align left",
+    edge: { x1: 2.5, y1: 2, x2: 2.5, y2: 12 },
+    bars: [
+      { x1: 5.5, y1: 5, x2: 12, y2: 5 },
+      { x1: 5.5, y1: 9, x2: 9.5, y2: 9 },
+    ],
+  },
+  {
+    id: "centerX",
+    label: "Align horizontal centers",
+    edge: { x1: 7, y1: 1.5, x2: 7, y2: 12.5 },
+    bars: [
+      { x1: 2.5, y1: 5, x2: 11.5, y2: 5 },
+      { x1: 4.5, y1: 9, x2: 9.5, y2: 9 },
+    ],
+  },
+  {
+    id: "right",
+    label: "Align right",
+    edge: { x1: 11.5, y1: 2, x2: 11.5, y2: 12 },
+    bars: [
+      { x1: 2, y1: 5, x2: 8.5, y2: 5 },
+      { x1: 4.5, y1: 9, x2: 8.5, y2: 9 },
+    ],
+  },
+  {
+    id: "top",
+    label: "Align top",
+    edge: { x1: 2, y1: 2.5, x2: 12, y2: 2.5 },
+    bars: [
+      { x1: 5, y1: 5.5, x2: 5, y2: 12 },
+      { x1: 9, y1: 5.5, x2: 9, y2: 9.5 },
+    ],
+  },
+  {
+    id: "centerY",
+    label: "Align vertical centers",
+    edge: { x1: 1.5, y1: 7, x2: 12.5, y2: 7 },
+    bars: [
+      { x1: 5, y1: 2.5, x2: 5, y2: 11.5 },
+      { x1: 9, y1: 4.5, x2: 9, y2: 9.5 },
+    ],
+  },
+  {
+    id: "bottom",
+    label: "Align bottom",
+    edge: { x1: 2, y1: 11.5, x2: 12, y2: 11.5 },
+    bars: [
+      { x1: 5, y1: 2, x2: 5, y2: 8.5 },
+      { x1: 9, y1: 4.5, x2: 9, y2: 8.5 },
+    ],
+  },
+];
+
 function resetToDefaults() {
+  for (const def of universalDefs) {
+    layer.values[def.name] = def.default;
+  }
+  layer.timing = undefined;
   for (const def of template.uniforms) {
     if (def.type === "gradient" && Array.isArray(def.default)) {
       layer.values[def.name] = (def.default as GradientStop[]).map((s) => ({ ...s }));
@@ -172,6 +315,15 @@ function setFloat(def: LayerUniformDef, target: Record<string, unknown>, v: numb
     return;
   }
   target[def.name] = v;
+}
+
+function getText(def: LayerUniformDef, target: Record<string, unknown>): string {
+  return (target[def.name] as string) ?? (def.default as string);
+}
+
+function setText(def: LayerUniformDef, target: Record<string, unknown>, v: string) {
+  target[def.name] = v;
+  history?.record();
 }
 
 function getColor(def: LayerUniformDef, target: Record<string, unknown>): string {
@@ -273,6 +425,85 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       />
     </div>
 
+    <div class="flex flex-col gap-2.5 border-b border-neutral p-3">
+      <span class="text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
+        Transform
+      </span>
+      <div
+        v-if="isGenerator && compositionAspect"
+        class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
+      >
+        <UiTooltip
+          v-for="align in ALIGNMENTS"
+          :key="align.id"
+          :label="align.label"
+          side="top"
+        >
+          <button
+            type="button"
+            class="flex h-7 flex-1 items-center justify-center rounded-md text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+            @click="alignLayer(align.id)"
+          >
+            <svg viewBox="0 0 14 14" class="size-3.5">
+              <line
+                :x1="align.edge.x1"
+                :y1="align.edge.y1"
+                :x2="align.edge.x2"
+                :y2="align.edge.y2"
+                class="stroke-current opacity-60"
+                stroke-width="1.2"
+                stroke-linecap="round"
+              />
+              <line
+                v-for="(bar, i) in align.bars"
+                :key="i"
+                :x1="bar.x1"
+                :y1="bar.y1"
+                :x2="bar.x2"
+                :y2="bar.y2"
+                class="stroke-current"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </UiTooltip>
+      </div>
+      <template v-for="def in universalDefs" :key="`universal-${def.name}`">
+        <UiContextMenu>
+          <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
+            <UiSliderField
+              :model-value="getFloat(def, layer.values)"
+              :label="def.label"
+              :min="def.min"
+              :max="def.max"
+              :step="def.step ?? 0.01"
+              :mod-color="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.color"
+              :mod-depth="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.depth"
+              :mod-live-value="isTrackEnabled(def.name) ? undefined : getLiveValue(def)"
+              :is-drop-target="draggingLfoId !== null && !isTrackEnabled(def.name)"
+              :animatable="isKeyframeableUniform(def)"
+              :track-enabled="isTrackEnabled(def.name)"
+              :keyed-at-playhead="isKeyedAtPlayhead(def.name)"
+              @update:model-value="setFloat(def, layer.values, $event)"
+              @update:mod-depth="onDepthUpdate(def, $event)"
+              @toggle-track="emit('toggle-stopwatch', def.name)"
+              @toggle-keyframe="emit('toggle-keyframe', def.name)"
+            />
+          </div>
+          <template #menu>
+            <UiContextMenuItem @click="resetUniform(def)">Reset to default</UiContextMenuItem>
+            <template v-if="getAssignment(def.name)">
+              <UiContextMenuSeparator />
+              <UiContextMenuItem @click="emit('remove-assignment', getAssignment(def.name)!.sourceId, def.name)">
+                Remove {{ lfos.find(l => l.id === getAssignment(def.name)!.sourceId)?.label }}
+              </UiContextMenuItem>
+            </template>
+          </template>
+        </UiContextMenu>
+      </template>
+    </div>
+
     <div class="flex flex-col gap-2.5 p-3">
       <template v-for="def in template.uniforms" :key="def.name">
         <template v-if="isUniformVisible(def)">
@@ -307,6 +538,16 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               </template>
             </template>
           </UiContextMenu>
+          <div v-else-if="def.type === 'text'" class="flex flex-col gap-1">
+            <span class="text-copy-xs text-neutral-subtle">{{ def.label }}</span>
+            <textarea
+              :value="getText(def, layer.values)"
+              rows="2"
+              spellcheck="false"
+              class="w-full resize-y rounded-lg bg-control px-2.5 py-2 font-sans text-copy-sm text-neutral-strong outline-none focus:ring-1 focus:ring-accent/50"
+              @change="setText(def, layer.values, ($event.target as HTMLTextAreaElement).value)"
+            />
+          </div>
           <UiColorField
             v-else-if="def.type === 'color'"
             :model-value="getColor(def, layer.values)"

@@ -11,6 +11,10 @@ type RendererOptions = {
   getModulatedValue?: Ref<ModulationFn | null>;
   sampleLfosAtTime?: (time: number) => void;
   fixedBufferSize?: Ref<{ width: number; height: number }>;
+  /** Reference width for u_scale (composition native width). */
+  scaleReferenceWidth?: Ref<number>;
+  /** Composition height — reference for text raster scale. */
+  contentReferenceHeight?: Ref<number>;
   globalSpeed?: Ref<number>;
   paused?: Ref<boolean>;
   /** When set, drives render time instead of internal clock. */
@@ -55,7 +59,8 @@ export function useMultiPassRenderer(
 
   function findLayerForPass(pass: RenderPass): LayerInstance | undefined {
     if (!layersRef?.value) return undefined;
-    return layersRef.value.find((l) => l.id === pass.layerId);
+    const id = pass.sourceLayerId ?? pass.layerId;
+    return layersRef.value.find((l) => l.id === id);
   }
 
   function render() {
@@ -117,6 +122,8 @@ export function useMultiPassRenderer(
 
     renderer = new CompositionRenderer(canvas, {
       fixedBufferSize: fixedBufferSize?.value,
+      scaleReferenceWidth: options.scaleReferenceWidth?.value,
+      contentReferenceHeight: options.contentReferenceHeight?.value,
       findLayer: findLayerForPass,
       getModulatedValue: getModulatedValue?.value ?? null,
     });
@@ -132,6 +139,15 @@ export function useMultiPassRenderer(
       resizeObserver = new ResizeObserver(() => resize());
       resizeObserver.observe(canvas);
     }
+  }
+
+  // Live buffer size changes (viewport zoom): resize without recreating the renderer.
+  if (fixedBufferSize) {
+    watch(fixedBufferSize, (size) => {
+      if (!renderer || exportLoopPaused) return;
+      renderer.setFixedBufferSize(size, options.scaleReferenceWidth?.value);
+      render();
+    });
   }
 
   function destroy() {

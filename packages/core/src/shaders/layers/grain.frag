@@ -5,6 +5,7 @@ precision mediump float;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform sampler2D u_input;
+uniform float layerOpacity; // universal layer opacity, 0-100
 uniform float u_scale;
 
 uniform float grainIntensity;
@@ -34,5 +35,6 @@ void main() {
 
   color += grain;
 
-  gl_FragColor = vec4(color, 1.0);
+  vec3 base = texture2D(u_input, uv).rgb;
+  gl_FragColor = vec4(mix(base, color, clamp(layerOpacity / 100.0, 0.0, 1.0)), 1.0);
 }

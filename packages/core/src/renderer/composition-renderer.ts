@@ -10,12 +10,22 @@ import {
   disposeRenderPipelineCache,
   renderPasses,
   type RenderPipelineCache,
+  type TextTextureEntry,
 } from "./render-passes";
+import { drawTextSpec, type TextLayerSpec } from "./text-raster";
 
 export type CompositionRendererOptions = {
   pixelRatio?: number;
   stbnTexturePath?: string;
   fixedBufferSize?: { width: number; height: number };
+  /** Composition height in px — reference for text/content raster scale. */
+  contentReferenceHeight?: number;
+  /**
+   * Reference width for the u_scale uniform when rendering into a fixed
+   * buffer (e.g. the composition's native width). Keeps pixel-sized effects
+   * like dither/grain stable across viewport zoom. Defaults to the window width.
+   */
+  scaleReferenceWidth?: number;
   findLayer?: (pass: RenderPass) => LayerInstance | undefined;
   getModulatedValue?: ModulationFn | null;
 };
@@ -26,6 +36,8 @@ export class CompositionRenderer {
   private options: CompositionRendererOptions;
   private stbnTexture: WebGLTexture | null = null;
   private gradientTextures = new Map<string, WebGLTexture>();
+  private textTextures = new Map<string, TextTextureEntry>();
+  private textCanvas: HTMLCanvasElement | null = null;
   private pipelineCache: RenderPipelineCache = createRenderPipelineCache();
   private pixelRatio: number;
 
@@ -78,6 +90,18 @@ export class CompositionRenderer {
 
   getGl(): GlContext {
     return this.gl;
+  }
+
+  /** Swap the fixed render buffer size at runtime (viewport zoom, export). */
+  setFixedBufferSize(
+    size: { width: number; height: number } | undefined,
+    scaleReferenceWidth?: number,
+  ): void {
+    this.options.fixedBufferSize = size;
+    if (scaleReferenceWidth !== undefined) {
+      this.options.scaleReferenceWidth = scaleReferenceWidth;
+    }
+    this.syncCanvasSize();
   }
 
   resize(width: number, height: number, pixelRatio?: number): void {
@@ -152,9 +176,38 @@ export class CompositionRenderer {
       gradientTextures: this.gradientTextures,
       stbnTexture: this.stbnTexture,
       createGradientData: (stops) => this.createGradientData(stops),
+      textTextures: this.textTextures,
+      createTextImage: (spec, w, h, contentScale) =>
+        this.createTextImage(spec, w, h, contentScale),
+      contentScale: this.getContentScale(height),
       findLayer: this.options.findLayer,
       getModulatedValue: modFn ?? this.options.getModulatedValue ?? null,
     }, { readPixels: false, pipelineCache: this.pipelineCache });
+  }
+
+  /** Buffer px per composition px (fixed buffers reference the comp height). */
+  private getContentScale(bufferHeight: number): number {
+    const reference = this.options.contentReferenceHeight;
+    if (!reference || reference < 1) return 1;
+    return bufferHeight / reference;
+  }
+
+  /** Rasterize a text spec on a reusable 2D canvas. */
+  private createTextImage(
+    spec: TextLayerSpec,
+    width: number,
+    height: number,
+    contentScale: number,
+  ): TexImageSource | null {
+    if (typeof document === "undefined") return null;
+    if (!this.textCanvas) this.textCanvas = document.createElement("canvas");
+    const canvas = this.textCanvas;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    drawTextSpec(ctx, spec, width, height, contentScale);
+    return canvas;
   }
 
   async captureBlob(): Promise<Blob | null> {
@@ -176,6 +229,10 @@ export class CompositionRenderer {
     for (const tex of this.gradientTextures.values()) {
       this.gl.deleteTexture(tex);
     }
+    for (const entry of this.textTextures.values()) {
+      this.gl.deleteTexture(entry.texture);
+    }
+    this.textTextures.clear();
     this.gradientTextures.clear();
   }
 }

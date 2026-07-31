@@ -41,6 +41,7 @@ const CATALOG_META: Partial<
   gradient: { tags: ["ramp", "linear", "color"] },
   solid: { tags: ["fill", "flat", "color"] },
   noise: { tags: ["procedural", "animated", "texture"] },
+  text: { tags: ["type", "typography", "title", "word"], featured: true },
   waveFill: { tags: ["shape", "wave", "gradient"], featured: true },
   bandFill: { tags: ["shape", "band", "strip"] },
   distortion: { tags: ["wave", "displace", "warp", "uv"], featured: true },

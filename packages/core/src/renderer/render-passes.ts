@@ -2,6 +2,12 @@ import type { GradientStop } from "../types";
 import type { LayerInstance, LayerType, RenderPass } from "../types/editor";
 import type { ModulationFn } from "../compiler/compile-passes";
 import { buildLayerUniforms } from "../compiler/compile-passes";
+import { buildUniversalUniforms, layerTimingFactor } from "../compiler/universal-uniforms";
+import {
+  textCacheKey,
+  textSpecFromValues,
+  type TextLayerSpec,
+} from "./text-raster";
 import { stbnFrameIndex } from "../modulation/stbn";
 import {
   FRAG_SHADERS,
@@ -21,6 +27,20 @@ import {
 
 export type GradientDataFactory = (stops: GradientStop[]) => Uint8Array;
 
+/** Rasterized text: a DOM texture source (browser) or raw RGBA pixels (node). */
+export type TextImageResult =
+  | TexImageSource
+  | { width: number; height: number; data: Uint8Array };
+
+export type TextImageFactory = (
+  spec: TextLayerSpec,
+  width: number,
+  height: number,
+  contentScale: number,
+) => TextImageResult | null;
+
+export type TextTextureEntry = { key: string; texture: WebGLTexture };
+
 export type RenderPassContext = {
   gl: GlContext;
   width: number;
@@ -30,24 +50,94 @@ export type RenderPassContext = {
   gradientTextures: Map<string, WebGLTexture>;
   stbnTexture: WebGLTexture | null;
   createGradientData: GradientDataFactory;
+  /** Text rasterization (per-environment); text layers render black without it. */
+  textTextures?: Map<string, TextTextureEntry>;
+  createTextImage?: TextImageFactory;
+  /** Buffer px per composition px — keeps text size resolution-independent. */
+  contentScale?: number;
   findLayer?: (pass: RenderPass) => LayerInstance | undefined;
   getModulatedValue?: ModulationFn | null;
 };
+
+/** Zero out a layer's contribution while the playhead is outside its in/out window. */
+function applyTimingGate(
+  uniforms: Record<string, unknown>,
+  layer: LayerInstance,
+  pass: RenderPass,
+  time: number,
+): void {
+  if (layerTimingFactor(layer, time) === 1) return;
+  if (pass.layerType === "distortion") {
+    uniforms.amplitude = 0;
+  } else {
+    uniforms.layerOpacity = 0;
+  }
+}
 
 function resolvePassUniformValues(
   pass: RenderPass,
   ctx: RenderPassContext,
 ): Record<string, unknown> {
-  if (pass.layerType === "resolve") return pass.uniforms;
+  if (pass.layerType === "resolve" || pass.layerType === "blit") return pass.uniforms;
 
   const layer = ctx.findLayer?.(pass);
-  const merged = layer
-    ? buildLayerUniforms(layer, ctx.getModulatedValue ?? null)
-    : { ...pass.uniforms };
+  if (!layer) return { ...pass.uniforms };
 
   // Pass-graph only — not stored on layer templates.
+  const merged: Record<string, unknown> =
+    pass.layerType === "layerComposite"
+      ? buildUniversalUniforms(layer, ctx.getModulatedValue ?? null)
+      : buildLayerUniforms(layer, ctx.getModulatedValue ?? null);
+
+  applyTimingGate(merged, layer, pass, ctx.time);
   return merged;
 }
+
+/** Upload (or reuse) the rasterized texture for a text layer pass. */
+function ensureTextTexture(
+  pass: RenderPass,
+  ctx: RenderPassContext,
+  uniformValues: Record<string, unknown>,
+): WebGLTexture | null {
+  const { gl, textTextures, createTextImage } = ctx;
+  if (!textTextures || !createTextImage) return null;
+
+  const spec = textSpecFromValues(uniformValues);
+  const contentScale = ctx.contentScale ?? 1;
+  const key = `${textCacheKey(spec, ctx.width, ctx.height)}:${contentScale}`;
+  const cached = textTextures.get(pass.layerId);
+  if (cached && cached.key === key) return cached.texture;
+
+  const image = createTextImage(spec, ctx.width, ctx.height, contentScale);
+  if (!image) return cached?.texture ?? null;
+
+  const texture = cached?.texture ?? gl.createTexture();
+  if (!texture) return null;
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if ("data" in image) {
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      image.width,
+      image.height,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      image.data,
+    );
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  }
+  textTextures.set(pass.layerId, { key, texture });
+  return texture;
+}
+
+const HEX_COLOR_RE = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 function setPassUniforms(
   gl: GlContext,
@@ -103,6 +193,17 @@ function setPassUniforms(
   const uHasInput = gl.getUniformLocation(program, "u_hasInput");
   if (uHasInput) gl.uniform1i(uHasInput, inputTexture ? 1 : 0);
 
+  if (pass.layerType === "text") {
+    const textTexture = ensureTextTexture(pass, ctx, uniformValues);
+    const uLayerTexture = gl.getUniformLocation(program, "u_layerTexture");
+    if (textTexture && uLayerTexture) {
+      gl.activeTexture(gl.TEXTURE0 + texUnit);
+      gl.bindTexture(gl.TEXTURE_2D, textTexture);
+      gl.uniform1i(uLayerTexture, texUnit);
+      texUnit++;
+    }
+  }
+
   if (stbnTexture && STBN_LAYER_TYPES.has(pass.layerType as LayerType)) {
     const uStbn = gl.getUniformLocation(program, "u_stbn");
     if (uStbn) {
@@ -131,6 +232,7 @@ function setPassUniforms(
     } else if (typeof value === "boolean") {
       gl.uniform1i(loc, value ? 1 : 0);
     } else if (typeof value === "string") {
+      if (!HEX_COLOR_RE.test(value)) continue; // text content, font names, …
       const [r, g, b] = hexToRGB(value);
       gl.uniform3f(loc, r, g, b);
     } else if (Array.isArray(value)) {
@@ -233,7 +335,7 @@ function ensurePrograms(
 ): void {
   for (const pass of passes) {
     if (programs.has(pass.layerType)) continue;
-    const fragSrc = FRAG_SHADERS[pass.layerType as LayerType | "resolve" | "blit"];
+    const fragSrc = FRAG_SHADERS[pass.layerType];
     if (!fragSrc) continue;
     if (!fragSrc.includes("uniform") && fragSrc.endsWith(".frag")) {
       console.error(
@@ -377,7 +479,7 @@ export function renderPasses(
     const program = programs.get(pass.layerType);
     if (!program) continue;
 
-    if (pass.layerType === "resolve") {
+    if (pass.layerType === "resolve" || pass.layerType === "layerComposite") {
       const hasColor = pass.colorSourceLayerId && fbos.has(pass.colorSourceLayerId);
       if (!hasColor) continue;
     }
@@ -397,6 +499,9 @@ export function renderPasses(
       inputTexture = fbos.get(pass.inputLayerId)?.texture ?? getBlackTexture();
     } else if (pass.layerType === "distortion") {
       inputTexture = getNeutralTexture();
+    } else if (pass.layerType === "layerComposite") {
+      // Bottom layer: composite onto black.
+      inputTexture = getBlackTexture();
     }
 
     const colorTexture = pass.colorSourceLayerId
@@ -443,6 +548,10 @@ export function renderPasses(
     for (const program of programs.values()) gl.deleteProgram(program);
     disposeFbos(gl, fbos);
     for (const tex of ctx.gradientTextures.values()) gl.deleteTexture(tex);
+    if (ctx.textTextures) {
+      for (const entry of ctx.textTextures.values()) gl.deleteTexture(entry.texture);
+      ctx.textTextures.clear();
+    }
     if (neutralTexture) gl.deleteTexture(neutralTexture);
     if (blackTexture) gl.deleteTexture(blackTexture);
   }

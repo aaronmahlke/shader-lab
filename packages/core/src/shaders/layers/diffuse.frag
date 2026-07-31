@@ -8,6 +8,7 @@ precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform sampler2D u_input;
+uniform float layerOpacity; // universal layer opacity, 0-100
 
 uniform float amount;
 uniform float grainHard;
@@ -66,5 +67,7 @@ void main() {
   }
   vec3 softCol = acc / float(SOFT_TAPS);
 
-  gl_FragColor = vec4(clamp(mix(softCol, hardCol, hard), 0.0, 1.0), 1.0);
+  vec3 result = clamp(mix(softCol, hardCol, hard), 0.0, 1.0);
+  vec3 base = sampleInput(uv);
+  gl_FragColor = vec4(mix(base, result, clamp(layerOpacity / 100.0, 0.0, 1.0)), 1.0);
 }

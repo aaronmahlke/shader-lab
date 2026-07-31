@@ -14,15 +14,25 @@ import {
   useEditorKeyboard,
 } from "~/composables/use-editor-keyboard";
 import {
+  EASING_PRESETS,
   LAYER_TEMPLATES,
+  evaluateKeyframes,
   evaluatePropertyTrack,
   findPropertyTrack,
   hasKeyframeAt,
   isKeyframeableUniform,
   isPropertyTrackActive,
+  matchEasingPreset,
   offsetKeyframes,
+  setKeyframesEasing,
+  universalUniformsFor,
+  upsertKeyframe,
   type CompositionSettings,
+  type CubicBezierEase,
+  type Keyframe,
+  type KeyframeEasing,
   type LayerInstance,
+  type LayerUniformDef,
   type PropertyTrack,
 } from "@shader-lab/core";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
@@ -121,14 +131,14 @@ watch(
 const timelineWidth = computed(() => settings.duration * pxPerSecond.value);
 const playheadX = computed(() => timeToX(currentTime.value));
 const scrubbing = ref(false);
-/** Property value labels — frozen while scrubbing so the playhead stays responsive. */
+/** Time driving the property value labels (follows the playhead live). */
 const displayTime = ref(currentTime.value);
 const zoomPercent = computed(() =>
   Math.round((pxPerSecond.value / DEFAULT_PX_PER_SECOND) * 100),
 );
 
 watch(currentTime, (t) => {
-  if (!scrubbing.value) displayTime.value = t;
+  displayTime.value = t;
 });
 
 const rulerStep = computed(() => {
@@ -580,7 +590,10 @@ function enabledTracksForLayer(layerId: string): PropertyTrack[] {
 function keyframeableUniforms(layer: LayerInstance) {
   const template = LAYER_TEMPLATES[layer.type];
   if (!template) return [];
-  return template.uniforms.filter(isKeyframeableUniform);
+  return [
+    ...universalUniformsFor(layer),
+    ...template.uniforms.filter(isKeyframeableUniform),
+  ];
 }
 
 function visibleProperties(layer: LayerInstance) {
@@ -650,6 +663,189 @@ function valueAt(layer: LayerInstance, paramName: string, fallback: number): num
   const track = findPropertyTrack(tracks.value, layer.id, paramName);
   const base = (layer.values[paramName] as number) ?? fallback;
   return evaluatePropertyTrack(track, displayTime.value, base);
+}
+
+// --- Keyframe easing (context menu) ---
+
+const NAMED_EASINGS: { id: KeyframeEasing; label: string }[] = [
+  { id: "linear", label: "Linear" },
+  { id: "easeIn", label: "Ease In" },
+  { id: "easeOut", label: "Ease Out" },
+  { id: "easeInOut", label: "Ease In Out" },
+  { id: "hold", label: "Hold" },
+];
+
+/** Apply to the whole selection when the clicked key is part of it. */
+function applyKeyframeEasing(
+  layerId: string,
+  paramName: string,
+  time: number,
+  easing: KeyframeEasing | CubicBezierEase,
+) {
+  const refs = isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)
+    ? selectedKeyframes.value
+    : [{ layerId, paramName, time }];
+  tracks.value = setKeyframesEasing(tracks.value, refs, easing);
+  history?.record();
+}
+
+/** Shape variant for a key's diamond: linear, eased (curve/named), or hold. */
+function keyframeShape(key: Keyframe): "linear" | "eased" | "hold" {
+  if (key.ease === "hold") return "hold";
+  if (key.curve) return "eased";
+  if (key.ease && key.ease !== "linear") return "eased";
+  return "linear";
+}
+
+/** Mini value curves drawn between adjacent keys in a property row. */
+function segmentPaths(layerId: string, paramName: string): string[] {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  if (!track || track.keys.length < 2) return [];
+
+  const keys = [...track.keys].sort((a, b) => a.time - b.time);
+  const top = 5;
+  const bottom = PROP_ROW_H - 5;
+  const paths: string[] = [];
+
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i]!;
+    const b = keys[i + 1]!;
+    const x0 = timeToX(a.time);
+    const x1 = timeToX(b.time);
+    if (x1 - x0 < 6) continue;
+
+    if (Math.abs(b.value - a.value) < 1e-9) {
+      const mid = (top + bottom) / 2;
+      paths.push(`M ${x0.toFixed(1)} ${mid} L ${x1.toFixed(1)} ${mid}`);
+      continue;
+    }
+
+    const rising = b.value > a.value;
+    const yStart = rising ? bottom : top;
+    const yEnd = rising ? top : bottom;
+    const steps = 24;
+    const points: string[] = [];
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const value = evaluateKeyframes([a, b], a.time + t * (b.time - a.time), a.value);
+      const norm = (value - a.value) / (b.value - a.value);
+      const x = x0 + (x1 - x0) * t;
+      const y = yStart + (yEnd - yStart) * norm;
+      points.push(`${x.toFixed(1)} ${y.toFixed(1)}`);
+    }
+    paths.push(`M ${points.join(" L ")}`);
+  }
+
+  return paths;
+}
+
+/** Current easing id of a key: named ease, preset id, or "custom". */
+function keyframeEasingId(layerId: string, paramName: string, time: number): string {
+  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  const key = track?.keys.find((k) => Math.abs(k.time - time) < 1e-6);
+  if (!key) return "linear";
+  if (key.curve) return matchEasingPreset(key.curve) ?? "custom";
+  return key.ease ?? "linear";
+}
+
+// --- Timeline value editing (scrub + click to type) ---
+
+const editingValue = ref<{ layerId: string; paramName: string; text: string } | null>(null);
+
+function isEditingValue(layerId: string, paramName: string): boolean {
+  return editingValue.value?.layerId === layerId && editingValue.value?.paramName === paramName;
+}
+
+function defStep(def: LayerUniformDef): number {
+  return def.step ?? (def.type === "int" ? 1 : 0.01);
+}
+
+function clampToDef(def: LayerUniformDef, value: number): number {
+  const step = defStep(def);
+  let v = Math.round(value / step) * step;
+  if (def.type === "int") v = Math.round(v);
+  if (def.min !== undefined) v = Math.max(def.min, v);
+  if (def.max !== undefined) v = Math.min(def.max, v);
+  // Kill float noise from step rounding.
+  return Number(v.toFixed(6));
+}
+
+/** Keyframe-aware write: keys the playhead when the stopwatch is on, else sets the base value. */
+function writeParamValue(layer: LayerInstance, def: LayerUniformDef, value: number) {
+  const v = clampToDef(def, value);
+  if (trackEnabled(layer.id, def.name)) {
+    tracks.value = upsertKeyframe(tracks.value, layer.id, def.name, snapTime(currentTime.value), v);
+  } else {
+    layer.values[def.name] = v;
+  }
+}
+
+function onValuePointerDown(layer: LayerInstance, def: LayerUniformDef, e: PointerEvent) {
+  if (e.button !== 0) return;
+
+  const startX = e.clientX;
+  const startValue = valueAt(layer, def.name, def.default as number);
+  let dragging = false;
+
+  function onMove(ev: PointerEvent) {
+    if (!dragging && Math.abs(ev.clientX - startX) < 3) return;
+    if (!dragging) {
+      dragging = true;
+      history?.beginGesture();
+      document.body.style.cursor = "ew-resize";
+    }
+    // 1px per step, shift for 10x finer.
+    const fine = ev.shiftKey ? 0.1 : 1;
+    const next = startValue + (ev.clientX - startX) * defStep(def) * fine;
+    writeParamValue(layer, def, next);
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    document.body.style.cursor = "";
+    if (dragging) {
+      history?.commitGesture();
+    } else {
+      openValueEditor(layer, def);
+    }
+  }
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+
+function openValueEditor(layer: LayerInstance, def: LayerUniformDef) {
+  const current = valueAt(layer, def.name, def.default as number);
+  editingValue.value = {
+    layerId: layer.id,
+    paramName: def.name,
+    text: String(Number(current.toFixed(4))),
+  };
+}
+
+function focusValueInput(el: unknown) {
+  const input = el as HTMLInputElement | null;
+  if (input) {
+    input.focus();
+    input.select();
+  }
+}
+
+function commitValueEditor(layer: LayerInstance, def: LayerUniformDef) {
+  const editing = editingValue.value;
+  if (!editing) return;
+  editingValue.value = null;
+  const parsed = Number.parseFloat(editing.text.replace(",", "."));
+  if (!Number.isFinite(parsed)) return;
+  const clamped = clampToDef(def, parsed);
+  if (clamped === valueAt(layer, def.name, def.default as number)) return;
+  writeParamValue(layer, def, clamped);
+  history?.record();
+}
+
+function cancelValueEditor() {
+  editingValue.value = null;
 }
 
 function formatTime(seconds: number): string {
@@ -773,6 +969,14 @@ function onKeyframePointerDown(
   time: number,
   e: PointerEvent,
 ) {
+  if (e.button !== 0) {
+    // Right-click: make sure the key is selected so easing applies to it.
+    if (!isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)) {
+      selectedKeyframes.value = [{ layerId, paramName, time }];
+      selectedLayerId.value = layerId;
+    }
+    return;
+  }
   e.preventDefault();
   e.stopPropagation();
   playing.value = false;
@@ -840,6 +1044,14 @@ function onKeyframePointerDown(
   window.addEventListener("pointerup", onUp);
 }
 
+/** Clear layer and keyframe selection (clicks on empty space). */
+function clearSelection() {
+  selectedLayerId.value = null;
+  selectedLayerIds.value = new Set();
+  selectionAnchorId.value = null;
+  selectedKeyframes.value = [];
+}
+
 function onTracksMarqueePointerDown(e: PointerEvent) {
   if (e.button !== 0) return;
   e.preventDefault();
@@ -889,6 +1101,11 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
 
     if (dragging) {
       history?.record();
+    } else if (!addToSelection) {
+      // Plain click on empty tracks space: clear the whole selection.
+      selectedLayerId.value = null;
+      selectedLayerIds.value = new Set();
+      selectionAnchorId.value = null;
     }
     marquee.value = null;
   }
@@ -950,6 +1167,176 @@ registerKeyboard({
     return true;
   },
 });
+
+/** AE-style property reveal shortcuts on the selected layer(s). */
+const PROPERTY_SHORTCUT_PARAMS: Record<string, string[]> = {
+  p: ["layerPositionX", "layerPositionY"],
+  s: ["layerScale"],
+  r: ["layerRotation"],
+  t: ["layerOpacity"],
+};
+
+registerKeyboard({
+  id: "timeline:reveal-transform-property",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    const params = PROPERTY_SHORTCUT_PARAMS[e.key.toLowerCase()];
+    if (!params) return false;
+    return toggleUniversalPropertyReveal(params);
+  },
+});
+
+function toggleUniversalPropertyReveal(params: string[]): boolean {
+  const ids = layersForKeyframeRevealCommand();
+  if (ids.length === 0) return false;
+
+  // Only params that exist on each layer (effects expose opacity only).
+  const targets: Array<[string, string]> = [];
+  for (const id of ids) {
+    const layer = layers.value.find((l) => l.id === id);
+    if (!layer) continue;
+    const names = new Set(universalUniformsFor(layer).map((d) => d.name));
+    for (const param of params) {
+      if (names.has(param)) targets.push([id, param]);
+    }
+  }
+  if (targets.length === 0) return false;
+
+  const allShowing = targets.every(
+    ([id, param]) =>
+      isExpanded(id) ||
+      (isKeyframesRevealed(id) && isPinnedInUView(id, param)),
+  );
+
+  const nextPins = new Set(pinnedUViewProperties.value);
+  const nextRevealed = new Set(keyframesRevealed.value);
+
+  if (allShowing) {
+    for (const [id, param] of targets) nextPins.delete(uViewPropertyKey(id, param));
+  } else {
+    for (const [id, param] of targets) {
+      nextPins.add(uViewPropertyKey(id, param));
+      if (!isExpanded(id)) nextRevealed.add(id);
+    }
+  }
+
+  pinnedUViewProperties.value = nextPins;
+  keyframesRevealed.value = nextRevealed;
+  return true;
+}
+
+// --- Layer in/out bar (visibility window) ---
+
+type LayerBarDragMode = "move" | "in" | "out";
+
+function layerInPoint(layer: LayerInstance): number {
+  return layer.timing?.in ?? 0;
+}
+
+function layerOutPoint(layer: LayerInstance): number {
+  return layer.timing?.out ?? settings.duration;
+}
+
+function layerBarStyle(layer: LayerInstance) {
+  const left = layerInPoint(layer) * pxPerSecond.value;
+  const width = Math.max(
+    pxPerFrame.value,
+    (layerOutPoint(layer) - layerInPoint(layer)) * pxPerSecond.value,
+  );
+  return { left: `${left}px`, width: `${width}px` };
+}
+
+/** Persist the window; a full-width window is stored as "no timing". */
+function writeLayerTiming(layer: LayerInstance, inPoint: number, outPoint: number) {
+  const frame = 1 / settings.fps;
+  const nextIn = Math.max(0, Math.min(inPoint, settings.duration - frame));
+  const nextOut = Math.min(settings.duration, Math.max(outPoint, nextIn + frame));
+
+  if (nextIn <= 0 && nextOut >= settings.duration) {
+    if (layer.timing) layer.timing = undefined;
+    return;
+  }
+  layer.timing = {
+    ...(nextIn > 0 ? { in: nextIn } : {}),
+    ...(nextOut < settings.duration ? { out: nextOut } : {}),
+  };
+}
+
+function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: PointerEvent) {
+  if (e.button !== 0) return;
+  if (!selectedLayerIds.value.has(layer.id)) {
+    selectedLayerId.value = layer.id;
+    selectedLayerIds.value = new Set([layer.id]);
+    selectionAnchorId.value = layer.id;
+  }
+
+  const startX = e.clientX;
+  const startIn = layerInPoint(layer);
+  const startOut = layerOutPoint(layer);
+  const frame = 1 / settings.fps;
+  let dragging = false;
+
+  // Moving the bar shifts the layer in time: keyframes travel with it.
+  const startKeyTimes = new Map(
+    tracks.value
+      .filter((t) => t.layerId === layer.id)
+      .map((t) => [t.paramName, t.keys.map((k) => k.time)]),
+  );
+
+  function shiftLayerKeyframes(delta: number) {
+    if (startKeyTimes.size === 0) return;
+    tracks.value = tracks.value.map((track) => {
+      if (track.layerId !== layer.id) return track;
+      const startTimes = startKeyTimes.get(track.paramName);
+      if (!startTimes) return track;
+      return {
+        ...track,
+        keys: track.keys.map((key, i) => ({ ...key, time: startTimes[i]! + delta })),
+      };
+    });
+  }
+
+  function onMove(ev: PointerEvent) {
+    if (!dragging && Math.abs(ev.clientX - startX) < 3) return;
+    if (!dragging) {
+      dragging = true;
+      history?.beginGesture();
+    }
+
+    const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
+    if (mode === "move") {
+      const length = startOut - startIn;
+      const nextIn = Math.max(
+        0,
+        Math.min(snapTime(startIn + deltaTime), settings.duration - length),
+      );
+      writeLayerTiming(layer, nextIn, nextIn + length);
+      shiftLayerKeyframes(nextIn - startIn);
+    } else if (mode === "in") {
+      const nextIn = Math.min(snapTime(startIn + deltaTime), startOut - frame);
+      writeLayerTiming(layer, nextIn, startOut);
+    } else {
+      const nextOut = Math.max(snapTime(startOut + deltaTime), startIn + frame);
+      writeLayerTiming(layer, startIn, nextOut);
+    }
+  }
+
+  function onUp() {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    if (dragging) history?.commitGesture();
+  }
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+
+function resetLayerTiming(layer: LayerInstance) {
+  if (!layer.timing) return;
+  layer.timing = undefined;
+  history?.record();
+}
 
 function togglePlay() {
   playing.value = !playing.value;
@@ -1106,7 +1493,7 @@ function selectAllLayers() {
           class="shrink-0 overflow-hidden border-r border-neutral bg-layer-1"
           :style="{ width: `${labelWidth}px` }"
         >
-          <div ref="layerListRef" class="min-h-full">
+          <div ref="layerListRef" class="min-h-full" @click.self="clearSelection">
             <div
               v-for="(layer, i) in layers"
               :key="layer.id"
@@ -1201,7 +1588,26 @@ function selectAllLayers() {
                       {{ def.label }}
                     </span>
                   </div>
-                  <span class="shrink-0 font-mono text-copy-xs text-neutral-subtle">
+                  <input
+                    v-if="isEditingValue(layer.id, def.name)"
+                    :ref="focusValueInput"
+                    v-model="editingValue!.text"
+                    data-drag-exclude
+                    class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                    spellcheck="false"
+                    @keydown.enter.stop.prevent="commitValueEditor(layer, def)"
+                    @keydown.esc.stop.prevent="cancelValueEditor"
+                    @keydown.stop
+                    @blur="commitValueEditor(layer, def)"
+                    @pointerdown.stop
+                  />
+                  <span
+                    v-else
+                    data-drag-exclude
+                    class="shrink-0 cursor-ew-resize rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                    title="Drag to scrub, click to type (⇧ fine)"
+                    @pointerdown.stop.prevent="onValuePointerDown(layer, def, $event)"
+                  >
                     {{ valueAt(layer, def.name, def.default as number).toFixed(2) }}
                   </span>
                 </div>
@@ -1229,28 +1635,88 @@ function selectAllLayers() {
                 class="layer-group"
                 :class="!layer.enabled && 'opacity-50'"
               >
-                <div class="h-7 border-b border-neutral/40 bg-layer-1/50" />
+                <div class="relative h-7 border-b border-neutral/40 bg-layer-1/50">
+                  <div
+                    class="group/bar absolute inset-y-[5px] cursor-grab rounded-[5px] ring-1 ring-inset transition-colors"
+                    :class="selectedLayerIds.has(layer.id)
+                      ? 'bg-accent/35 ring-accent/60 hover:bg-accent/45'
+                      : 'bg-neutral-700/70 ring-white/10 hover:bg-neutral-600/70'"
+                    :style="layerBarStyle(layer)"
+                    :title="`${layerInPoint(layer).toFixed(2)}s – ${layerOutPoint(layer).toFixed(2)}s (double-click to reset)`"
+                    @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'move', $event)"
+                    @dblclick.stop="resetLayerTiming(layer)"
+                  >
+                    <div
+                      class="absolute inset-y-0 left-0 flex w-2 cursor-ew-resize items-center justify-center rounded-l-[5px] bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
+                      @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'in', $event)"
+                    >
+                      <div class="h-3 w-0.5 rounded-full bg-white/60" />
+                    </div>
+                    <div
+                      class="absolute inset-y-0 right-0 flex w-2 cursor-ew-resize items-center justify-center rounded-r-[5px] bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
+                      @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'out', $event)"
+                    >
+                      <div class="h-3 w-0.5 rounded-full bg-white/60" />
+                    </div>
+                  </div>
+                </div>
 
                 <template v-for="def in visibleProperties(layer)" :key="`t-${layer.id}-${def.name}`">
                   <div
                     v-if="showPropertyRow(layer, def.name)"
                     class="relative h-6 border-b border-neutral/30 select-none"
                   >
-                    <button
+                    <svg
+                      class="pointer-events-none absolute inset-0 size-full"
+                      aria-hidden="true"
+                    >
+                      <path
+                        v-for="(seg, si) in segmentPaths(layer.id, def.name)"
+                        :key="`s-${si}`"
+                        :d="seg"
+                        fill="none"
+                        class="stroke-accent/40"
+                        stroke-width="1.5"
+                      />
+                    </svg>
+                    <UiContextMenu
                       v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
                       :key="`${layer.id}-${def.name}-${key.time}`"
-                      type="button"
-                      class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 outline-none"
-                      :style="{ left: keyLeft(key.time) }"
-                      :title="`${def.label} @ ${key.time.toFixed(2)}s`"
-                      @pointerdown.stop.prevent="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
                     >
-                      <UiKeyframeDiamond
-                        class="size-full"
-                        :selected="isKeyframeSelected(layer.id, def.name, key.time)"
-                        :at-playhead="isKeyframeAtPlayhead(key.time)"
-                      />
-                    </button>
+                      <button
+                        type="button"
+                        class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 outline-none"
+                        :style="{ left: keyLeft(key.time) }"
+                        :title="`${def.label} @ ${key.time.toFixed(2)}s`"
+                        @pointerdown.stop="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
+                      >
+                        <UiKeyframeDiamond
+                          class="size-full"
+                          :selected="isKeyframeSelected(layer.id, def.name, key.time)"
+                          :at-playhead="isKeyframeAtPlayhead(key.time)"
+                          :easing="keyframeShape(key)"
+                        />
+                      </button>
+                      <template #menu>
+                        <UiContextMenuItem
+                          v-for="named in NAMED_EASINGS"
+                          :key="named.id"
+                          @click="applyKeyframeEasing(layer.id, def.name, key.time, named.id)"
+                        >
+                          <span class="flex-1">{{ named.label }}</span>
+                          <span v-if="keyframeEasingId(layer.id, def.name, key.time) === named.id">✓</span>
+                        </UiContextMenuItem>
+                        <UiContextMenuSeparator />
+                        <UiContextMenuItem
+                          v-for="preset in EASING_PRESETS"
+                          :key="preset.id"
+                          @click="applyKeyframeEasing(layer.id, def.name, key.time, preset.curve)"
+                        >
+                          <span class="flex-1">{{ preset.label }}</span>
+                          <span v-if="keyframeEasingId(layer.id, def.name, key.time) === preset.id">✓</span>
+                        </UiContextMenuItem>
+                      </template>
+                    </UiContextMenu>
                   </div>
                 </template>
               </div>

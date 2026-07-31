@@ -3,6 +3,21 @@ import { join } from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import type { GradientStop } from "../types";
 import { GRADIENT_RESOLUTION } from "../shaders";
+import { drawTextSpec, type TextLayerSpec } from "./text-raster";
+
+/** Node text rasterization (headless export) — returns raw RGBA pixels. */
+export function createNodeTextImage(
+  spec: TextLayerSpec,
+  width: number,
+  height: number,
+  contentScale: number,
+): { width: number; height: number; data: Uint8Array } | null {
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  drawTextSpec(ctx as unknown as Parameters<typeof drawTextSpec>[0], spec, width, height, contentScale);
+  const image = ctx.getImageData(0, 0, width, height);
+  return { width, height, data: new Uint8Array(image.data) };
+}
 
 let stbnPixels: Uint8Array | null = null;
 let stbnWidth = 0;
