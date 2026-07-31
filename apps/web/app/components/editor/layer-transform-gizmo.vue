@@ -42,8 +42,8 @@ type Emits = {
   "update:positionY": [value: number];
   "update:scale": [value: number];
   "update:rotation": [value: number];
-  /** A different layer sits on top at the clicked point — select it instead. */
-  pick: [layerId: string];
+  /** A different layer sits on top at the clicked point — select it instead (additive = shift). */
+  pick: [layerId: string, additive: boolean];
 };
 
 const props = defineProps<Props>();
@@ -173,12 +173,12 @@ function onHandlePointerDown(mode: DragMode, e: PointerEvent) {
   const uv = pointerCompUv(e);
   if (!uv) return;
 
-  // Figma behavior: when a different layer sits on top at this point,
-  // the click selects it instead of dragging the current selection.
+  // Figma behavior: when a different layer sits on top at this point, the
+  // click selects it; shift+click adds the clicked layer to the selection.
   if (mode === "move" && !e.altKey && props.pickAt) {
     const topId = props.pickAt(uv, aspect.value);
-    if (topId && topId !== props.layerId) {
-      emit("pick", topId);
+    if (topId && (e.shiftKey || topId !== props.layerId)) {
+      emit("pick", topId, e.shiftKey);
       return;
     }
   }

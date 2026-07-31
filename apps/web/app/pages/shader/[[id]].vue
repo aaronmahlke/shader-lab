@@ -27,7 +27,7 @@ import { refDebounced } from "@vueuse/core";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import type { LayerTransformValues } from "#shared/editor/layer-transform";
-import { topLayerAt } from "#shared/editor/canvas-picking";
+import { PICKABLE_LAYER_TYPES, topLayerAt } from "#shared/editor/canvas-picking";
 import { collectSnapTargets } from "#shared/editor/snapping";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
@@ -753,23 +753,52 @@ const compositionAspect = computed(() => settings.value.width / settings.value.h
 const snapTargets = computed(() =>
   collectSnapTargets(
     layers.value,
-    selectedLayerId.value,
+    selectedLayerIds.value,
     compositionAspect.value,
     layerTransformValues,
   ),
 );
 
-function onCanvasSelect(layerId: string | null) {
-  if (layerId) {
-    selectedLayerId.value = layerId;
-    selectedLayerIds.value = new Set([layerId]);
-    selectionAnchorId.value = layerId;
-  } else {
+function onCanvasSelect(layerId: string | null, additive = false) {
+  if (!layerId) {
     selectedLayerId.value = null;
     selectedLayerIds.value = new Set();
     selectionAnchorId.value = null;
     selectedKeyframes.value = [];
+    return;
   }
+
+  if (additive) {
+    const next = new Set(selectedLayerIds.value);
+    if (next.has(layerId)) next.delete(layerId);
+    else next.add(layerId);
+    selectedLayerIds.value = next;
+    selectedLayerId.value = next.has(layerId) ? layerId : [...next].pop() ?? null;
+    selectionAnchorId.value = selectedLayerId.value;
+    return;
+  }
+
+  selectedLayerId.value = layerId;
+  selectedLayerIds.value = new Set([layerId]);
+  selectionAnchorId.value = layerId;
+}
+
+/** Selected layers that carry a transform (generators), in stack order. */
+const multiSelectedLayers = computed(() =>
+  layers.value.filter(
+    (l) => selectedLayerIds.value.has(l.id) && PICKABLE_LAYER_TYPES.has(l.type),
+  ),
+);
+
+const showMultiGizmo = computed(
+  () => selectedLayerIds.value.size > 1 && multiSelectedLayers.value.length > 0,
+);
+
+/** Keyframe-aware write used by the multi-selection gizmo. */
+function applyLayerParam(layerId: string, paramName: string, value: number) {
+  const layer = layers.value.find((l) => l.id === layerId);
+  if (!layer) return;
+  setGizmoFloat(layer, paramName, value);
 }
 
 const waveFillTemplate = LAYER_TEMPLATES.waveFill;
@@ -993,12 +1022,12 @@ registerKeyboard({
                 </div>
               <EditorCanvasPicker
                 :layers="layers"
-                :selected-layer-id="selectedLayerId"
+                :selected-layer-ids="[...selectedLayerIds]"
                 :get-transform="layerTransformValues"
                 @select="onCanvasSelect"
               />
               <EditorWavePositionGizmo
-                v-if="showWavePositionGizmo && selectedLayer"
+                v-if="showWavePositionGizmo && selectedLayer && selectedLayerIds.size <= 1"
                 :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
                 :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
                 :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
@@ -1017,7 +1046,7 @@ registerKeyboard({
                 @update:cycle-width="setWaveFloat(selectedLayer, WAVE_CYCLE_WIDTH, $event)"
               />
               <EditorMeshPointsGizmo
-                v-if="showMeshPointsGizmo && selectedLayer"
+                v-if="showMeshPointsGizmo && selectedLayer && selectedLayerIds.size <= 1"
                 :points="getMeshPoints(selectedLayer)"
                 :selected-index="meshSelectedPointIndex"
                 :radius-min="0.15"
@@ -1026,7 +1055,7 @@ registerKeyboard({
                 @update:selected-index="meshSelectedPointIndex = $event"
               />
               <EditorBandPositionGizmo
-                v-if="showBandPositionGizmo && selectedLayer"
+                v-if="showBandPositionGizmo && selectedLayer && selectedLayerIds.size <= 1"
                 :band-y="getBandFloat(selectedLayer, BAND_Y, bandYDef.default as number)"
                 :edge="getBandFloat(selectedLayer, BAND_EDGE, bandEdgeDef.default as number)"
                 :y-min="bandYDef.min ?? 0"
@@ -1037,7 +1066,7 @@ registerKeyboard({
                 @update:edge="setBandFloat(selectedLayer, BAND_EDGE, $event)"
               />
               <EditorLayerTransformGizmo
-                v-if="showTransformGizmo && selectedLayer"
+                v-if="showTransformGizmo && selectedLayer && selectedLayerIds.size <= 1"
                 :layer-id="selectedLayer.id"
                 :pick-at="canvasLayerAt"
                 :snap-targets="snapTargets"
@@ -1057,7 +1086,18 @@ registerKeyboard({
                 @update:position-y="setTransformFloat(selectedLayer, 'layerPositionY', $event)"
                 @update:scale="setTransformFloat(selectedLayer, 'layerScale', $event)"
                 @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
-                @pick="onCanvasSelect($event)"
+                @pick="(id, additive) => onCanvasSelect(id, additive)"
+              />
+              <EditorMultiTransformGizmo
+                v-if="showMultiGizmo"
+                :layers="multiSelectedLayers"
+                :get-transform="layerTransformValues"
+                :apply-param="applyLayerParam"
+                :snap-targets="snapTargets"
+                :pick-at="canvasLayerAt"
+                @pick="(id, additive) => onCanvasSelect(id, additive)"
+                @gesture-start="history.beginGesture()"
+                @gesture-end="history.commitGesture()"
               />
               </div>
 

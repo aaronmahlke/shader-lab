@@ -18,12 +18,13 @@ import { topLayerAt } from "#shared/editor/canvas-picking";
 
 type Props = {
   layers: LayerInstance[];
-  selectedLayerId: string | null;
+  selectedLayerIds: string[];
   getTransform: (layer: LayerInstance) => LayerTransformValues;
 };
 
 type Emits = {
-  select: [layerId: string | null];
+  /** Additive = shift held: toggle instead of replace. */
+  select: [layerId: string | null, additive: boolean];
 };
 
 const props = defineProps<Props>();
@@ -52,7 +53,8 @@ function layerAt(uv: Vec2): LayerInstance | null {
 function onPointerMove(e: PointerEvent) {
   const uv = pointerCompUv(e);
   const hit = uv ? layerAt(uv) : null;
-  hoveredLayerId.value = hit && hit.id !== props.selectedLayerId ? hit.id : null;
+  hoveredLayerId.value =
+    hit && !props.selectedLayerIds.includes(hit.id) ? hit.id : null;
 }
 
 function onPointerLeave() {
@@ -63,7 +65,8 @@ function onClick(e: MouseEvent) {
   const uv = pointerCompUv(e);
   if (!uv) return;
   const hit = layerAt(uv);
-  emit("select", hit?.id ?? null);
+  if (!hit && e.shiftKey) return; // shift+empty keeps the selection
+  emit("select", hit?.id ?? null, e.shiftKey);
   if (hit) hoveredLayerId.value = null;
 }
 

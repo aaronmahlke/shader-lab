@@ -80,6 +80,37 @@ export function layerBoundsInCompUv(v: LayerTransformValues, aspect: number): La
   return { minX, maxX, minY, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
 }
 
+/**
+ * Rotate a comp UV point around a center by `degrees` (positive = clockwise
+ * on screen), aspect-corrected — matches the layer rotation semantics.
+ */
+export function rotateAroundInCompUv(
+  point: Vec2,
+  center: Vec2,
+  degrees: number,
+  aspect: number,
+): Vec2 {
+  const a = (degrees * Math.PI) / 180;
+  const c = Math.cos(a);
+  const sn = Math.sin(a);
+  const dx = (point.x - center.x) * aspect;
+  const dy = point.y - center.y;
+  // Forward rotation, same convention as layerToCompUv.
+  const rx = c * dx + sn * dy;
+  const ry = -sn * dx + c * dy;
+  return { x: center.x + rx / aspect, y: center.y + ry };
+}
+
+/** Union of several bounds. */
+export function unionBounds(all: LayerBounds[]): LayerBounds | null {
+  if (all.length === 0) return null;
+  const minX = Math.min(...all.map((b) => b.minX));
+  const maxX = Math.max(...all.map((b) => b.maxX));
+  const minY = Math.min(...all.map((b) => b.minY));
+  const maxY = Math.max(...all.map((b) => b.maxY));
+  return { minX, maxX, minY, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
+}
+
 /** Comp UV → CSS pixel position inside a stage of the given size. */
 export function compUvToScreen(uv: Vec2, width: number, height: number): Vec2 {
   return { x: uv.x * width, y: (1 - uv.y) * height };

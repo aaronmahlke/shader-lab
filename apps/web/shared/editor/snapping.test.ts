@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { collectSnapTargets, findSnap } from "./snapping";
-import { layerBoundsInCompUv, type LayerTransformValues } from "./layer-transform";
+import {
+  layerBoundsInCompUv,
+  rotateAroundInCompUv,
+  unionBounds,
+  type LayerTransformValues,
+} from "./layer-transform";
 import type { LayerInstance } from "@shader-lab/core";
 
 const IDENTITY: LayerTransformValues = {
@@ -31,6 +36,36 @@ describe("layerBoundsInCompUv", () => {
   it("expands for rotated layers (AABB)", () => {
     const b = layerBoundsInCompUv({ ...IDENTITY, scale: 50, rotation: 45 }, 1);
     expect(b.maxX - b.minX).toBeCloseTo(Math.SQRT2 / 2, 3);
+  });
+});
+
+describe("rotateAroundInCompUv", () => {
+  it("moves a point right of center downward for positive (clockwise) angles", () => {
+    const p = rotateAroundInCompUv({ x: 0.8, y: 0.5 }, { x: 0.5, y: 0.5 }, 90, 1);
+    expect(p.x).toBeCloseTo(0.5);
+    expect(p.y).toBeCloseTo(0.2); // GL y-up: smaller y = lower on screen
+  });
+
+  it("is aspect-corrected (visual circle, not uv circle)", () => {
+    const aspect = 2;
+    const p = rotateAroundInCompUv({ x: 0.75, y: 0.5 }, { x: 0.5, y: 0.5 }, 90, aspect);
+    expect(p.x).toBeCloseTo(0.5);
+    expect(p.y).toBeCloseTo(0); // 0.25 uv * aspect 2 = 0.5 visual radius
+  });
+});
+
+describe("unionBounds", () => {
+  it("wraps multiple bounds", () => {
+    const a = layerBoundsInCompUv({ ...IDENTITY, scale: 50 }, 1);
+    const b = layerBoundsInCompUv({ ...IDENTITY, scale: 50, positionX: 0.4 }, 1);
+    const u = unionBounds([a, b])!;
+    expect(u.minX).toBeCloseTo(0.25);
+    expect(u.maxX).toBeCloseTo(1.15);
+    expect(u.centerX).toBeCloseTo(0.7);
+  });
+
+  it("returns null for empty input", () => {
+    expect(unionBounds([])).toBeNull();
   });
 });
 

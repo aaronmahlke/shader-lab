@@ -47,14 +47,17 @@ export function findSnap(
  */
 export function collectSnapTargets(
   layers: LayerInstance[],
-  excludeLayerId: string | null,
+  exclude: string | Iterable<string> | null,
   aspect: number,
   getTransform: (layer: LayerInstance) => LayerTransformValues,
 ): SnapTargets {
+  const excluded = new Set(
+    exclude == null ? [] : typeof exclude === "string" ? [exclude] : exclude,
+  );
   const x = [0, 0.5, 1];
   const y = [0, 0.5, 1];
   for (const layer of layers) {
-    if (!layer.enabled || layer.id === excludeLayerId) continue;
+    if (!layer.enabled || excluded.has(layer.id)) continue;
     if (!PICKABLE_LAYER_TYPES.has(layer.type)) continue;
     const bounds = layerBoundsInCompUv(getTransform(layer), aspect);
     x.push(bounds.minX, bounds.centerX, bounds.maxX);
