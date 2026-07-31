@@ -11,6 +11,10 @@ import {
   isPropertyTrackActive,
   universalUniformsFor,
 } from "@shader-lab/core";
+import {
+  layerBoundsInCompUv,
+  type LayerTransformValues,
+} from "#shared/editor/layer-transform";
 
 type Props = {
   layer: LayerInstance;
@@ -21,6 +25,8 @@ type Props = {
   meshSelectedPointIndex?: number;
   currentTime: number;
   tracks: PropertyTrack[];
+  /** Composition width/height ratio — enables the align buttons. */
+  compositionAspect?: number;
 };
 
 type Emits = {
@@ -144,6 +150,86 @@ function randomizeUniforms(defs: LayerUniformDef[], target: Record<string, unkno
 
 /** Universal transform/opacity params shown for every layer (generators get the full set). */
 const universalDefs = universalUniformsFor(layer);
+
+// --- Alignment (Figma-style, relative to the composition frame) ---
+
+const isGenerator = computed(() => template.category === "generator");
+
+function universalDef(name: string): LayerUniformDef {
+  return universalDefs.find((def) => def.name === name)!;
+}
+
+function currentTransform(): LayerTransformValues {
+  const get = (name: string) => {
+    const def = universalDef(name);
+    return getFloat(def, layer.values);
+  };
+  return {
+    positionX: get("layerPositionX"),
+    positionY: get("layerPositionY"),
+    scale: get("layerScale"),
+    rotation: get("layerRotation"),
+    anchorX: get("layerAnchorX"),
+    anchorY: get("layerAnchorY"),
+  };
+}
+
+type AlignEdge = "left" | "centerX" | "right" | "top" | "centerY" | "bottom";
+
+/** Move the layer's transformed bounds flush to the frame (comp UV is y-up). */
+function alignLayer(edge: AlignEdge) {
+  const aspect = props.compositionAspect;
+  if (!aspect) return;
+  const v = currentTransform();
+  const bounds = layerBoundsInCompUv(v, aspect);
+
+  let def: LayerUniformDef;
+  let next: number;
+  switch (edge) {
+    case "left":
+      def = universalDef("layerPositionX");
+      next = v.positionX - bounds.minX;
+      break;
+    case "centerX":
+      def = universalDef("layerPositionX");
+      next = v.positionX + (0.5 - bounds.centerX);
+      break;
+    case "right":
+      def = universalDef("layerPositionX");
+      next = v.positionX + (1 - bounds.maxX);
+      break;
+    case "bottom":
+      def = universalDef("layerPositionY");
+      next = v.positionY - bounds.minY;
+      break;
+    case "centerY":
+      def = universalDef("layerPositionY");
+      next = v.positionY + (0.5 - bounds.centerY);
+      break;
+    case "top":
+      def = universalDef("layerPositionY");
+      next = v.positionY + (1 - bounds.maxY);
+      break;
+  }
+
+  setFloat(def, layer.values, Number(next.toFixed(4)));
+  history?.record();
+}
+
+/** Icon geometry: a frame edge line plus the layer box (14x14 viewbox). */
+const ALIGNMENTS: {
+  id: AlignEdge;
+  label: string;
+  line: { x1: number; y1: number; x2: number; y2: number };
+  rect: { x: number; y: number; w: number; h: number };
+}[] = [
+  { id: "left", label: "Align left", line: { x1: 2, y1: 1.5, x2: 2, y2: 12.5 }, rect: { x: 4, y: 4.5, w: 7, h: 5 } },
+  { id: "centerX", label: "Align horizontal centers", line: { x1: 7, y1: 1.5, x2: 7, y2: 12.5 }, rect: { x: 3.5, y: 4.5, w: 7, h: 5 } },
+  { id: "right", label: "Align right", line: { x1: 12, y1: 1.5, x2: 12, y2: 12.5 }, rect: { x: 3, y: 4.5, w: 7, h: 5 } },
+  { id: "top", label: "Align top", line: { x1: 1.5, y1: 2, x2: 12.5, y2: 2 }, rect: { x: 4.5, y: 4, w: 5, h: 7 } },
+  { id: "centerY", label: "Align vertical centers", line: { x1: 1.5, y1: 7, x2: 12.5, y2: 7 }, rect: { x: 4.5, y: 3.5, w: 5, h: 7 } },
+  { id: "bottom", label: "Align bottom", line: { x1: 1.5, y1: 12, x2: 12.5, y2: 12 }, rect: { x: 4.5, y: 3, w: 5, h: 7 } },
+];
 
 function resetToDefaults() {
   for (const def of universalDefs) {
@@ -285,6 +371,43 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       <span class="text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
         Transform
       </span>
+      <div
+        v-if="isGenerator && compositionAspect"
+        class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
+      >
+        <UiTooltip
+          v-for="align in ALIGNMENTS"
+          :key="align.id"
+          :label="align.label"
+          side="top"
+        >
+          <button
+            type="button"
+            class="flex h-7 flex-1 items-center justify-center rounded-md text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+            @click="alignLayer(align.id)"
+          >
+            <svg viewBox="0 0 14 14" class="size-3.5">
+              <line
+                :x1="align.line.x1"
+                :y1="align.line.y1"
+                :x2="align.line.x2"
+                :y2="align.line.y2"
+                class="stroke-current"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <rect
+                :x="align.rect.x"
+                :y="align.rect.y"
+                :width="align.rect.w"
+                :height="align.rect.h"
+                rx="1"
+                class="fill-current opacity-60"
+              />
+            </svg>
+          </button>
+        </UiTooltip>
+      </div>
       <template v-for="def in universalDefs" :key="`universal-${def.name}`">
         <UiContextMenu>
           <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">

@@ -5,6 +5,7 @@ import {
   clampValue,
   compUvToScreen,
   distanceFromCenter,
+  layerBoundsInCompUv,
   layerCornersInCompUv,
   screenToCompUv,
   shortestAngleDelta,
@@ -13,6 +14,7 @@ import {
   type LayerTransformValues,
   type Vec2,
 } from "#shared/editor/layer-transform";
+import { findSnap, type SnapTargets } from "#shared/editor/snapping";
 
 type Props = {
   /** The layer this gizmo controls. */
@@ -31,6 +33,8 @@ type Props = {
   rotationMax: number;
   /** Topmost pickable layer at a comp UV point — lets clicks fall through to layers above. */
   pickAt?: (uv: Vec2, aspect: number) => string | null;
+  /** Snap lines (frame + other layers) for smart-guide snapping while moving. */
+  snapTargets?: SnapTargets;
 };
 
 type Emits = {
@@ -145,6 +149,11 @@ const POSITION_STEP = 0.001;
 const SCALE_STEP = 0.1;
 const ROTATION_STEP = 0.1;
 const ROTATION_SNAP = 15;
+const SNAP_THRESHOLD_PX = 6;
+const GUIDE_COLOR = "#FF5D8F";
+
+/** Smart-guide lines shown while a move drag is snapped, in comp UV. */
+const activeGuides = ref<{ x: number | null; y: number | null }>({ x: null, y: null });
 
 function pointerCompUv(e: PointerEvent): Vec2 | null {
   const rect = stageRef.value?.getBoundingClientRect();
@@ -211,14 +220,43 @@ function onWindowPointerMove(e: PointerEvent) {
       if (Math.abs(dx * aspect.value) >= Math.abs(dy)) dy = 0;
       else dx = 0;
     }
-    emit(
-      "update:positionX",
-      clampValue(snapValue(start.positionX + dx, POSITION_STEP), props.positionMin, props.positionMax),
-    );
-    emit(
-      "update:positionY",
-      clampValue(snapValue(start.positionY + dy, POSITION_STEP), props.positionMin, props.positionMax),
-    );
+
+    let nextX = snapValue(start.positionX + dx, POSITION_STEP);
+    let nextY = snapValue(start.positionY + dy, POSITION_STEP);
+    let guideX: number | null = null;
+    let guideY: number | null = null;
+
+    if (props.snapTargets) {
+      const rect = stageRef.value?.getBoundingClientRect();
+      if (rect && rect.width > 1 && rect.height > 1) {
+        const bounds = layerBoundsInCompUv(
+          { ...start, positionX: nextX, positionY: nextY },
+          aspect.value,
+        );
+        const snapX = findSnap(
+          [bounds.minX, bounds.centerX, bounds.maxX],
+          props.snapTargets.x,
+          SNAP_THRESHOLD_PX / rect.width,
+        );
+        const snapY = findSnap(
+          [bounds.minY, bounds.centerY, bounds.maxY],
+          props.snapTargets.y,
+          SNAP_THRESHOLD_PX / rect.height,
+        );
+        if (snapX) {
+          nextX = Number((nextX + snapX.delta).toFixed(6));
+          guideX = snapX.target;
+        }
+        if (snapY) {
+          nextY = Number((nextY + snapY.delta).toFixed(6));
+          guideY = snapY.target;
+        }
+      }
+    }
+
+    activeGuides.value = { x: guideX, y: guideY };
+    emit("update:positionX", clampValue(nextX, props.positionMin, props.positionMax));
+    emit("update:positionY", clampValue(nextY, props.positionMin, props.positionMax));
     return;
   }
 
@@ -249,6 +287,7 @@ function onWindowPointerUp() {
   dragMode.value = null;
   dragStartValues = null;
   dragStartPointer = null;
+  activeGuides.value = { x: null, y: null };
   document.body.style.cursor = "";
   history?.commitGesture();
 }
@@ -271,6 +310,30 @@ onUnmounted(() => {
       class="absolute inset-0 size-full overflow-visible"
       :viewBox="`0 0 ${width} ${height}`"
     >
+      <!-- Smart guides while snapped -->
+      <g class="pointer-events-none" aria-hidden="true">
+        <line
+          v-if="activeGuides.x !== null"
+          :x1="activeGuides.x * width"
+          y1="0"
+          :x2="activeGuides.x * width"
+          :y2="height"
+          :stroke="GUIDE_COLOR"
+          stroke-width="1"
+          vector-effect="non-scaling-stroke"
+        />
+        <line
+          v-if="activeGuides.y !== null"
+          x1="0"
+          :y1="(1 - activeGuides.y) * height"
+          :x2="width"
+          :y2="(1 - activeGuides.y) * height"
+          :stroke="GUIDE_COLOR"
+          stroke-width="1"
+          vector-effect="non-scaling-stroke"
+        />
+      </g>
+
       <!-- Rotation zones: invisible hit areas just outside each corner -->
       <circle
         v-for="(zone, i) in rotationZones"

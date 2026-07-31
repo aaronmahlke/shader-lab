@@ -59,6 +59,27 @@ export function layerCornersInCompUv(v: LayerTransformValues, aspect: number): V
   ].map((luv) => layerToCompUv(luv, v, aspect));
 }
 
+export type LayerBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  centerX: number;
+  centerY: number;
+};
+
+/** Axis-aligned bounds of the layer's transformed unit square, in comp UV. */
+export function layerBoundsInCompUv(v: LayerTransformValues, aspect: number): LayerBounds {
+  const corners = layerCornersInCompUv(v, aspect);
+  const xs = corners.map((c) => c.x);
+  const ys = corners.map((c) => c.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { minX, maxX, minY, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
+}
+
 /** Comp UV → CSS pixel position inside a stage of the given size. */
 export function compUvToScreen(uv: Vec2, width: number, height: number): Vec2 {
   return { x: uv.x * width, y: (1 - uv.y) * height };

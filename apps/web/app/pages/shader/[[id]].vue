@@ -28,6 +28,7 @@ import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyfr
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import type { LayerTransformValues } from "#shared/editor/layer-transform";
 import { topLayerAt } from "#shared/editor/canvas-picking";
+import { collectSnapTargets } from "#shared/editor/snapping";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
@@ -746,6 +747,18 @@ function canvasLayerAt(uv: { x: number; y: number }, aspect: number): string | n
   return topLayerAt(layers.value, uv, aspect, layerTransformValues)?.id ?? null;
 }
 
+const compositionAspect = computed(() => settings.value.width / settings.value.height);
+
+/** Smart-guide lines: composition frame + the other visible layers' bounds. */
+const snapTargets = computed(() =>
+  collectSnapTargets(
+    layers.value,
+    selectedLayerId.value,
+    compositionAspect.value,
+    layerTransformValues,
+  ),
+);
+
 function onCanvasSelect(layerId: string | null) {
   if (layerId) {
     selectedLayerId.value = layerId;
@@ -1027,6 +1040,7 @@ registerKeyboard({
                 v-if="showTransformGizmo && selectedLayer"
                 :layer-id="selectedLayer.id"
                 :pick-at="canvasLayerAt"
+                :snap-targets="snapTargets"
                 :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
                 :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
                 :scale="getTransformFloat(selectedLayer, 'layerScale')"
@@ -1241,6 +1255,7 @@ registerKeyboard({
           :mesh-selected-point-index="meshSelectedPointIndex"
           :current-time="currentTime"
           :tracks="tracks"
+          :composition-aspect="compositionAspect"
           @update:mesh-selected-point-index="meshSelectedPointIndex = $event"
           @assign-lfo="assignLfo"
           @remove-assignment="removeAssignment"
