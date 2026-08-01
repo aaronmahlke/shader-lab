@@ -46,6 +46,7 @@ import {
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
 import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
+import { defaultStageComponentName } from "~/utils/stage-components";
 import { ChevronRightIcon } from "@heroicons/vue/16/solid";
 import {
   WAVE_AMPLITUDE,
@@ -285,6 +286,8 @@ const {
   configureRenderer,
   restoreRenderer,
   renderFrame,
+  setComponentSource,
+  requestRender,
 } = useMultiPassRenderer(canvasRef, passes, {
   layers,
   tracks,
@@ -296,15 +299,38 @@ const {
   compositionTime: currentTime,
 });
 
+// --- Component layers: off-screen stage + DOM capture ---
+
+const stageHostRef = ref<{ getElement: (layerId: string) => HTMLElement | null } | null>(null);
+
+const componentCapture = useComponentCapture({
+  layers,
+  getElement: (layerId) => stageHostRef.value?.getElement(layerId) ?? null,
+  setComponentSource,
+  requestRender,
+});
+
 const shaderExport = {
-  capture: (w: number, h: number) =>
-    capture(w, h, `${shaderId.value ?? "shader"}-${w}x${h}.png`),
-  pause,
-  resume,
+  capture: async (w: number, h: number) => {
+    await componentCapture.captureAll();
+    return capture(w, h, `${shaderId.value ?? "shader"}-${w}x${h}.png`);
+  },
+  // Exports drive capture per frame; the live loop would only race them.
+  pause: () => {
+    componentCapture.pause();
+    pause();
+  },
+  resume: () => {
+    resume();
+    componentCapture.resume();
+  },
   getCanvas,
   configureRenderer,
   restoreRenderer,
-  renderFrame,
+  renderFrame: async (time: number) => {
+    await componentCapture.captureAll();
+    renderFrame(time);
+  },
 };
 
 // --- Auto-Save ---
@@ -478,6 +504,11 @@ function addLayer(type: LayerType) {
       values,
       layers.value.filter((l) => l.type === "waveFill").length,
     );
+  }
+
+  // Stage the first available component right away instead of an empty pick.
+  if (type === "component" && !values.componentName) {
+    values.componentName = defaultStageComponentName();
   }
 
   layers.value.unshift({ id, type, enabled: true, values });
@@ -1143,6 +1174,8 @@ registerKeyboard({
               </div>
             </div>
           </div>
+
+          <EditorComponentStageHost ref="stageHostRef" :layers="layers" />
         </ClientOnly>
 
         <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">

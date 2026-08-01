@@ -6,6 +6,7 @@ export type LayerType =
   | "solid"
   | "noise"
   | "text"
+  | "component"
   | "waveFill"
   | "bandFill"
   | "distortion"

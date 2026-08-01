@@ -21,6 +21,10 @@ export function getLayerPreviewStack(type: LayerType): LayerInstance[] {
   const template = LAYER_TEMPLATES[type];
   if (!template) return [PREVIEW_BASE_GRADIENT];
 
+  // Component content comes from a live DOM capture the preview renderer
+  // cannot produce; an empty stack renders a plain card instead of a lie.
+  if (type === "component") return [];
+
   if (template.category === "generator") {
     return [previewLayer(type)];
   }

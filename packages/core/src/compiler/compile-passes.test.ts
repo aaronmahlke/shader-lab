@@ -45,6 +45,25 @@ describe("compilePasses", () => {
     expect(meshPass?.uniforms.u_pos0).toEqual([0.08, 0.9]);
   });
 
+  it("compiles component layer as generator with a composite pass", () => {
+    const layers = [
+      {
+        id: "component-1",
+        type: "component" as const,
+        enabled: true,
+        values: buildLayerValues("component"),
+      },
+    ];
+    const passes = compilePasses(layers);
+    const contentPass = passes.find((p) => p.layerType === "component");
+    expect(contentPass).toBeDefined();
+    expect(contentPass?.inputLayerId).toBeNull();
+    const compositePass = passes.find((p) => p.layerType === "layerComposite");
+    expect(compositePass?.colorSourceLayerId).toBe("component-1");
+    expect(compositePass?.sourceLayerId).toBe("component-1");
+    expect(passes.at(-1)?.layerType).toBe("blit");
+  });
+
   it("compiles diffuse effect pass on top of composite stack", () => {
     const layers = [
       {

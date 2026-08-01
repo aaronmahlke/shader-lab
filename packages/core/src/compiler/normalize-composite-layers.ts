@@ -74,6 +74,15 @@ export function normalizeCompositeLayer(layer: LayerInstance): void {
     migrateDiffuseValues(layer.values);
   }
 
+  if (layer.type === "component") {
+    if (typeof layer.values.componentName !== "string") {
+      layer.values.componentName = "";
+    }
+    if (typeof layer.values.stageWidth !== "number") {
+      layer.values.stageWidth = 640;
+    }
+  }
+
   if ((layer.type as string) === "hybridDissolve") {
     const legacy = layer.values;
     const speed = (legacy.dissolveSpeed as number) ?? 0.35;

@@ -9,9 +9,11 @@ import {
   createRenderPipelineCache,
   disposeRenderPipelineCache,
   renderPasses,
+  type ComponentTextureEntry,
   type RenderPipelineCache,
   type TextTextureEntry,
 } from "./render-passes";
+import type { ComponentSource, ComponentSourceInput } from "./component-source";
 import { drawTextSpec, type TextLayerSpec } from "./text-raster";
 
 export type CompositionRendererOptions = {
@@ -38,6 +40,8 @@ export class CompositionRenderer {
   private gradientTextures = new Map<string, WebGLTexture>();
   private textTextures = new Map<string, TextTextureEntry>();
   private textCanvas: HTMLCanvasElement | null = null;
+  private componentSources = new Map<string, ComponentSource>();
+  private componentTextures = new Map<string, ComponentTextureEntry>();
   private pipelineCache: RenderPipelineCache = createRenderPipelineCache();
   private pixelRatio: number;
 
@@ -179,6 +183,8 @@ export class CompositionRenderer {
       textTextures: this.textTextures,
       createTextImage: (spec, w, h, contentScale) =>
         this.createTextImage(spec, w, h, contentScale),
+      componentSources: this.componentSources,
+      componentTextures: this.componentTextures,
       contentScale: this.getContentScale(height),
       findLayer: this.options.findLayer,
       getModulatedValue: modFn ?? this.options.getModulatedValue ?? null,
@@ -210,6 +216,33 @@ export class CompositionRenderer {
     return canvas;
   }
 
+  /**
+   * Push (or clear) the captured frame for a component layer. The host owns
+   * capture entirely; the renderer re-uploads on the next frame only when a
+   * new push happened. Passing null frees the layer's source and GPU texture.
+   */
+  setComponentSource(layerId: string, source: ComponentSourceInput | null): void {
+    if (!source) {
+      this.componentSources.delete(layerId);
+      const cached = this.componentTextures.get(layerId);
+      if (cached) {
+        this.gl.deleteTexture(cached.texture);
+        this.componentTextures.delete(layerId);
+      }
+      return;
+    }
+    const previous = this.componentSources.get(layerId);
+    this.componentSources.set(layerId, {
+      ...source,
+      version: (previous?.version ?? 0) + 1,
+    });
+  }
+
+  /** Layer ids that currently have a pushed component source. */
+  getComponentSourceIds(): string[] {
+    return [...this.componentSources.keys()];
+  }
+
   async captureBlob(): Promise<Blob | null> {
     return new Promise((resolve) => {
       this.canvas.toBlob(resolve, "image/png");
@@ -232,7 +265,12 @@ export class CompositionRenderer {
     for (const entry of this.textTextures.values()) {
       this.gl.deleteTexture(entry.texture);
     }
+    for (const entry of this.componentTextures.values()) {
+      this.gl.deleteTexture(entry.texture);
+    }
     this.textTextures.clear();
     this.gradientTextures.clear();
+    this.componentSources.clear();
+    this.componentTextures.clear();
   }
 }
