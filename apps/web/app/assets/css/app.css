@@ -501,3 +501,44 @@ body {
     font-family: var(--font-mono);
   }
 }
+
+/*
+ * ═══════════════════════════════════════════════════════════════
+ * evlog stage-demo tokens
+ *
+ * The demos in app/components/stage/ ported from evlog (MIT License,
+ * Copyright (c) 2026 HugoRCD) use Nuxt UI v4 semantic utilities. Nuxt UI
+ * maps the same suffix to a different value per namespace (text-muted ≠
+ * bg-muted ≠ border-muted), so these are namespaced tokens rather than
+ * plain --color-*. Values are the Nuxt UI v4 dark-mode defaults with
+ * neutral = zinc, plus the evlog docs overrides (--ui-bg → zinc-950,
+ * --ui-text-dimmed → zinc-400) and the evlog primary blue #2853ff.
+ *
+ * NOTE: `text-primary` and `bg-primary` already exist in this app with
+ * different meanings (--text-color-primary above, @utility bg-primary in
+ * tokens/theme.css), so the ported components reference the evlog primary
+ * as `text-(--color-primary)` / `bg-(--color-primary)/NN` instead.
+ * ═══════════════════════════════════════════════════════════════
+ */
+@theme {
+  /* Nuxt UI dark --ui-text-dimmed (evlog override; stock would be zinc-500) */
+  --text-color-dimmed: var(--color-zinc-400);
+  /* Nuxt UI dark --ui-text-muted */
+  --text-color-muted: var(--color-zinc-400);
+  /* Nuxt UI dark --ui-text */
+  --text-color-default: var(--color-zinc-200);
+  /* Nuxt UI dark --ui-text-highlighted */
+  --text-color-highlighted: var(--color-white);
+  /* Nuxt UI dark --ui-bg (evlog override; stock would be zinc-900) */
+  --background-color-default: var(--color-zinc-950);
+  /* Nuxt UI dark --ui-bg-muted */
+  --background-color-muted: var(--color-zinc-800);
+  /* Nuxt UI dark --ui-bg-elevated */
+  --background-color-elevated: var(--color-zinc-800);
+  /* Nuxt UI dark --ui-border */
+  --border-color-default: var(--color-zinc-800);
+  /* Nuxt UI dark --ui-border-muted */
+  --border-color-muted: var(--color-zinc-700);
+  /* evlog primary (blue-400/500 pinned to #2853ff); also serves border-primary/NN */
+  --color-primary: #2853ff;
+}
