@@ -15,6 +15,16 @@ import { resolveStageComponent } from "~/utils/stage-components";
  */
 const props = defineProps<{ layers: LayerInstance[] }>();
 
+/**
+ * Transparent margin around the captured element. The capture rect is exactly
+ * the wrapper's border box, so without this a component's border sits on the
+ * texture edge (where the shader's 1px coverage fade eats it) and any box
+ * shadow is clipped entirely. 40px covers the demo cards' longest shadow
+ * reach; the padding is transparent, so it costs texture size and nothing
+ * else. `content-box` keeps the component laid out at exactly `stageWidth`.
+ */
+const CAPTURE_PADDING = 40;
+
 const stagedLayers = computed(() =>
   props.layers.filter((layer) => layer.type === "component" && layer.enabled),
 );
