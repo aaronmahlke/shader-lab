@@ -17,9 +17,16 @@ import outputFrag from "./layers/output.frag";
 import layerCompositeFrag from "./layers/layer-composite.frag";
 import textSourceFrag from "./layers/text-source.frag";
 import componentSourceFrag from "./layers/component-source.frag";
+import cameraStageFrag from "./layers/camera-stage.frag";
+import cameraDofFrag from "./layers/camera-dof.frag";
+import bloomPrefilterFrag from "./layers/bloom-prefilter.frag";
+import bloomDownFrag from "./layers/bloom-down.frag";
+import bloomUpFrag from "./layers/bloom-up.frag";
+import cameraCompositeFrag from "./layers/camera-composite.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
+import type { RenderPassType } from "../types/editor";
 
-export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit" | "layerComposite", string> = {
+export const FRAG_SHADERS: Record<Exclude<RenderPassType, "camera">, string> & { camera?: undefined } = {
   gradient: gradientFrag,
   mesh: meshFrag,
   solid: solidFrag,
@@ -38,6 +45,12 @@ export const FRAG_SHADERS: Record<LayerType | "resolve" | "blit" | "layerComposi
   resolve: resolveFrag,
   blit: outputFrag,
   layerComposite: layerCompositeFrag,
+  cameraStage: cameraStageFrag,
+  cameraDof: cameraDofFrag,
+  bloomPrefilter: bloomPrefilterFrag,
+  bloomDown: bloomDownFrag,
+  bloomUp: bloomUpFrag,
+  cameraComposite: cameraCompositeFrag,
 };
 
 export const FULLSCREEN_VERT = fullscreenVert;

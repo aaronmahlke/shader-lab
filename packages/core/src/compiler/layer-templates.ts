@@ -257,6 +257,34 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     ],
   },
 
+  camera: {
+    type: "camera",
+    label: "Camera",
+    category: "effect",
+    description: "Films the stack below as a plate on a tilted 3D plane with depth of field and bloom",
+    uniforms: [
+      { name: "tilt", type: "float", label: "Tilt (pitch)", default: -18, min: -60, max: 60, step: 0.1 },
+      { name: "yaw", type: "float", label: "Yaw", default: 12, min: -60, max: 60, step: 0.1 },
+      { name: "roll", type: "float", label: "Roll", default: -4, min: -45, max: 45, step: 0.1 },
+      { name: "zoom", type: "float", label: "Zoom", default: 1.15, min: 0.3, max: 3, step: 0.01 },
+      { name: "fov", type: "float", label: "Field of view", default: 30, min: 10, max: 90, step: 0.5 },
+      // Focus position across the plate's depth span (0 = nearest corner, 1 = farthest).
+      { name: "focus", type: "float", label: "Focus", default: 0.35, min: 0, max: 1, step: 0.001 },
+      { name: "focusRange", type: "float", label: "Focus range", default: 0.04, min: 0, max: 0.6, step: 0.001 },
+      { name: "aperture", type: "float", label: "Aperture", default: 1.2, min: 0, max: 4, step: 0.01 },
+      // Max bokeh radius, authored against 1080p and scaled by frame height so preview matches export.
+      { name: "blurRadius", type: "float", label: "Max blur (px)", default: 26, min: 0, max: 64, step: 0.5 },
+      { name: "dofSamples", type: "int", label: "DOF samples", default: 32, min: 8, max: 64, step: 1, keyframeable: false },
+      // Pushes plate highlights above 1.0 in linear light so bloom has something to catch.
+      { name: "emission", type: "float", label: "Emission", default: 1.15, min: 1, max: 3, step: 0.01 },
+      { name: "bloomThreshold", type: "float", label: "Bloom threshold", default: 0.85, min: 0, max: 2, step: 0.01 },
+      { name: "bloomIntensity", type: "float", label: "Bloom intensity", default: 0.35, min: 0, max: 2, step: 0.01 },
+      { name: "exposure", type: "float", label: "Exposure (stops)", default: 0, min: -3, max: 3, step: 0.01 },
+      { name: "aces", type: "bool", label: "Filmic tonemap", default: true },
+      { name: "background", type: "color", label: "Background", default: "#09090b" },
+    ],
+  },
+
   distortion: {
     type: "distortion",
     label: "Distortion",

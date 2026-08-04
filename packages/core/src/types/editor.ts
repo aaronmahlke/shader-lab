@@ -7,6 +7,7 @@ export type LayerType =
   | "noise"
   | "text"
   | "component"
+  | "camera"
   | "waveFill"
   | "bandFill"
   | "distortion"
@@ -54,14 +55,31 @@ export type LayerInstance = {
   timing?: LayerTiming;
 };
 
+/** Synthetic pass kinds the camera layer compiles into (plus the shared blit/resolve/composite ones). */
+export type CameraPassType =
+  | "cameraStage"
+  | "cameraDof"
+  | "bloomPrefilter"
+  | "bloomDown"
+  | "bloomUp"
+  | "cameraComposite";
+
+export type RenderPassType = LayerType | "resolve" | "blit" | "layerComposite" | CameraPassType;
+
 export type RenderPass = {
   layerId: string;
-  layerType: LayerType | "resolve" | "blit" | "layerComposite";
+  layerType: RenderPassType;
   uniforms: Record<string, unknown>;
   inputLayerId: string | null;
-  colorSourceLayerId?: string | null;  // resolve: color texture; layerComposite: layer content texture
+  colorSourceLayerId?: string | null;  // resolve: color texture; layerComposite: layer content texture; bloomUp/cameraComposite: second source
+  /** Third texture source (cameraComposite: the unprocessed stack for the opacity crossfade). */
+  auxSourceLayerId?: string | null;
   /** Layer that owns this pass when layerId is synthetic (e.g. composite passes). Used for live uniform lookup. */
   sourceLayerId?: string | null;
+  /** Render target size relative to the frame (bloom mip chain). Default 1. */
+  targetScale?: number;
+  /** Render into a linear half-float target (camera/lens chain works in linear light). */
+  floatTarget?: boolean;
   isOutput: boolean;
 };
 

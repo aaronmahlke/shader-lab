@@ -193,6 +193,16 @@ function ensureComponentTexture(
 
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
+type PassTargetInfo = {
+  /** The bound render target's size (differs from the frame for bloom mips). */
+  targetWidth: number;
+  targetHeight: number;
+  /** The input texture's size (bloom taps are spaced in input texels). */
+  inputWidth: number;
+  inputHeight: number;
+  auxTexture: WebGLTexture | null;
+};
+
 function setPassUniforms(
   gl: GlContext,
   program: WebGLProgram,
@@ -200,13 +210,22 @@ function setPassUniforms(
   ctx: RenderPassContext,
   inputTexture: WebGLTexture | null,
   colorTexture: WebGLTexture | null,
+  target: PassTargetInfo,
 ) {
   let texUnit = 0;
   const uniformValues = resolvePassUniformValues(pass, ctx);
   const { width, height, time, scaleUniform, gradientTextures, stbnTexture } = ctx;
 
+  // u_resolution is the render target being written; full-size passes see the
+  // frame size, bloom mips see their own. u_frameSize is always the frame.
   const uRes = gl.getUniformLocation(program, "u_resolution");
-  if (uRes) gl.uniform2f(uRes, width, height);
+  if (uRes) gl.uniform2f(uRes, target.targetWidth, target.targetHeight);
+
+  const uFrameSize = gl.getUniformLocation(program, "u_frameSize");
+  if (uFrameSize) gl.uniform2f(uFrameSize, width, height);
+
+  const uInputSize = gl.getUniformLocation(program, "u_inputSize");
+  if (uInputSize) gl.uniform2f(uInputSize, target.inputWidth, target.inputHeight);
 
   const uTime = gl.getUniformLocation(program, "u_time");
   if (uTime) gl.uniform1f(uTime, time);
@@ -240,6 +259,16 @@ function setPassUniforms(
       gl.activeTexture(gl.TEXTURE0 + texUnit);
       gl.bindTexture(gl.TEXTURE_2D, colorTexture);
       gl.uniform1i(uColor, texUnit);
+      texUnit++;
+    }
+  }
+
+  if (target.auxTexture) {
+    const uAux = gl.getUniformLocation(program, "u_aux");
+    if (uAux) {
+      gl.activeTexture(gl.TEXTURE0 + texUnit);
+      gl.bindTexture(gl.TEXTURE_2D, target.auxTexture);
+      gl.uniform1i(uAux, texUnit);
       texUnit++;
     }
   }
@@ -358,7 +387,12 @@ export type RenderPassesResult = {
   pixels?: Uint8Array;
 };
 
-export type FboEntry = { framebuffer: WebGLFramebuffer; texture: WebGLTexture };
+export type FboEntry = {
+  framebuffer: WebGLFramebuffer;
+  texture: WebGLTexture;
+  width: number;
+  height: number;
+};
 
 export type RenderPipelineCache = {
   passSignature: string;
@@ -402,7 +436,7 @@ export function disposeRenderPipelineCache(gl: GlContext, cache: RenderPipelineC
 
 function passGraphSignature(passes: RenderPass[]): string {
   return passes.map((p) =>
-    `${p.layerId}:${p.layerType}:${p.isOutput ? 1 : 0}:${p.inputLayerId ?? ""}:${p.colorSourceLayerId ?? ""}`,
+    `${p.layerId}:${p.layerType}:${p.isOutput ? 1 : 0}:${p.inputLayerId ?? ""}:${p.colorSourceLayerId ?? ""}:${p.auxSourceLayerId ?? ""}:${p.targetScale ?? 1}:${p.floatTarget ? 1 : 0}`,
   ).join("|");
 }
 
@@ -435,9 +469,15 @@ function ensureFbos(
   fbos: Map<string, FboEntry>,
 ): void {
   for (const pass of passes) {
-    if (!pass.isOutput && !fbos.has(pass.layerId)) {
-      fbos.set(pass.layerId, createFBO(gl, width, height, pass.layerType === "distortion"));
-    }
+    if (pass.isOutput || fbos.has(pass.layerId)) continue;
+    // Bloom mips render into scaled-down targets; everything else is full size.
+    const scale = pass.targetScale ?? 1;
+    const w = Math.max(8, Math.round(width * scale));
+    const h = Math.max(8, Math.round(height * scale));
+    const fbo = pass.floatTarget
+      ? createFBO(gl, w, h, true, true)
+      : createFBO(gl, w, h, pass.layerType === "distortion");
+    fbos.set(pass.layerId, { ...fbo, width: w, height: h });
   }
 }
 
@@ -565,16 +605,32 @@ export function renderPasses(
     gl.useProgram(program);
     getQuadBuffer(gl, program, quadBuffers);
 
+    // Bind the pass's own target and size the viewport to it — bloom mips
+    // render into scaled-down FBOs, everything else at frame size.
+    let targetWidth = width;
+    let targetHeight = height;
     if (pass.isOutput) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     } else {
       const fbo = fbos.get(pass.layerId);
-      if (fbo) gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.framebuffer);
+      if (fbo) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.framebuffer);
+        targetWidth = fbo.width;
+        targetHeight = fbo.height;
+      }
     }
+    gl.viewport(0, 0, targetWidth, targetHeight);
 
     let inputTexture: WebGLTexture | null = null;
+    let inputWidth = width;
+    let inputHeight = height;
     if (pass.inputLayerId) {
-      inputTexture = fbos.get(pass.inputLayerId)?.texture ?? getBlackTexture();
+      const inputFbo = fbos.get(pass.inputLayerId);
+      inputTexture = inputFbo?.texture ?? getBlackTexture();
+      if (inputFbo) {
+        inputWidth = inputFbo.width;
+        inputHeight = inputFbo.height;
+      }
     } else if (pass.layerType === "distortion") {
       inputTexture = getNeutralTexture();
     } else if (pass.layerType === "layerComposite") {
@@ -586,7 +642,17 @@ export function renderPasses(
       ? fbos.get(pass.colorSourceLayerId)?.texture ?? null
       : null;
 
-    setPassUniforms(gl, program, pass, ctx, inputTexture, colorTexture);
+    const auxTexture = pass.auxSourceLayerId
+      ? fbos.get(pass.auxSourceLayerId)?.texture ?? getBlackTexture()
+      : null;
+
+    setPassUniforms(gl, program, pass, ctx, inputTexture, colorTexture, {
+      targetWidth,
+      targetHeight,
+      inputWidth,
+      inputHeight,
+      auxTexture,
+    });
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
     if (pass.layerType === "distortion" && typeof window !== "undefined") {

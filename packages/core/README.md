@@ -52,3 +52,13 @@ exports degrade to an invisible layer instead of a wrong one.
 - `CompositionRenderer.setComponentSource(layerId, source)` — push captured component frames
 - `ModulationEngine` — LFO sampling and modulation
 - `compilePasses(layers, modFn?)` — layer stack → render pass graph
+
+## Camera layer (tilted plate, DOF, bloom)
+
+A `camera` layer films everything below it in the stack as a plate on a 3D
+plane: tilt/yaw/roll, zoom, fov, focus (position across the plate's depth
+span), aperture and max blur, plus a bloom chain, exposure and an ACES
+toggle. Every float parameter is keyframeable, so camera moves and focus
+racks are ordinary timeline animation. The lens chain renders in linear
+half-float targets (RGBA8 fallback) and compiles into a 10-pass sub-graph.
+Pipeline structure adapted from evlog's Render labs (MIT, (c) 2026 HugoRCD).

@@ -91,22 +91,33 @@ function attachColorTarget(
   return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
 }
 
-/** Displacement maps use float RTs with NEAREST filtering (linear float sampling needs an extension). */
+/**
+ * Displacement maps use float RTs with NEAREST filtering (linear 32F sampling
+ * needs an extension). The camera/lens chain uses `linearFilter` half-float
+ * targets: WebGL2 filters 16F linearly in core, and renderability falls back
+ * to RGBA8 via the candidate chain when EXT_color_buffer_float is missing.
+ */
 export function createFBO(
   gl: GlContext,
   width: number,
   height: number,
   useFloat = false,
+  linearFilter = false,
 ): { framebuffer: WebGLFramebuffer; texture: WebGLTexture } {
   const framebuffer = gl.createFramebuffer()!;
   const texture = gl.createTexture()!;
 
   if (useFloat) {
-    const candidates: [number, number, number][] = [
-      [gl.RGBA16F, gl.HALF_FLOAT, gl.NEAREST],
-      [gl.RGBA32F, gl.FLOAT, gl.NEAREST],
-      [gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR],
-    ];
+    const candidates: [number, number, number][] = linearFilter
+      ? [
+          [gl.RGBA16F, gl.HALF_FLOAT, gl.LINEAR],
+          [gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR],
+        ]
+      : [
+          [gl.RGBA16F, gl.HALF_FLOAT, gl.NEAREST],
+          [gl.RGBA32F, gl.FLOAT, gl.NEAREST],
+          [gl.RGBA, gl.UNSIGNED_BYTE, gl.LINEAR],
+        ];
     let ok = false;
     for (const [internalFormat, type, filter] of candidates) {
       if (attachColorTarget(gl, texture, framebuffer, width, height, internalFormat, type, filter)) {
