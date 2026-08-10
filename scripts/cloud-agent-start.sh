@@ -67,3 +67,7 @@ done
 curl -s -X PUT "http://127.0.0.1:8333/shader-lab" >/dev/null 2>&1 || true
 
 echo "[start] ready: postgres :5432 (db shader_lab), seaweedfs :8333 (bucket shader-lab), xvfb :99"
+
+# Launch the web dev server in the foreground (Nuxt on :3000). It rebuilds
+# @shader-lab/core first, then serves the editor.
+exec bun run --cwd apps/web dev
