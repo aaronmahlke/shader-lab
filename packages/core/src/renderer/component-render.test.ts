@@ -50,7 +50,13 @@ function componentLayer(id: string) {
   };
 }
 
-describe("component layer rendering", () => {
+// stackgl's `gl` is a NAN/V8 native module. Bun's V8 compat layer on Linux is
+// missing symbols it needs (e.g. v8::FunctionTemplate::InstanceTemplate), and
+// the failed dlopen aborts the whole test process, so we skip instead of crash.
+// The headless GL path is covered on Linux by scripts/headless-smoke.mjs (Node).
+const GL_LOADABLE = !("bun" in process.versions) || process.platform !== "linux";
+
+describe.skipIf(!GL_LOADABLE)("component layer rendering", () => {
   it("renders transparent without a source and the pushed frame with one", async () => {
     const width = 256;
     const height = 192;
