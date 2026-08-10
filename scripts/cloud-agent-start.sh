@@ -50,19 +50,21 @@ fi
 bun run --cwd apps/web db:push
 
 # --- SeaweedFS (S3-compatible object storage) ---
+# Guard on the S3 port (not pgrep): the start command string itself contains
+# "weed server", so a pgrep -f match would self-trigger and skip the launch.
 SEAWEED_DIR="${SEAWEED_DIR:-$HOME/.local/share/seaweedfs}"
 mkdir -p "$SEAWEED_DIR"
-if ! pgrep -f "weed server" >/dev/null 2>&1; then
+if ! curl -sf -o /dev/null "http://127.0.0.1:8333/" 2>/dev/null; then
   nohup weed server \
     -dir="$SEAWEED_DIR" -ip=127.0.0.1 \
     -s3 -s3.port=8333 -s3.config="$ROOT/docker/seaweedfs-s3.json" \
     >/tmp/seaweedfs.log 2>&1 &
   echo "[start] launched SeaweedFS S3 on :8333"
+  for _ in $(seq 1 30); do
+    curl -sf -o /dev/null "http://127.0.0.1:8333/" && break
+    sleep 1
+  done
 fi
-for _ in $(seq 1 30); do
-  curl -sf -o /dev/null "http://127.0.0.1:8333/" && break
-  sleep 1
-done
 # Ensure the app bucket exists (idempotent).
 curl -s -X PUT "http://127.0.0.1:8333/shader-lab" >/dev/null 2>&1 || true
 
