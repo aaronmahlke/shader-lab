@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests & builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install native GL build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config python-is-python3 \
+            libxi-dev libglu1-mesa-dev libglew-dev
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Core tests
+        working-directory: packages/core
+        run: bun test src/
+
+      - name: Web tests
+        working-directory: apps/web
+        run: bun test
+
+      - name: Core build
+        working-directory: packages/core
+        run: bun run build
+
+  headless-render:
+    name: Headless WebGL2 render (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install native GL build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config python-is-python3 \
+            libxi-dev libglu1-mesa-dev libglew-dev xvfb
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build core
+        working-directory: packages/core
+        run: bun run build
+
+      # bun install compiles gl for Bun's ABI; the smoke test runs under Node,
+      # so rebuild the native module against this job's Node headers.
+      - name: Rebuild gl for Node
+        run: cd packages/core/node_modules/gl && npx node-gyp rebuild
+
+      - name: Headless render smoke test
+        run: xvfb-run -a node packages/core/scripts/headless-smoke.mjs
