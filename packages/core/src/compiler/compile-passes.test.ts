@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { compilePasses } from "./compile-passes";
+import { compilePasses, compositePassId } from "./compile-passes";
 import { ModulationEngine } from "../modulation/engine";
 import { buildLayerValues } from "./build-layer-values";
 import { migrateDiffuseValues, normalizeCompositeLayer } from "./normalize-composite-layers";
@@ -62,6 +62,53 @@ describe("compilePasses", () => {
     expect(compositePass?.colorSourceLayerId).toBe("component-1");
     expect(compositePass?.sourceLayerId).toBe("component-1");
     expect(passes.at(-1)?.layerType).toBe("blit");
+  });
+
+  it("expands a camera layer into the lens pass chain", () => {
+    const layers = [
+      {
+        id: "camera-1",
+        type: "camera" as const,
+        enabled: true,
+        values: buildLayerValues("camera"),
+      },
+      {
+        id: "gradient-1",
+        type: "gradient" as const,
+        enabled: true,
+        values: buildLayerValues("gradient"),
+      },
+    ];
+    const passes = compilePasses(layers);
+    const types = passes.map((p) => p.layerType);
+    expect(types).toContain("cameraStage");
+    expect(types).toContain("cameraDof");
+    expect(types).toContain("bloomPrefilter");
+    expect(types.filter((t) => t === "bloomDown")).toHaveLength(3);
+    expect(types.filter((t) => t === "bloomUp")).toHaveLength(3);
+
+    const composite = passes.find((p) => p.layerType === "cameraComposite");
+    expect(composite?.layerId).toBe("camera-1");
+    expect(composite?.auxSourceLayerId).toBe(compositePassId("gradient-1"));
+    // The chain feeds whatever comes next through the camera layer id.
+    expect(passes.at(-1)?.inputLayerId).toBe("camera-1");
+
+    const pre = passes.find((p) => p.layerType === "bloomPrefilter");
+    expect(pre?.targetScale).toBe(0.5);
+    expect(pre?.floatTarget).toBe(true);
+    expect(pre?.sourceLayerId).toBe("camera-1");
+  });
+
+  it("skips a camera with no plate below it", () => {
+    const layers = [
+      {
+        id: "camera-1",
+        type: "camera" as const,
+        enabled: true,
+        values: buildLayerValues("camera"),
+      },
+    ];
+    expect(compilePasses(layers)).toHaveLength(0);
   });
 
   it("compiles diffuse effect pass on top of composite stack", () => {

@@ -179,6 +179,60 @@ export function compilePasses(
       continue;
     }
 
+    if (layer.type === "camera") {
+      // The camera films the accumulated stack below it (the "plate").
+      // Without a plate there is nothing to film — skip a bottom camera.
+      if (!previousLayerId) {
+        i++;
+        continue;
+      }
+
+      const plateId = previousLayerId;
+      const uniforms = buildLayerUniforms(layer, modFn);
+      const stageId = `${layer.id}-stage`;
+      const dofId = `${layer.id}-dof`;
+      const preId = `${layer.id}-bloom-pre`;
+      const downIds = [`${layer.id}-bloom-down-1`, `${layer.id}-bloom-down-2`, `${layer.id}-bloom-down-3`];
+      const upIds = [`${layer.id}-bloom-up-2`, `${layer.id}-bloom-up-1`, `${layer.id}-bloom-up-0`];
+
+      const cameraPass = (
+        layerId: string,
+        layerType: RenderPass["layerType"],
+        inputLayerId: string | null,
+        extra: Partial<RenderPass> = {},
+      ): RenderPass => ({
+        layerId,
+        layerType,
+        uniforms,
+        inputLayerId,
+        sourceLayerId: layer.id,
+        isOutput: false,
+        ...extra,
+      });
+
+      // Plate projection and DOF run at full resolution in linear light.
+      result.push(cameraPass(stageId, "cameraStage", plateId, { floatTarget: true }));
+      result.push(cameraPass(dofId, "cameraDof", stageId, { floatTarget: true }));
+      // Bloom mip chain: half → 1/16 down, then an additive tent walk back up.
+      result.push(cameraPass(preId, "bloomPrefilter", dofId, { floatTarget: true, targetScale: 0.5 }));
+      result.push(cameraPass(downIds[0]!, "bloomDown", preId, { floatTarget: true, targetScale: 0.25 }));
+      result.push(cameraPass(downIds[1]!, "bloomDown", downIds[0]!, { floatTarget: true, targetScale: 0.125 }));
+      result.push(cameraPass(downIds[2]!, "bloomDown", downIds[1]!, { floatTarget: true, targetScale: 0.0625 }));
+      result.push(cameraPass(upIds[0]!, "bloomUp", downIds[2]!, { floatTarget: true, targetScale: 0.125, colorSourceLayerId: downIds[1] }));
+      result.push(cameraPass(upIds[1]!, "bloomUp", upIds[0]!, { floatTarget: true, targetScale: 0.25, colorSourceLayerId: downIds[0] }));
+      result.push(cameraPass(upIds[2]!, "bloomUp", upIds[1]!, { floatTarget: true, targetScale: 0.5, colorSourceLayerId: preId }));
+      // Composite back to sRGB; aux carries the unprocessed stack for the
+      // universal-opacity crossfade (and the timing gate).
+      result.push(cameraPass(layer.id, "cameraComposite", dofId, {
+        colorSourceLayerId: upIds[2],
+        auxSourceLayerId: plateId,
+      }));
+
+      previousLayerId = layer.id;
+      i++;
+      continue;
+    }
+
     const isGenerator = template.category === "generator";
     result.push({
       layerId: layer.id,

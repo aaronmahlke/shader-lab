@@ -187,6 +187,8 @@ Old artworks reference commit: `a3f6bdb` (`shared/artwork/text-layer.ts`, etc.) 
 
 Custom **scene3d** module in core (no Three.js — keep bundle small; exact use cases only).
 
+> ✅ First slice shipped: a `camera` **layer** films the stack below it as a plate on a tilted 3D plane (analytic ray/plane, no scene graph) with DOF (golden-angle gather, analytic CoC), a Karis-style bloom mip chain, exposure and ACES — all keyframeable. Lens chain runs in linear half-float targets and falls back to RGBA8. Full scene3d (meshes/lights/materials) still open below.
+
 See prior architecture discussion:
 
 - Scene pass → FBO (color + depth)
