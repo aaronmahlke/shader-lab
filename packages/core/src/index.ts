@@ -179,6 +179,16 @@ export { compositePassId } from "./compiler/compile-passes";
 
 export type { GradientStop } from "./types";
 
+export {
+  componentNameFromValues,
+  componentStageWidthFromValues,
+} from "./renderer/component-source";
+export type {
+  ComponentSource,
+  ComponentSourceFrame,
+  ComponentSourceInput,
+} from "./renderer/component-source";
+
 export { applyModulation } from "./modulation/modulation";
 export {
   evaluateLfoWave,

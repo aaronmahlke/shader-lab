@@ -1,5 +1,6 @@
 import {
   CompositionRenderer,
+  type ComponentSourceInput,
   type ModulationFn,
   type RenderPass,
   type LayerInstance,
@@ -254,6 +255,11 @@ export function useMultiPassRenderer(
     render();
   }
 
+  /** Push (or clear) a captured component frame for a layer. */
+  function setComponentSource(layerId: string, source: ComponentSourceInput | null): void {
+    renderer?.setComponentSource(layerId, source);
+  }
+
   async function capture(width: number, height: number, filename: string): Promise<void> {
     if (!renderer) return;
 
@@ -284,5 +290,7 @@ export function useMultiPassRenderer(
     restoreRenderer,
     renderFrame,
     capture,
+    setComponentSource,
+    requestRender: scheduleRender,
   };
 }

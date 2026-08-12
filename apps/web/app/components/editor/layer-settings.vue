@@ -15,6 +15,7 @@ import {
   layerBoundsInCompUv,
   type LayerTransformValues,
 } from "#shared/editor/layer-transform";
+import { stageComponentOptions } from "~/utils/stage-components";
 
 type Props = {
   layer: LayerInstance;
@@ -51,6 +52,9 @@ const {
 const emit = defineEmits<Emits>();
 
 const history = useEditorHistory();
+
+/** Options for the component layer's picker (static per session: glob-derived). */
+const componentPickerOptions = stageComponentOptions();
 
 function getAssignment(paramName: string): ModulationAssignment | undefined {
   return assignments.find((a) => a.layerId === layer.id && a.paramName === paramName);
@@ -507,7 +511,14 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     <div class="flex flex-col gap-2.5 p-3">
       <template v-for="def in template.uniforms" :key="def.name">
         <template v-if="isUniformVisible(def)">
-          <UiContextMenu v-if="def.type === 'float' || def.type === 'int'">
+          <UiSelect
+            v-if="layer.type === 'component' && def.name === 'componentName'"
+            :model-value="getText(def, layer.values)"
+            :options="componentPickerOptions"
+            :label="def.label"
+            @update:model-value="setText(def, layer.values, String($event))"
+          />
+          <UiContextMenu v-else-if="def.type === 'float' || def.type === 'int'">
             <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
               <UiSliderField
                 :model-value="getFloat(def, layer.values)"

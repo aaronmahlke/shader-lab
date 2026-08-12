@@ -225,6 +225,38 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     ],
   },
 
+  component: {
+    type: "component",
+    label: "Component",
+    category: "generator",
+    description: "Live UI component captured from the DOM into the layer stack",
+    uniforms: [
+      {
+        // Which staged component to mount. The host app resolves the name
+        // against its own registry and pushes captured frames per layer;
+        // core never sees the DOM.
+        name: "componentName",
+        type: "text",
+        label: "Component",
+        default: "",
+        keyframeable: false,
+      },
+      {
+        // Layout width (CSS px) for the off-screen stage. Height follows
+        // content. Not keyframeable: animating layout width re-flows and
+        // re-captures the DOM every frame — scale the layer instead.
+        name: "stageWidth",
+        type: "float",
+        label: "Stage width",
+        default: 640,
+        min: 120,
+        max: 3840,
+        step: 1,
+        keyframeable: false,
+      },
+    ],
+  },
+
   distortion: {
     type: "distortion",
     label: "Distortion",

@@ -175,6 +175,7 @@ Port ideas from pre-v2 **artworks**, not its pipeline.
 | **Shape** | SDF rect / ellipse / round-rect shader |
 | **Text** | Rasterize to texture (Canvas / headless canvas) → quad in stack |
 | **Image / video** | Media texture → quad |
+| **Component** | ✅ Live DOM capture → texture (`setComponentSource`; capture adapted from evlog's Render labs, MIT). Stage registry in `apps/web/app/components/stage/`, capture loop in `use-component-capture`. Headless renders it transparent (no DOM in node). |
 
 All use universal transform + opacity + in/out + same effect stack.
 
