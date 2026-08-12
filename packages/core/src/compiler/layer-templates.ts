@@ -253,6 +253,9 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         max: 3840,
         step: 1,
         keyframeable: false,
+      },
+    ],
+  },
   shape: {
     type: "shape",
     label: "Shape",
