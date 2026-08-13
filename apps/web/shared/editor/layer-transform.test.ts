@@ -4,6 +4,7 @@ import {
   compToLayerUv,
   compUvToScreen,
   isPointInLayer,
+  layerBoundsInCompUv,
   layerCornersInCompUv,
   layerToCompUv,
   screenToCompUv,
@@ -90,6 +91,51 @@ describe("compToLayerUv", () => {
     const values = v({ scale: 50 });
     expect(isPointInLayer({ x: 0.5, y: 0.5 }, values, 1)).toBe(true);
     expect(isPointInLayer({ x: 0.1, y: 0.1 }, values, 1)).toBe(false);
+  });
+});
+
+describe("content extent (inset unit square)", () => {
+  // Content occupies the middle half of the frame (e.g. component/text).
+  const EXTENT = { minX: 0.25, minY: 0.25, maxX: 0.75, maxY: 0.75 };
+
+  it("insets the corners at identity", () => {
+    const corners = layerCornersInCompUv(IDENTITY, 1, EXTENT);
+    expect(corners[0]!.x).toBeCloseTo(0.25); // bl
+    expect(corners[0]!.y).toBeCloseTo(0.25);
+    expect(corners[2]!.x).toBeCloseTo(0.75); // tr
+    expect(corners[2]!.y).toBeCloseTo(0.75);
+  });
+
+  it("applies the universal transform to the inset rect", () => {
+    // Scale 50 about the center: extent corner 0.25 → 0.5 + (0.25-0.5)·0.5 = 0.375.
+    const corners = layerCornersInCompUv(v({ scale: 50 }), 1, EXTENT);
+    expect(corners[0]!.x).toBeCloseTo(0.375);
+    expect(corners[0]!.y).toBeCloseTo(0.375);
+    // Position offsets the whole rect unchanged.
+    const moved = layerCornersInCompUv(v({ positionX: 0.1 }), 1, EXTENT);
+    expect(moved[0]!.x).toBeCloseTo(0.35);
+  });
+
+  it("hit-tests only inside the content rect", () => {
+    expect(isPointInLayer({ x: 0.5, y: 0.5 }, IDENTITY, 1, EXTENT)).toBe(true);
+    // Inside the frame but outside the content.
+    expect(isPointInLayer({ x: 0.1, y: 0.5 }, IDENTITY, 1, EXTENT)).toBe(false);
+    expect(isPointInLayer({ x: 0.5, y: 0.9 }, IDENTITY, 1, EXTENT)).toBe(false);
+  });
+
+  it("bounds wrap the inset rect", () => {
+    const b = layerBoundsInCompUv(IDENTITY, 1, EXTENT);
+    expect(b.minX).toBeCloseTo(0.25);
+    expect(b.maxX).toBeCloseTo(0.75);
+    expect(b.centerX).toBeCloseTo(0.5);
+    expect(b.minY).toBeCloseTo(0.25);
+    expect(b.maxY).toBeCloseTo(0.75);
+  });
+
+  it("defaults to the full unit square when omitted", () => {
+    const corners = layerCornersInCompUv(IDENTITY, 1);
+    expect(corners[0]!.x).toBeCloseTo(0);
+    expect(corners[2]!.x).toBeCloseTo(1);
   });
 });
 

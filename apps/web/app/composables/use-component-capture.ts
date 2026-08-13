@@ -29,6 +29,12 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
   const pending = new Map<string, Promise<boolean>>();
   const lastCaptureAt = new Map<string, number>();
   const stagedNames = new Map<string, string>();
+  /**
+   * Latest captured layout size (CSS px) per layer. Reactive so gizmos and
+   * hit-tests can derive the content extent the shader actually draws
+   * (content-source centers the frame at this size inside the comp frame).
+   */
+  const contentSizes = reactive(new Map<string, { cssWidth: number; cssHeight: number }>());
   let rafId: number | null = null;
   let paused = false;
   let disposed = false;
@@ -62,6 +68,13 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
           cssWidth: result.cssWidth,
           cssHeight: result.cssHeight,
         });
+        const size = contentSizes.get(layer.id);
+        if (!size || size.cssWidth !== result.cssWidth || size.cssHeight !== result.cssHeight) {
+          contentSizes.set(layer.id, {
+            cssWidth: result.cssWidth,
+            cssHeight: result.cssHeight,
+          });
+        }
         return true;
       })
       .catch(() => false)
@@ -123,6 +136,7 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
           sessions.delete(id);
           stagedNames.delete(id);
           lastCaptureAt.delete(id);
+          contentSizes.delete(id);
           options.setComponentSource(id, null);
         }
       }
@@ -152,7 +166,8 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     }
     sessions.clear();
     pending.clear();
+    contentSizes.clear();
   });
 
-  return { captureAll, pause, resume };
+  return { captureAll, pause, resume, contentSizes };
 }

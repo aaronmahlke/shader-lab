@@ -17,6 +17,27 @@ export type LayerTransformValues = {
 
 export type Vec2 = { x: number; y: number };
 
+/**
+ * The rect a layer's pixels actually occupy inside its full-frame FBO, in
+ * layer-UV unit-square terms (GL-style, y up). Most generators cover the
+ * whole frame; component and text layers draw a smaller centered rect, so
+ * their outline/gizmo/hit-test should wrap only that rect. Display/hit
+ * bounds only — transform semantics still operate on the full unit square.
+ */
+export type ContentExtent = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+export const FULL_CONTENT_EXTENT: ContentExtent = Object.freeze({
+  minX: 0,
+  minY: 0,
+  maxX: 1,
+  maxY: 1,
+});
+
 export const TRANSFORM_PARAM_NAMES = {
   positionX: "layerPositionX",
   positionY: "layerPositionY",
@@ -49,13 +70,21 @@ export function layerToCompUv(luv: Vec2, v: LayerTransformValues, aspect: number
   return { x: dx + center.x, y: ry + center.y };
 }
 
-/** The transformed corners of the layer's unit square, in comp UV (bl, br, tr, tl). */
-export function layerCornersInCompUv(v: LayerTransformValues, aspect: number): Vec2[] {
+/**
+ * The transformed corners of the layer's content rect, in comp UV
+ * (bl, br, tr, tl). Defaults to the full unit square; pass a content
+ * extent to wrap only the pixels the layer actually draws.
+ */
+export function layerCornersInCompUv(
+  v: LayerTransformValues,
+  aspect: number,
+  extent: ContentExtent = FULL_CONTENT_EXTENT,
+): Vec2[] {
   return [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: 1, y: 1 },
-    { x: 0, y: 1 },
+    { x: extent.minX, y: extent.minY },
+    { x: extent.maxX, y: extent.minY },
+    { x: extent.maxX, y: extent.maxY },
+    { x: extent.minX, y: extent.maxY },
   ].map((luv) => layerToCompUv(luv, v, aspect));
 }
 
@@ -68,9 +97,13 @@ export type LayerBounds = {
   centerY: number;
 };
 
-/** Axis-aligned bounds of the layer's transformed unit square, in comp UV. */
-export function layerBoundsInCompUv(v: LayerTransformValues, aspect: number): LayerBounds {
-  const corners = layerCornersInCompUv(v, aspect);
+/** Axis-aligned bounds of the layer's transformed content rect, in comp UV. */
+export function layerBoundsInCompUv(
+  v: LayerTransformValues,
+  aspect: number,
+  extent: ContentExtent = FULL_CONTENT_EXTENT,
+): LayerBounds {
+  const corners = layerCornersInCompUv(v, aspect, extent);
   const xs = corners.map((c) => c.x);
   const ys = corners.map((c) => c.y);
   const minX = Math.min(...xs);
@@ -139,10 +172,17 @@ export function compToLayerUv(uv: Vec2, v: LayerTransformValues, aspect: number)
   return { x: dx + v.anchorX, y: ry / s + v.anchorY };
 }
 
-/** True when a comp UV point falls inside the layer's transformed bounds. */
-export function isPointInLayer(uv: Vec2, v: LayerTransformValues, aspect: number): boolean {
+/** True when a comp UV point falls inside the layer's transformed content rect. */
+export function isPointInLayer(
+  uv: Vec2,
+  v: LayerTransformValues,
+  aspect: number,
+  extent: ContentExtent = FULL_CONTENT_EXTENT,
+): boolean {
   const luv = compToLayerUv(uv, v, aspect);
-  return luv.x >= 0 && luv.x <= 1 && luv.y >= 0 && luv.y <= 1;
+  return (
+    luv.x >= extent.minX && luv.x <= extent.maxX && luv.y >= extent.minY && luv.y <= extent.maxY
+  );
 }
 
 /** Aspect-corrected offset of a comp UV point from the transform center. */

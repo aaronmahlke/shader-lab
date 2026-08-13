@@ -27,6 +27,14 @@ import { refDebounced } from "@vueuse/core";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import type { LayerTransformValues } from "#shared/editor/layer-transform";
+import {
+  FULL_CONTENT_EXTENT,
+  componentContentExtent,
+  textContentExtent,
+  textExtentSpecFromValues,
+  type ContentExtent,
+} from "#shared/editor/layer-content-extent";
+import { createTextLineMeasurer } from "~/utils/text-measure";
 import { PICKABLE_LAYER_TYPES, topLayerAt } from "#shared/editor/canvas-picking";
 import { collectSnapTargets } from "#shared/editor/snapping";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
@@ -310,6 +318,12 @@ const componentCapture = useComponentCapture({
   requestRender,
 });
 
+// The renderer follows the playhead (compositionTime: currentTime), so an
+// export must DRIVE the playhead: keyframe tracks and LFO sampling all key
+// off currentTime. Passing a time only into renderFrame() gets overridden by
+// the frozen playhead and exports lose every keyframed animation.
+let exportRestoreTime: number | null = null;
+
 const shaderExport = {
   capture: async (w: number, h: number) => {
     await componentCapture.captureAll();
@@ -317,10 +331,15 @@ const shaderExport = {
   },
   // Exports drive capture per frame; the live loop would only race them.
   pause: () => {
+    exportRestoreTime = currentTime.value;
     componentCapture.pause();
     pause();
   },
   resume: () => {
+    if (exportRestoreTime !== null) {
+      currentTime.value = exportRestoreTime;
+      exportRestoreTime = null;
+    }
     resume();
     componentCapture.resume();
   },
@@ -328,6 +347,7 @@ const shaderExport = {
   configureRenderer,
   restoreRenderer,
   renderFrame: async (time: number) => {
+    currentTime.value = time;
     await componentCapture.captureAll();
     renderFrame(time);
   },
@@ -738,7 +758,7 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
 
 // --- Universal transform gizmo (generators without a specialized gizmo) ---
 
-const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text"]);
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component"]);
 
 const showTransformGizmo = computed(
   () =>
@@ -775,9 +795,52 @@ function layerTransformValues(layer: LayerInstance): LayerTransformValues {
   };
 }
 
+/** Memoized text extents — measurement is canvas-backed, picking is hot. */
+const textExtentCache = new Map<string, ContentExtent>();
+
+/** Content rect of a text layer, mirroring core's rasterizer layout. */
+function textLayerExtent(layer: LayerInstance): ContentExtent {
+  const spec = textExtentSpecFromValues(layer.values);
+  // Numeric layout inputs follow keyframes, like the rasterizer's uniforms.
+  spec.fontSize = paramValue(layer.id, "fontSize", spec.fontSize);
+  spec.tracking = paramValue(layer.id, "tracking", spec.tracking);
+  spec.lineHeight = paramValue(layer.id, "lineHeight", spec.lineHeight);
+
+  const { width, height } = settings.value;
+  const key = JSON.stringify([spec, width, height]);
+  const cached = textExtentCache.get(key);
+  if (cached) return cached;
+
+  const measure = createTextLineMeasurer(spec);
+  const extent = measure ? textContentExtent(spec, width, height, measure) : FULL_CONTENT_EXTENT;
+  if (textExtentCache.size > 64) textExtentCache.clear();
+  textExtentCache.set(key, extent);
+  return extent;
+}
+
+/**
+ * Rect of the layer's unit square its pixels actually occupy. Component and
+ * text layers draw a smaller rect inside the full-frame FBO, so outlines,
+ * gizmo boxes and hit-tests wrap the content instead of the whole frame.
+ */
+function layerContentExtent(layer: LayerInstance): ContentExtent {
+  if (layer.type === "component") {
+    const size = componentCapture.contentSizes.get(layer.id);
+    if (!size) return FULL_CONTENT_EXTENT;
+    return componentContentExtent(
+      size.cssWidth,
+      size.cssHeight,
+      settings.value.width,
+      settings.value.height,
+    );
+  }
+  if (layer.type === "text") return textLayerExtent(layer);
+  return FULL_CONTENT_EXTENT;
+}
+
 /** Topmost pickable layer id at a comp UV point (gizmo click-through). */
 function canvasLayerAt(uv: { x: number; y: number }, aspect: number): string | null {
-  return topLayerAt(layers.value, uv, aspect, layerTransformValues)?.id ?? null;
+  return topLayerAt(layers.value, uv, aspect, layerTransformValues, layerContentExtent)?.id ?? null;
 }
 
 const compositionAspect = computed(() => settings.value.width / settings.value.height);
@@ -789,6 +852,7 @@ const snapTargets = computed(() =>
     selectedLayerIds.value,
     compositionAspect.value,
     layerTransformValues,
+    layerContentExtent,
   ),
 );
 
@@ -1057,6 +1121,7 @@ registerKeyboard({
                 :layers="layers"
                 :selected-layer-ids="[...selectedLayerIds]"
                 :get-transform="layerTransformValues"
+                :get-extent="layerContentExtent"
                 @select="onCanvasSelect"
               />
               <EditorWavePositionGizmo
@@ -1103,6 +1168,7 @@ registerKeyboard({
                 :layer-id="selectedLayer.id"
                 :pick-at="canvasLayerAt"
                 :snap-targets="snapTargets"
+                :content-extent="layerContentExtent(selectedLayer)"
                 :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
                 :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
                 :scale="getTransformFloat(selectedLayer, 'layerScale')"
@@ -1125,6 +1191,7 @@ registerKeyboard({
                 v-if="showMultiGizmo"
                 :layers="multiSelectedLayers"
                 :get-transform="layerTransformValues"
+                :get-extent="layerContentExtent"
                 :apply-param="applyLayerParam"
                 :snap-targets="snapTargets"
                 :pick-at="canvasLayerAt"

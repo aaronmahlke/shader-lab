@@ -11,6 +11,7 @@ import {
   shortestAngleDelta,
   snapValue,
   transformCenter,
+  type ContentExtent,
   type LayerTransformValues,
   type Vec2,
 } from "#shared/editor/layer-transform";
@@ -35,6 +36,12 @@ type Props = {
   pickAt?: (uv: Vec2, aspect: number) => string | null;
   /** Snap lines (frame + other layers) for smart-guide snapping while moving. */
   snapTargets?: SnapTargets;
+  /**
+   * Rect the layer's pixels actually occupy in its unit square (component/
+   * text draw a smaller centered rect). Display/hit bounds only — drags
+   * still write the same universal transform values.
+   */
+  contentExtent?: ContentExtent;
 };
 
 type Emits = {
@@ -65,7 +72,7 @@ const values = computed<LayerTransformValues>(() => ({
 const aspect = computed(() => (height.value > 0 ? width.value / height.value : 1));
 
 const cornerPoints = computed(() =>
-  layerCornersInCompUv(values.value, aspect.value).map((uv) =>
+  layerCornersInCompUv(values.value, aspect.value, props.contentExtent).map((uv) =>
     compUvToScreen(uv, width.value, height.value),
   ),
 );
@@ -232,6 +239,7 @@ function onWindowPointerMove(e: PointerEvent) {
         const bounds = layerBoundsInCompUv(
           { ...start, positionX: nextX, positionY: nextY },
           aspect.value,
+          props.contentExtent,
         );
         const snapX = findSnap(
           [bounds.minX, bounds.centerX, bounds.maxX],

@@ -138,19 +138,29 @@ describe("normalizeUniversalLayerProps", () => {
     }
   });
 
-  it("sanitizes reversed and out-of-range timing", () => {
+  it("sanitizes reversed timing and preserves overhang", () => {
     const layer: LayerInstance = {
       id: "g", type: "gradient", enabled: true, values: {},
       timing: { in: 4, out: -1 },
     };
     normalizeUniversalLayerProps(layer, 5);
-    expect(layer.timing).toEqual({ out: 4 }); // swapped, in clamped to 0 then dropped
+    // swapped; the negative in survives as left overhang, out capped only by
+    // the minimum-overlap rule (must stay > 0)
+    expect(layer.timing).toEqual({ in: -1, out: 4 });
 
     const full: LayerInstance = {
       id: "g2", type: "gradient", enabled: true, values: {},
       timing: { in: 0, out: 99 },
     };
     normalizeUniversalLayerProps(full, 5);
-    expect(full.timing).toBeUndefined(); // full-width window collapses to none
+    // in === 0 is dropped; out past the end survives as right overhang
+    expect(full.timing).toEqual({ out: 99 });
+
+    const exact: LayerInstance = {
+      id: "g3", type: "gradient", enabled: true, values: {},
+      timing: { in: 0, out: 5 },
+    };
+    normalizeUniversalLayerProps(exact, 5);
+    expect(exact.timing).toBeUndefined(); // exactly-full window collapses to none
   });
 });

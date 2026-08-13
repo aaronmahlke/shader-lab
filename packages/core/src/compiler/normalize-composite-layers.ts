@@ -132,14 +132,20 @@ export function normalizeUniversalLayerProps(layer: LayerInstance, duration: num
   }
 
   if (!layer.timing) return;
-  let inPoint = typeof layer.timing.in === "number" ? Math.max(0, layer.timing.in) : undefined;
-  let outPoint = typeof layer.timing.out === "number" ? Math.min(duration, layer.timing.out) : undefined;
+  // Overhang past either composition edge is allowed (a bar dragged partly
+  // outside keeps its length); we only guarantee the window still overlaps
+  // the composition by a sliver so it can always be grabbed in the timeline.
+  const OVERLAP_EPS = 0.001;
+  let inPoint = typeof layer.timing.in === "number" ? layer.timing.in : undefined;
+  let outPoint = typeof layer.timing.out === "number" ? layer.timing.out : undefined;
   if (inPoint !== undefined && outPoint !== undefined && outPoint < inPoint) {
     [inPoint, outPoint] = [outPoint, inPoint];
   }
+  if (inPoint !== undefined) inPoint = Math.min(inPoint, duration - OVERLAP_EPS);
+  if (outPoint !== undefined) outPoint = Math.max(outPoint, OVERLAP_EPS);
   const timing: LayerTiming = {};
-  if (inPoint !== undefined && inPoint > 0) timing.in = inPoint;
-  if (outPoint !== undefined && outPoint < duration) timing.out = outPoint;
+  if (inPoint !== undefined && inPoint !== 0) timing.in = inPoint;
+  if (outPoint !== undefined && outPoint !== duration) timing.out = outPoint;
   if (timing.in === undefined && timing.out === undefined) {
     delete layer.timing;
   } else {

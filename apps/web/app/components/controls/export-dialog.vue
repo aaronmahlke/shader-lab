@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { negotiateCanvasEncoding, type ExportFormatPreference } from "#shared/editor/video-encoding";
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
 import { ArrowDownTrayIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import {
@@ -67,16 +68,18 @@ function formatDuration(seconds: number) {
 }
 
 const durationOptions = computed(() => {
-  const opts: { label: string; value: number }[] = [];
+  const opts: { label: string; value: number; dynamic?: boolean }[] = [];
   if (compositionDuration > 0.05) {
     opts.push({
       label: `Composition (${formatDuration(compositionDuration)})`,
+      dynamic: true,
       value: compositionDuration,
     });
   }
   if (canvasVideoDuration > 0.05) {
     opts.push({
       label: `Canvas video (${formatDuration(canvasVideoDuration)})`,
+      dynamic: true,
       value: canvasVideoDuration,
     });
   }
@@ -110,6 +113,32 @@ watch(
 
 const { state: videoState, exportVideo, abort } = useVideoExport();
 
+// Resolve which codec/container this browser will actually use for the
+// selected size/fps, so the dialog says "mp4" or "webm" before rendering.
+const formatOptions: Array<{ label: string; value: ExportFormatPreference }> = [
+  { label: "Auto", value: "auto" },
+  { label: "MP4", value: "mp4" },
+  { label: "WebM", value: "webm" },
+];
+const selectedFormat = ref<ExportFormatPreference>("auto");
+
+const resolvedFormat = ref<string | null>(null);
+const formatUnsupported = ref(false);
+watchEffect(async () => {
+  const { width, height } = exportSize.value;
+  const fps = fpsOptions[selectedFps.value]!.value;
+  resolvedFormat.value = null;
+  formatUnsupported.value = false;
+  try {
+    const enc = await negotiateCanvasEncoding(width, height, fps, selectedFormat.value);
+    const codecLabel = enc.codec === "avc" ? "h.264" : enc.codec;
+    resolvedFormat.value = `${enc.extension} · ${codecLabel}`;
+  } catch {
+    resolvedFormat.value = "not supported at this size";
+    formatUnsupported.value = true;
+  }
+});
+
 async function handleImageExport() {
   if (!shader) return;
   await beforeExport?.();
@@ -131,9 +160,10 @@ async function handleVideoExport() {
     fps: fps.value,
     duration: dur.value,
     experimentId,
+    format: selectedFormat.value,
   });
 
-  if (!videoState.exporting) {
+  if (!videoState.exporting && !videoState.error) {
     open.value = false;
   }
 }
@@ -144,7 +174,7 @@ async function handleVideoExport() {
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-contentShow" />
       <DialogContent
-        class="fixed left-1/2 top-[20%] z-50 w-80 -translate-x-1/2 rounded-2xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl data-[state=open]:animate-contentShow"
+        class="fixed left-1/2 top-[20%] z-50 w-[26rem] -translate-x-1/2 rounded-2xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl data-[state=open]:animate-contentShow"
       >
         <div class="flex items-center justify-between border-b border-edge px-4 py-3">
           <DialogTitle class="text-copy-sm text-primary">
@@ -176,6 +206,7 @@ async function handleVideoExport() {
                   v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
                   :key="preset.label"
                   variant="option"
+                  full-width
                   :active="selectedScale === i"
                   class="flex-1"
                   @click="selectedScale = i"
@@ -188,6 +219,7 @@ async function handleVideoExport() {
                   v-for="(res, i) in LEGACY_RESOLUTIONS"
                   :key="res.label"
                   variant="option"
+                  full-width
                   :active="selectedLegacyResolution === i"
                   class="flex-1"
                   @click="selectedLegacyResolution = i"
@@ -222,6 +254,7 @@ async function handleVideoExport() {
                     v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
                     :key="preset.label"
                     variant="option"
+                    full-width
                     :active="selectedScale === i"
                     class="flex-1"
                     @click="selectedScale = i"
@@ -234,6 +267,7 @@ async function handleVideoExport() {
                     v-for="(res, i) in LEGACY_RESOLUTIONS"
                     :key="res.label"
                     variant="option"
+                    full-width
                     :active="selectedLegacyResolution === i"
                     class="flex-1"
                     @click="selectedLegacyResolution = i"
@@ -252,13 +286,15 @@ async function handleVideoExport() {
 
               <div class="flex flex-col gap-2">
                 <span class="text-copy-sm text-tertiary">Duration</span>
-                <div class="flex flex-wrap gap-1.5">
+                <div class="grid grid-cols-3 gap-1.5">
                   <UiButton
                     v-for="(dur, i) in durationOptions"
                     :key="dur.label"
                     variant="option"
+                    full-width
                     :active="selectedDuration === i"
-                    class="min-w-0 flex-1"
+                    :class="dur.dynamic ? 'col-span-3' : ''"
+                    :title="dur.label"
                     @click="selectedDuration = i"
                   >
                     {{ dur.label }}
@@ -273,6 +309,7 @@ async function handleVideoExport() {
                     v-for="(fps, i) in fpsOptions"
                     :key="fps.label"
                     variant="option"
+                    full-width
                     :active="selectedFps === i"
                     class="flex-1"
                     @click="selectedFps = i"
@@ -282,9 +319,31 @@ async function handleVideoExport() {
                 </div>
               </div>
 
-              <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleVideoExport">
-                Render MP4
+              <div class="flex flex-col gap-1.5">
+                <span class="text-copy-sm text-tertiary">Format</span>
+                <div class="flex gap-1.5">
+                  <UiButton
+                    v-for="f in formatOptions"
+                    :key="f.value"
+                    variant="option"
+                    full-width
+                    :active="selectedFormat === f.value"
+                    class="flex-1"
+                    @click="selectedFormat = f.value"
+                  >
+                    {{ f.label }}
+                  </UiButton>
+                </div>
+              </div>
+
+              <UiButton variant="action" :icon-left="ArrowDownTrayIcon" :disabled="formatUnsupported" @click="handleVideoExport">
+                Render video
+                <span v-if="resolvedFormat" class="ml-1 opacity-60">({{ resolvedFormat }})</span>
               </UiButton>
+
+              <p v-if="videoState.error" class="text-copy-xs text-red-400">
+                {{ videoState.error }}
+              </p>
             </div>
 
             <div v-else class="flex flex-col gap-3">

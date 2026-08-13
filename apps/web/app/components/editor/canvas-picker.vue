@@ -5,6 +5,7 @@ import {
   compUvToScreen,
   layerCornersInCompUv,
   screenToCompUv,
+  type ContentExtent,
   type LayerTransformValues,
   type Vec2,
 } from "#shared/editor/layer-transform";
@@ -20,6 +21,8 @@ type Props = {
   layers: LayerInstance[];
   selectedLayerIds: string[];
   getTransform: (layer: LayerInstance) => LayerTransformValues;
+  /** Per-layer content rect (component/text draw less than the full frame). */
+  getExtent?: (layer: LayerInstance) => ContentExtent;
 };
 
 type Emits = {
@@ -47,7 +50,7 @@ function pointerCompUv(e: PointerEvent | MouseEvent): Vec2 | null {
 }
 
 function layerAt(uv: Vec2): LayerInstance | null {
-  return topLayerAt(props.layers, uv, aspect.value, props.getTransform);
+  return topLayerAt(props.layers, uv, aspect.value, props.getTransform, props.getExtent);
 }
 
 function onPointerMove(e: PointerEvent) {
@@ -74,7 +77,7 @@ const hoverOutline = computed(() => {
   if (!hoveredLayerId.value) return null;
   const layer = props.layers.find((l) => l.id === hoveredLayerId.value);
   if (!layer) return null;
-  return layerCornersInCompUv(props.getTransform(layer), aspect.value)
+  return layerCornersInCompUv(props.getTransform(layer), aspect.value, props.getExtent?.(layer))
     .map((uv) => {
       const p = compUvToScreen(uv, width.value, height.value);
       return `${p.x},${p.y}`;
