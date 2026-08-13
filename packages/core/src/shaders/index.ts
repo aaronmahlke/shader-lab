@@ -23,6 +23,7 @@ import bloomPrefilterFrag from "./layers/bloom-prefilter.frag";
 import bloomDownFrag from "./layers/bloom-down.frag";
 import bloomUpFrag from "./layers/bloom-up.frag";
 import cameraCompositeFrag from "./layers/camera-composite.frag";
+import shapeFrag from "./layers/shape.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
 import type { RenderPassType } from "../types/editor";
 
@@ -33,6 +34,7 @@ export const FRAG_SHADERS: Record<Exclude<RenderPassType, "camera">, string> & {
   noise: noiseFrag,
   text: textSourceFrag,
   component: componentSourceFrag,
+  shape: shapeFrag,
   waveFill: waveFillFrag,
   bandFill: bandFillFrag,
   distortion: distortionFrag,
@@ -77,6 +79,7 @@ export const INT_UNIFORMS = new Set([
   // Uploading it as float is silently ignored by WebGL, leaving it 0 and
   // making the DOF pass early-out on every pixel (no blur at any aperture).
   "dofSamples",
+  "layerBlendMode",
 ]);
 
 export const GRADIENT_RESOLUTION = 256;

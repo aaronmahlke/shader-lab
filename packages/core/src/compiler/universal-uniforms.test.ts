@@ -164,3 +164,19 @@ describe("normalizeUniversalLayerProps", () => {
     expect(exact.timing).toBeUndefined(); // exactly-full window collapses to none
   });
 });
+
+describe("blend mode uniform", () => {
+  it("is universal for generators, absent for effects, and not keyframeable", () => {
+    const names = universalUniformsFor({ type: "solid" }).map((d) => d.name);
+    expect(names).toContain("layerBlendMode");
+    expect(universalUniformsFor({ type: "vignette" }).map((d) => d.name)).not.toContain("layerBlendMode");
+  });
+
+  it("flows into composite pass uniforms as a number", () => {
+    const layer = makeLayer("solid", "s1");
+    layer.values.layerBlendMode = 2;
+    const passes = compilePasses([layer]);
+    const composite = passes.find((p) => p.layerType === "layerComposite");
+    expect(composite?.uniforms.layerBlendMode).toBe(2);
+  });
+});

@@ -120,6 +120,7 @@ const CATALOG_META: Partial<
   text: { tags: ["type", "typography", "title", "word"], featured: true },
   component: { tags: ["ui", "vue", "dom", "live", "capture", "embed"], featured: true },
   camera: { tags: ["3d", "tilt", "lens", "dof", "bokeh", "bloom", "focus", "plate"], featured: true },
+  shape: { tags: ["rectangle", "ellipse", "circle", "box", "sdf"], featured: true },
   waveFill: { tags: ["shape", "wave", "gradient"], featured: true },
   bandFill: { tags: ["shape", "band", "strip"] },
   distortion: { tags: ["wave", "displace", "warp", "uv"], featured: true },

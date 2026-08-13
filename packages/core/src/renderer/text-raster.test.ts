@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { drawTextSpec, textCacheKey, textSpecFromValues } from "./text-raster";
+import { charProgress, drawTextSpec, isTextAnimated, textCacheKey, textSpecFromValues } from "./text-raster";
 import { compilePasses, compositePassId } from "../compiler/compile-passes";
 import { buildLayerValues } from "../compiler/build-layer-values";
 
@@ -81,5 +81,53 @@ describe("drawTextSpec", () => {
     const spec = { ...textSpecFromValues(buildLayerValues("text")), content: "x", fontSize: 100, textAlign: "left" as const };
     drawTextSpec(ctx, spec, 400, 300, 1);
     expect(ctx.calls[0]!.x).toBe(25); // fontPx * 0.25
+  });
+});
+
+describe("text animators", () => {
+  const base = textSpecFromValues(buildLayerValues("text"));
+
+  it("defaults resolve to the static fast path", () => {
+    expect(base.animProgress).toBe(1);
+    expect(isTextAnimated(base)).toBe(false);
+  });
+
+  it("charProgress staggers characters across the window", () => {
+    // stagger 0: all chars share the same progress
+    expect(charProgress(0.5, 0, 4, 0)).toBeCloseTo(charProgress(0.5, 3, 4, 0));
+    // stagger 0.5: first char finishes before the last starts moving much
+    expect(charProgress(0.5, 0, 10, 0.5)).toBe(1);
+    expect(charProgress(0.5, 9, 10, 0.5)).toBe(0);
+    // fully in at progress 1 regardless
+    expect(charProgress(1, 9, 10, 0.9)).toBe(1);
+  });
+
+  it("draws per character when animating, per line when not", () => {
+    const calls: string[] = [];
+    const ctx = {
+      font: "", fillStyle: "", textAlign: "", textBaseline: "", globalAlpha: 1, letterSpacing: "",
+      clearRect() {}, save() {}, restore() {}, translate() {}, scale() {}, rotate() {},
+      measureText: () => ({ width: 10 }),
+      fillText(text: string) { calls.push(text); },
+    };
+    const spec = { ...base, content: "ab cd" };
+    drawTextSpec(ctx, spec, 400, 300, 1);
+    expect(calls).toEqual(["ab cd"]); // fast path: one line
+
+    calls.length = 0;
+    drawTextSpec(ctx, { ...spec, animProgress: 0.9 }, 400, 300, 1);
+    expect(calls).toEqual(["a", "b", "c", "d"]); // per char, space skipped
+  });
+
+  it("hides characters entirely at progress 0 with full stagger window", () => {
+    const calls: string[] = [];
+    const ctx = {
+      font: "", fillStyle: "", textAlign: "", textBaseline: "", globalAlpha: 1, letterSpacing: "",
+      clearRect() {}, save() {}, restore() {}, translate() {}, scale() {}, rotate() {},
+      measureText: () => ({ width: 10 }),
+      fillText(text: string) { calls.push(text); },
+    };
+    drawTextSpec(ctx, { ...base, content: "abc", animProgress: 0 }, 400, 300, 1);
+    expect(calls).toEqual([]); // every char at t=0 -> nothing drawn
   });
 });

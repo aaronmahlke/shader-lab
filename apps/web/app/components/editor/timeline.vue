@@ -632,7 +632,7 @@ function keyframeableUniforms(layer: LayerInstance) {
   const template = LAYER_TEMPLATES[layer.type];
   if (!template) return [];
   return [
-    ...universalUniformsFor(layer),
+    ...universalUniformsFor(layer).filter(isKeyframeableUniform),
     ...template.uniforms.filter(isKeyframeableUniform),
   ];
 }
