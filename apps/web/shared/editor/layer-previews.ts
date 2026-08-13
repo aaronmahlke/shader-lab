@@ -161,6 +161,52 @@ function generatorStack(type: LayerType): LayerInstance[] {
         previewLayer("solid", { u_color: "#101014" }, "preview-component-stage"),
       ];
 
+    case "image":
+      // Headless previews cannot fetch/decode media, so fake a media card the
+      // way the component preview does: dark stage, charcoal card, bold label.
+      return [
+        previewLayer(
+          "text",
+          {
+            content: "IMG",
+            fontFamily: "DejaVu Sans, Inter Variable, sans-serif",
+            fontSize: 120,
+            fontWeight: 700,
+            u_color: "#f4f4f5",
+          },
+          "preview-image-label",
+        ),
+        previewLayer(
+          "solid",
+          { u_color: "#26262e", layerScale: 58 },
+          "preview-image-card",
+        ),
+        previewLayer("solid", { u_color: "#101014" }, "preview-image-stage"),
+      ];
+
+    case "video":
+      // Same faked media card as image; the play triangle reads as "video".
+      // DejaVu Sans covers U+25B6 in the node rasterizer.
+      return [
+        previewLayer(
+          "text",
+          {
+            content: "▶",
+            fontFamily: "DejaVu Sans, Inter Variable, sans-serif",
+            fontSize: 150,
+            fontWeight: 700,
+            u_color: "#f4f4f5",
+          },
+          "preview-video-label",
+        ),
+        previewLayer(
+          "solid",
+          { u_color: "#26262e", layerScale: 58 },
+          "preview-video-card",
+        ),
+        previewLayer("solid", { u_color: "#101014" }, "preview-video-stage"),
+      ];
+
     case "waveFill":
       return [
         previewLayer(type, {

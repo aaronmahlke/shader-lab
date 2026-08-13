@@ -47,6 +47,71 @@ export function componentContentExtent(
   };
 }
 
+/** Per-edge crop fractions of an image/video layer (0 … 0.45 in the template). */
+export type MediaCropValues = {
+  cropLeft: number;
+  cropRight: number;
+  cropTop: number;
+  cropBottom: number;
+};
+
+/**
+ * Content rect of an image/video layer. Core draws the frame at
+ * `u_contentSize = natural size × contentScale` buffer px shrunk by the crop
+ * fractions, and `media-source.frag` centers the *cropped* rect in the frame,
+ * so the fraction is natural × (1 − crops) / compSize (clamped: anything past
+ * the frame edge is clipped by the FBO). The rect stays centered even for
+ * asymmetric crops — cropTop trims the media's visual top, so in GL y-up
+ * terms maxY (the on-screen top edge) moves down while minY moves up by the
+ * same amount as the shrunken rect re-centers.
+ */
+/**
+ * Uniform contain-fit scale for media display: downscale to fit the comp,
+ * never upscale. The media runtime pushes display dimensions scaled by this,
+ * and the extent math below applies the same factor so both agree.
+ */
+export function mediaDisplayFit(
+  naturalWidth: number,
+  naturalHeight: number,
+  comp: { width: number; height: number },
+): number {
+  if (!(naturalWidth > 0) || !(naturalHeight > 0) || !(comp.width > 0) || !(comp.height > 0)) {
+    return 1;
+  }
+  return Math.min(1, comp.width / naturalWidth, comp.height / naturalHeight);
+}
+
+export function mediaContentExtent(
+  naturalWidth: number,
+  naturalHeight: number,
+  compWidth: number,
+  compHeight: number,
+  crops: MediaCropValues,
+): ContentExtent {
+  if (
+    !(compWidth > 0) ||
+    !(compHeight > 0) ||
+    !(naturalWidth > 0) ||
+    !(naturalHeight > 0)
+  ) {
+    return FULL_CONTENT_EXTENT;
+  }
+  // Mirror the frag's `keep` clamp: degenerate crop sums can't go negative.
+  const keepX = Math.max(0, 1 - crops.cropLeft - crops.cropRight);
+  const keepY = Math.max(0, 1 - crops.cropTop - crops.cropBottom);
+  // Same contain-fit the runtime applies when pushing display dimensions.
+  const fit = mediaDisplayFit(naturalWidth, naturalHeight, { width: compWidth, height: compHeight });
+  const w = clamp01((naturalWidth * fit * keepX) / compWidth);
+  const h = clamp01((naturalHeight * fit * keepY) / compHeight);
+  if (w >= 1 && h >= 1) return FULL_CONTENT_EXTENT;
+  return {
+    minX: 0.5 - w / 2,
+    minY: 0.5 - h / 2,
+    maxX: 0.5 + w / 2,
+    maxY: 0.5 + h / 2,
+  };
+}
+
 /**
  * Layout inputs of core's text rasterizer (TextLayerSpec minus color, which
  * does not affect geometry). Kept in sync with

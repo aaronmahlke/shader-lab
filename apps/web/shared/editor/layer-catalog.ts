@@ -119,6 +119,8 @@ const CATALOG_META: Partial<
   noise: { tags: ["procedural", "animated", "texture"] },
   text: { tags: ["type", "typography", "title", "word"], featured: true },
   component: { tags: ["ui", "vue", "dom", "live", "capture", "embed"], featured: true },
+  image: { tags: ["photo", "picture", "media", "upload"], featured: true },
+  video: { tags: ["movie", "clip", "media", "screen recording", "upload"], featured: true },
   camera: { tags: ["3d", "tilt", "lens", "dof", "bokeh", "bloom", "focus", "plate"], featured: true },
   shape: { tags: ["rectangle", "ellipse", "circle", "box", "sdf"], featured: true },
   waveFill: { tags: ["shape", "wave", "gradient"], featured: true },

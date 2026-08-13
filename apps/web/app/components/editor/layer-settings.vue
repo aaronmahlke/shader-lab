@@ -15,7 +15,9 @@ import {
   layerBoundsInCompUv,
   type LayerTransformValues,
 } from "#shared/editor/layer-transform";
+import { XMarkIcon } from "@heroicons/vue/16/solid";
 import { stageComponentOptions } from "~/utils/stage-components";
+import { mediaSrcFileName, uploadMediaFile, type MediaUploadKind } from "~/utils/media-upload";
 
 type Props = {
   layer: LayerInstance;
@@ -398,6 +400,64 @@ function resetUniform(def: LayerUniformDef) {
   history?.record();
 }
 
+// --- Media (image/video) source upload ---
+
+const isMediaLayer = computed(() => layer.type === "image" || layer.type === "video");
+const mediaKind = computed<MediaUploadKind>(() =>
+  layer.type === "video" ? "video" : "image",
+);
+
+const mediaFileInput = ref<HTMLInputElement | null>(null);
+const mediaUploading = ref(false);
+const mediaUploadError = ref("");
+
+function openMediaPicker() {
+  if (mediaUploading.value) return;
+  mediaUploadError.value = "";
+  mediaFileInput.value?.click();
+}
+
+async function uploadMediaTo(def: LayerUniformDef, file: File) {
+  const kind = mediaKind.value;
+  if (!file.type.startsWith(`${kind}/`)) {
+    mediaUploadError.value = `Pick a ${kind} file.`;
+    return;
+  }
+  mediaUploading.value = true;
+  mediaUploadError.value = "";
+  try {
+    const url = await uploadMediaFile(kind, file);
+    // Same update path as the componentName special case: records history so
+    // undo and auto-save both see the new src.
+    setText(def, layer.values, url);
+  } catch {
+    mediaUploadError.value = "Upload failed. Try again.";
+  } finally {
+    mediaUploading.value = false;
+  }
+}
+
+async function onMediaFileChange(def: LayerUniformDef, event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  // Reset so re-picking the same file fires change again.
+  input.value = "";
+  if (!file) return;
+  await uploadMediaTo(def, file);
+}
+
+async function onMediaDrop(def: LayerUniformDef, event: DragEvent) {
+  if (mediaUploading.value) return;
+  const file = event.dataTransfer?.files?.[0];
+  if (!file) return;
+  await uploadMediaTo(def, file);
+}
+
+function clearMediaSrc(def: LayerUniformDef) {
+  mediaUploadError.value = "";
+  setText(def, layer.values, "");
+}
+
 const isDistortion = computed(() => layer.type === "distortion");
 const isChromaticAberration = computed(() => layer.type === "chromaticAberration");
 const currentWaveType = computed(() => (layer.values.waveType as number) ?? 0);
@@ -531,6 +591,65 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             :label="def.label"
             @update:model-value="setText(def, layer.values, String($event))"
           />
+          <div
+            v-else-if="isMediaLayer && def.name === 'src'"
+            class="flex flex-col gap-1"
+          >
+            <span class="text-copy-xs text-neutral-subtle">{{ def.label }}</span>
+            <input
+              ref="mediaFileInput"
+              type="file"
+              class="hidden"
+              :accept="mediaKind === 'video' ? 'video/*' : 'image/*'"
+              @change="onMediaFileChange(def, $event)"
+            >
+            <div
+              v-if="getText(def, layer.values)"
+              class="flex items-center gap-1.5"
+              @dragover.prevent
+              @drop.prevent="onMediaDrop(def, $event)"
+            >
+              <span
+                class="h-7 min-w-0 flex-1 truncate rounded-lg bg-control px-2.5 leading-7 text-copy-sm text-neutral-strong"
+                :title="getText(def, layer.values)"
+              >
+                {{ mediaSrcFileName(getText(def, layer.values)) }}
+              </span>
+              <UiButton
+                variant="secondary"
+                size="sm"
+                :loading="mediaUploading"
+                :disabled="mediaUploading"
+                class="shrink-0"
+                @click="openMediaPicker"
+              >
+                {{ mediaUploading ? "Uploading…" : "Replace" }}
+              </UiButton>
+              <UiButton
+                variant="ghost"
+                size="sm"
+                :disabled="mediaUploading"
+                :icon-left="XMarkIcon"
+                title="Remove"
+                class="shrink-0"
+                @click="clearMediaSrc(def)"
+              />
+            </div>
+            <button
+              v-else
+              type="button"
+              :disabled="mediaUploading"
+              class="flex h-16 w-full items-center justify-center rounded-lg border border-dashed border-neutral bg-control/40 text-copy-sm text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong disabled:cursor-not-allowed disabled:opacity-60"
+              @click="openMediaPicker"
+              @dragover.prevent
+              @drop.prevent="onMediaDrop(def, $event)"
+            >
+              {{ mediaUploading ? "Uploading…" : mediaKind === "video" ? "Upload video" : "Upload image" }}
+            </button>
+            <span v-if="mediaUploadError" class="text-copy-xs text-red-400">
+              {{ mediaUploadError }}
+            </span>
+          </div>
           <UiContextMenu v-else-if="def.type === 'float' || def.type === 'int'">
             <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
               <UiSliderField

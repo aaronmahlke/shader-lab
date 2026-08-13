@@ -182,11 +182,16 @@ export type { GradientStop } from "./types";
 export {
   componentNameFromValues,
   componentStageWidthFromValues,
+  mediaSrcFromValues,
+  videoLoopFromValues,
+  videoTrimStartFromValues,
 } from "./renderer/component-source";
 export type {
   ComponentSource,
   ComponentSourceFrame,
   ComponentSourceInput,
+  MediaSource,
+  MediaSourceFrame,
 } from "./renderer/component-source";
 
 export { applyModulation } from "./modulation/modulation";

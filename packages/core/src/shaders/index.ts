@@ -17,6 +17,7 @@ import outputFrag from "./layers/output.frag";
 import layerCompositeFrag from "./layers/layer-composite.frag";
 import textSourceFrag from "./layers/text-source.frag";
 import componentSourceFrag from "./layers/component-source.frag";
+import mediaSourceFrag from "./layers/media-source.frag";
 import cameraStageFrag from "./layers/camera-stage.frag";
 import cameraDofFrag from "./layers/camera-dof.frag";
 import bloomPrefilterFrag from "./layers/bloom-prefilter.frag";
@@ -34,6 +35,8 @@ export const FRAG_SHADERS: Record<Exclude<RenderPassType, "camera">, string> & {
   noise: noiseFrag,
   text: textSourceFrag,
   component: componentSourceFrag,
+  image: mediaSourceFrag,
+  video: mediaSourceFrag,
   shape: shapeFrag,
   waveFill: waveFillFrag,
   bandFill: bandFillFrag,

@@ -175,7 +175,7 @@ Port ideas from pre-v2 **artworks**, not its pipeline.
 | **Shape** | SDF rect / ellipse / round-rect shader |
 | **Text** | Rasterize to texture (Canvas / headless canvas) → quad in stack |
 | **Image / video** | Media texture → quad |
-| **Component** | ✅ Live DOM capture → texture (`setComponentSource`; capture adapted from evlog's Render labs, MIT). Stage registry in `apps/web/app/components/stage/`, capture loop in `use-component-capture`. Headless renders it transparent (no DOM in node). |
+| **Component** | ✅ Live DOM capture → texture. ✅ Deterministic export (virtual clock: sequences seeked to frame time, Web Animations paused + frame-stepped) (`setComponentSource`; capture adapted from evlog's Render labs, MIT). Stage registry in `apps/web/app/components/stage/`, capture loop in `use-component-capture`. Headless renders it transparent (no DOM in node). |
 
 All use universal transform + opacity + in/out + same effect stack.
 
@@ -237,6 +237,48 @@ Text and shapes are currently rasterized (Canvas 2D -> texture) and scaled on th
 - **MSDF / glyph-atlas text**: bake glyphs once, compose words as GPU quads. Crisp at any zoom, per-character animators become cheap transforms instead of re-rasters. Industry standard for GPU motion tools. Should land before/with per-char text animators if possible.
 - **SDF / vector shapes beyond rect & ellipse**: paths, strokes, boolean ops; possibly SVG import (tessellation or SDF baking).
 - Open question: how far to go — full vector pipeline vs "vector where it hurts" (text + shapes only).
+
+### One clock to rule them all (design direction, 2026-08-13)
+
+The virtual-clock work created an interface worth generalizing: **everything
+on the timeline is a seekable clock consumer** (`seekTo(ms)` + registry +
+per-layer in-point offsets).
+
+- Components (today): timed sequences seeked by the playhead
+- Nested compositions (Phase 5): should implement the same handle — a child
+  comp is just another clock consumer with a local offset
+- Media layers: `video.currentTime = t`
+- Author-facing: extract `sequence-clock` into a tiny animation lib
+  (`useStageTimeline`) — the authoring contract is "derive everything from
+  one `t` the host owns". Editor scrubs it, export steps it, the SDK ships it
+  (plugs into the planned `composition.setInput()` interactivity API).
+
+Falls out for free once formalized: components self-report duration (clip
+auto-cuts to length) and their named events can render as **beat markers on
+the timeline clip** for snapping keyframes to component moments.
+
+Long term: staged demo components are better authored as native compositions
+(GPU-crisp, keyframable); DOM capture remains for filming *real* product UI,
+which is its unique value.
+
+### Compositions as code (design sketch, 2026-08-13)
+
+`CompositionConfig` is already a declarative IR for a composition. Idea: add
+authoring surfaces on top of it — a `defineComposition()` builder (TS/Vue) that
+compiles to the same IR, so opening a code-defined composition in the editor
+shows real layers/keyframes on the timeline.
+
+Model (Framer-style, avoids the two-way source-sync tar pit):
+
+- **Code owns structure** — the definition is read-only linked in the editor
+- **Editor owns parameters** — exposed `input()`s are editable and stored as
+  data overrides; "fork to data" detaches into a normal editable comp
+- One IR, three authoring surfaces: canvas (editor), code (builder), capture
+  (DOM components via the seekable clock)
+
+Depends on Phase 5 (comps as assets) + the unified clock; design the builder
+API together with the SDK config surface (same types). Differentiator vs
+Remotion (code-only) and Rive (editor-only).
 
 ### Renderer scalability (found 2026-08-13)
 

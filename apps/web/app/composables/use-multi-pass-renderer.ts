@@ -1,6 +1,7 @@
 import {
   CompositionRenderer,
   type ComponentSourceInput,
+  type MediaSource,
   type ModulationFn,
   type RenderPass,
   type LayerInstance,
@@ -266,6 +267,11 @@ export function useMultiPassRenderer(
     renderer?.setComponentSource(layerId, source);
   }
 
+  /** Push (or clear) the latest decoded media frame for an image/video layer. */
+  function setMediaSource(layerId: string, source: MediaSource | null): void {
+    renderer?.setMediaSource(layerId, source);
+  }
+
   async function capture(width: number, height: number, filename: string): Promise<void> {
     if (!renderer) return;
 
@@ -297,6 +303,7 @@ export function useMultiPassRenderer(
     renderFrame,
     capture,
     setComponentSource,
+    setMediaSource,
     requestRender: scheduleRender,
   };
 }

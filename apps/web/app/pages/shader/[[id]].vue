@@ -30,6 +30,7 @@ import type { LayerTransformValues } from "#shared/editor/layer-transform";
 import {
   FULL_CONTENT_EXTENT,
   componentContentExtent,
+  mediaContentExtent,
   textContentExtent,
   textExtentSpecFromValues,
   type ContentExtent,
@@ -55,6 +56,13 @@ import {
 } from "#shared/editor/shader-presets";
 import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
+import {
+  beginExportClock,
+  seekStageSequences,
+  endExportClock,
+  setTimelineDrive,
+  createDomAnimationStepper,
+} from "~/utils/export-clock";
 import { ChevronRightIcon } from "@heroicons/vue/16/solid";
 import {
   WAVE_AMPLITUDE,
@@ -295,6 +303,7 @@ const {
   restoreRenderer,
   renderFrame,
   setComponentSource,
+  setMediaSource,
   requestRender,
 } = useMultiPassRenderer(canvasRef, passes, {
   layers,
@@ -318,11 +327,81 @@ const componentCapture = useComponentCapture({
   requestRender,
 });
 
+// --- Image/video layers: host-side decode + playhead-driven video time ---
+
+const mediaSources = useMediaSources({
+  layers,
+  setMediaSource,
+  requestRender,
+  currentTime,
+  compSize: () => ({ width: settings.value.width, height: settings.value.height }),
+});
+
+// Default clip length: a video layer with no timing yet gets out = its clip
+// end (min(video duration, comp duration); the timeline stores the exact
+// full-width window as "no timing", so a clip longer than the comp stays
+// timing-less). Applied once per layer so clearing the bar sticks.
+const defaultedClipLengths = new Set<string>();
+watch(
+  () => [...mediaSources.durations.entries()],
+  (entries) => {
+    for (const [layerId, duration] of entries) {
+      if (!(duration > 0) || defaultedClipLengths.has(layerId)) continue;
+      defaultedClipLengths.add(layerId);
+      const layer = layers.value.find((l) => l.id === layerId);
+      if (!layer || layer.type !== "video" || layer.timing) continue;
+      const out = Math.min(duration, settings.value.duration);
+      if (out >= settings.value.duration - 1e-6) continue;
+      layer.timing = { out };
+    }
+  },
+);
+
 // The renderer follows the playhead (compositionTime: currentTime), so an
 // export must DRIVE the playhead: keyframe tracks and LFO sampling all key
 // off currentTime. Passing a time only into renderFrame() gets overridden by
 // the frozen playhead and exports lose every keyframed animation.
 let exportRestoreTime: number | null = null;
+
+// Virtual clock: while exporting, timed sequences are seeked to exact frame
+// times and Web Animations under the component stages are paused and stepped
+// per frame, so self-animating components bake identically on every run.
+const exportAnimationStepper = createDomAnimationStepper();
+let lastExportFrameTime: number | null = null;
+
+/**
+ * Timeline drive: a staged component's internal time is the playhead time
+ * minus the layer's in-point, so component beats line up with keyframes both
+ * while scrubbing and in exports.
+ */
+function seekStageToCompTime(tSec: number): void {
+  const offsets = new Map<string, number>();
+  for (const layer of layers.value) {
+    if (layer.type !== "component") continue;
+    offsets.set(layer.id, Math.max(0, (tSec - (layer.timing?.in ?? 0)) * 1000));
+  }
+  seekStageSequences((layerId) => {
+    if (layerId === null) return Math.max(0, tSec * 1000);
+    return offsets.get(layerId) ?? null;
+  });
+}
+
+onMounted(() => setTimelineDrive(true));
+onBeforeUnmount(() => setTimelineDrive(false));
+
+watch(currentTime, (t) => {
+  seekStageToCompTime(t);
+});
+
+function componentStageRoots(): Element[] {
+  const roots: Element[] = [];
+  for (const layer of layers.value) {
+    if (layer.type !== "component") continue;
+    const el = stageHostRef.value?.getElement(layer.id);
+    if (el) roots.push(el);
+  }
+  return roots;
+}
 
 const shaderExport = {
   capture: async (w: number, h: number) => {
@@ -332,22 +411,44 @@ const shaderExport = {
   // Exports drive capture per frame; the live loop would only race them.
   pause: () => {
     exportRestoreTime = currentTime.value;
+    lastExportFrameTime = null;
     componentCapture.pause();
+    mediaSources.pause();
     pause();
+    beginExportClock();
   },
   resume: () => {
+    exportAnimationStepper.release(componentStageRoots());
+    endExportClock();
     if (exportRestoreTime !== null) {
       currentTime.value = exportRestoreTime;
       exportRestoreTime = null;
     }
     resume();
     componentCapture.resume();
+    mediaSources.resume();
   },
   getCanvas,
   configureRenderer,
   restoreRenderer,
   renderFrame: async (time: number) => {
     currentTime.value = time;
+    // 1. Seek sequences to the frame time (fires their due events).
+    seekStageToCompTime(time);
+    // 2. Let Vue flush the resulting DOM changes so new CSS transitions exist.
+    await nextTick();
+    // 3. Freeze + step all stage animations by exactly one frame. The first
+    //    frame instead cancels animations inherited from the live preview so
+    //    every run starts from the same clean state.
+    if (lastExportFrameTime === null) {
+      exportAnimationStepper.reset(componentStageRoots());
+    } else {
+      exportAnimationStepper.step(componentStageRoots(), (time - lastExportFrameTime) * 1000);
+    }
+    lastExportFrameTime = time;
+    // 4. Seek every video layer to the exact frame time (awaits `seeked`).
+    await mediaSources.syncForExport(time);
+    // 5. Capture the DOM in that exact state and render.
     await componentCapture.captureAll();
     renderFrame(time);
   },
@@ -758,7 +859,7 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
 
 // --- Universal transform gizmo (generators without a specialized gizmo) ---
 
-const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape"]);
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape", "image", "video"]);
 
 const showTransformGizmo = computed(
   () =>
@@ -832,6 +933,23 @@ function layerContentExtent(layer: LayerInstance): ContentExtent {
       size.cssHeight,
       settings.value.width,
       settings.value.height,
+    );
+  }
+  if (layer.type === "image" || layer.type === "video") {
+    const size = mediaSources.naturalSizes.get(layer.id);
+    if (!size) return FULL_CONTENT_EXTENT;
+    // Crops are keyframeable and shrink the on-screen rect, like the shader.
+    return mediaContentExtent(
+      size.width,
+      size.height,
+      settings.value.width,
+      settings.value.height,
+      {
+        cropLeft: paramValue(layer.id, "cropLeft", 0),
+        cropRight: paramValue(layer.id, "cropRight", 0),
+        cropTop: paramValue(layer.id, "cropTop", 0),
+        cropBottom: paramValue(layer.id, "cropBottom", 0),
+      },
     );
   }
   if (layer.type === "text") return textLayerExtent(layer);
