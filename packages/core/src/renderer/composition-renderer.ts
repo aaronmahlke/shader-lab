@@ -10,10 +10,11 @@ import {
   disposeRenderPipelineCache,
   renderPasses,
   type ComponentTextureEntry,
+  type MediaTextureEntry,
   type RenderPipelineCache,
   type TextTextureEntry,
 } from "./render-passes";
-import type { ComponentSource, ComponentSourceInput } from "./component-source";
+import type { ComponentSource, ComponentSourceInput, MediaSource } from "./component-source";
 import { drawTextSpec, type TextLayerSpec } from "./text-raster";
 
 export type CompositionRendererOptions = {
@@ -42,6 +43,8 @@ export class CompositionRenderer {
   private textCanvas: HTMLCanvasElement | null = null;
   private componentSources = new Map<string, ComponentSource>();
   private componentTextures = new Map<string, ComponentTextureEntry>();
+  private mediaSources = new Map<string, MediaSource>();
+  private mediaTextures = new Map<string, MediaTextureEntry>();
   private pipelineCache: RenderPipelineCache = createRenderPipelineCache();
   private pixelRatio: number;
 
@@ -185,6 +188,8 @@ export class CompositionRenderer {
         this.createTextImage(spec, w, h, contentScale),
       componentSources: this.componentSources,
       componentTextures: this.componentTextures,
+      mediaSources: this.mediaSources,
+      mediaTextures: this.mediaTextures,
       contentScale: this.getContentScale(height),
       findLayer: this.options.findLayer,
       getModulatedValue: modFn ?? this.options.getModulatedValue ?? null,
@@ -241,6 +246,30 @@ export class CompositionRenderer {
   /** Layer ids that currently have a pushed component source. */
   getComponentSourceIds(): string[] {
     return [...this.componentSources.keys()];
+  }
+
+  /**
+   * Push (or clear) the decoded frame for an image/video layer. The host owns
+   * loading and decoding entirely and bumps `version` on every new frame (each
+   * decoded video frame); the renderer re-uploads on the next render only when
+   * the version changed. Passing null frees the layer's source and GPU texture.
+   */
+  setMediaSource(layerId: string, source: MediaSource | null): void {
+    if (!source) {
+      this.mediaSources.delete(layerId);
+      const cached = this.mediaTextures.get(layerId);
+      if (cached) {
+        this.gl.deleteTexture(cached.texture);
+        this.mediaTextures.delete(layerId);
+      }
+      return;
+    }
+    this.mediaSources.set(layerId, source);
+  }
+
+  /** Layer ids that currently have a pushed media source. */
+  getMediaSourceIds(): string[] {
+    return [...this.mediaSources.keys()];
   }
 
   async captureBlob(): Promise<Blob | null> {

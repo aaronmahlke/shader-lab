@@ -30,6 +30,7 @@ import type { LayerTransformValues } from "#shared/editor/layer-transform";
 import {
   FULL_CONTENT_EXTENT,
   componentContentExtent,
+  mediaContentExtent,
   textContentExtent,
   textExtentSpecFromValues,
   type ContentExtent,
@@ -302,6 +303,7 @@ const {
   restoreRenderer,
   renderFrame,
   setComponentSource,
+  setMediaSource,
   requestRender,
 } = useMultiPassRenderer(canvasRef, passes, {
   layers,
@@ -324,6 +326,35 @@ const componentCapture = useComponentCapture({
   setComponentSource,
   requestRender,
 });
+
+// --- Image/video layers: host-side decode + playhead-driven video time ---
+
+const mediaSources = useMediaSources({
+  layers,
+  setMediaSource,
+  requestRender,
+  currentTime,
+});
+
+// Default clip length: a video layer with no timing yet gets out = its clip
+// end (min(video duration, comp duration); the timeline stores the exact
+// full-width window as "no timing", so a clip longer than the comp stays
+// timing-less). Applied once per layer so clearing the bar sticks.
+const defaultedClipLengths = new Set<string>();
+watch(
+  () => [...mediaSources.durations.entries()],
+  (entries) => {
+    for (const [layerId, duration] of entries) {
+      if (!(duration > 0) || defaultedClipLengths.has(layerId)) continue;
+      defaultedClipLengths.add(layerId);
+      const layer = layers.value.find((l) => l.id === layerId);
+      if (!layer || layer.type !== "video" || layer.timing) continue;
+      const out = Math.min(duration, settings.value.duration);
+      if (out >= settings.value.duration - 1e-6) continue;
+      layer.timing = { out };
+    }
+  },
+);
 
 // The renderer follows the playhead (compositionTime: currentTime), so an
 // export must DRIVE the playhead: keyframe tracks and LFO sampling all key
@@ -381,6 +412,7 @@ const shaderExport = {
     exportRestoreTime = currentTime.value;
     lastExportFrameTime = null;
     componentCapture.pause();
+    mediaSources.pause();
     pause();
     beginExportClock();
   },
@@ -393,6 +425,7 @@ const shaderExport = {
     }
     resume();
     componentCapture.resume();
+    mediaSources.resume();
   },
   getCanvas,
   configureRenderer,
@@ -412,7 +445,9 @@ const shaderExport = {
       exportAnimationStepper.step(componentStageRoots(), (time - lastExportFrameTime) * 1000);
     }
     lastExportFrameTime = time;
-    // 4. Capture the DOM in that exact state and render.
+    // 4. Seek every video layer to the exact frame time (awaits `seeked`).
+    await mediaSources.syncForExport(time);
+    // 5. Capture the DOM in that exact state and render.
     await componentCapture.captureAll();
     renderFrame(time);
   },
@@ -823,7 +858,7 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
 
 // --- Universal transform gizmo (generators without a specialized gizmo) ---
 
-const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape"]);
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape", "image", "video"]);
 
 const showTransformGizmo = computed(
   () =>
@@ -897,6 +932,23 @@ function layerContentExtent(layer: LayerInstance): ContentExtent {
       size.cssHeight,
       settings.value.width,
       settings.value.height,
+    );
+  }
+  if (layer.type === "image" || layer.type === "video") {
+    const size = mediaSources.naturalSizes.get(layer.id);
+    if (!size) return FULL_CONTENT_EXTENT;
+    // Crops are keyframeable and shrink the on-screen rect, like the shader.
+    return mediaContentExtent(
+      size.width,
+      size.height,
+      settings.value.width,
+      settings.value.height,
+      {
+        cropLeft: paramValue(layer.id, "cropLeft", 0),
+        cropRight: paramValue(layer.id, "cropRight", 0),
+        cropTop: paramValue(layer.id, "cropTop", 0),
+        cropBottom: paramValue(layer.id, "cropBottom", 0),
+      },
     );
   }
   if (layer.type === "text") return textLayerExtent(layer);

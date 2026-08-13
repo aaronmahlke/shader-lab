@@ -64,6 +64,40 @@ describe("compilePasses", () => {
     expect(passes.at(-1)?.layerType).toBe("blit");
   });
 
+  it("compiles image and video layers as generators with composite passes", () => {
+    for (const type of ["image", "video"] as const) {
+      const id = `${type}-1`;
+      const layers = [
+        {
+          id,
+          type,
+          enabled: true,
+          values: buildLayerValues(type),
+        },
+      ];
+      const passes = compilePasses(layers);
+      const contentPass = passes.find((p) => p.layerType === type);
+      expect(contentPass).toBeDefined();
+      expect(contentPass?.inputLayerId).toBeNull();
+      // Crop uniforms drive the media-source content shader.
+      expect(contentPass?.uniforms.cropLeft).toBe(0);
+      expect(contentPass?.uniforms.cropRight).toBe(0);
+      expect(contentPass?.uniforms.cropTop).toBe(0);
+      expect(contentPass?.uniforms.cropBottom).toBe(0);
+      const compositePass = passes.find((p) => p.layerType === "layerComposite");
+      expect(compositePass?.colorSourceLayerId).toBe(id);
+      expect(compositePass?.sourceLayerId).toBe(id);
+      expect(passes.at(-1)?.layerType).toBe("blit");
+    }
+  });
+
+  it("keeps host-side video semantics in layer values", () => {
+    const values = buildLayerValues("video");
+    expect(values.src).toBe("");
+    expect(values.loop).toBe(true);
+    expect(values.trimStart).toBe(0);
+  });
+
   it("expands a camera layer into the lens pass chain", () => {
     const layers = [
       {

@@ -8,7 +8,7 @@ import {
   textSpecFromValues,
   type TextLayerSpec,
 } from "./text-raster";
-import type { ComponentSource } from "./component-source";
+import type { ComponentSource, MediaSource } from "./component-source";
 import { stbnFrameIndex } from "../modulation/stbn";
 import {
   FRAG_SHADERS,
@@ -44,6 +44,8 @@ export type TextTextureEntry = { key: string; texture: WebGLTexture };
 
 export type ComponentTextureEntry = { version: number; texture: WebGLTexture };
 
+export type MediaTextureEntry = { version: number; texture: WebGLTexture };
+
 export type RenderPassContext = {
   gl: GlContext;
   width: number;
@@ -59,6 +61,9 @@ export type RenderPassContext = {
   /** Host-pushed component captures; component layers render transparent without one. */
   componentSources?: Map<string, ComponentSource>;
   componentTextures?: Map<string, ComponentTextureEntry>;
+  /** Host-pushed media frames; image/video layers render transparent without one. */
+  mediaSources?: Map<string, MediaSource>;
+  mediaTextures?: Map<string, MediaTextureEntry>;
   /** Buffer px per composition px — keeps text size resolution-independent. */
   contentScale?: number;
   findLayer?: (pass: RenderPass) => LayerInstance | undefined;
@@ -191,6 +196,55 @@ function ensureComponentTexture(
   return { texture, source };
 }
 
+/** Upload (or reuse) the host-pushed frame for an image/video layer pass. */
+function ensureMediaTexture(
+  pass: RenderPass,
+  ctx: RenderPassContext,
+): { texture: WebGLTexture; source: MediaSource } | null {
+  const { gl, mediaSources, mediaTextures } = ctx;
+  if (!mediaSources || !mediaTextures) return null;
+
+  const source = mediaSources.get(pass.layerId);
+  if (!source) return null;
+
+  const cached = mediaTextures.get(pass.layerId);
+  if (cached && cached.version === source.version) {
+    return { texture: cached.texture, source };
+  }
+
+  const texture = cached?.texture ?? gl.createTexture();
+  if (!texture) return null;
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const frame = source.source;
+  if ("data" in frame) {
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      frame.width,
+      frame.height,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      frame.data,
+    );
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+  }
+  // Media is usually higher-res than its draw size (photos, video frames);
+  // mipmaps keep minified detail stable instead of shimmering under
+  // bilinear-only sampling. NPOT mipmaps are legal here because the pipeline
+  // requires a WebGL2 context everywhere.
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  mediaTextures.set(pass.layerId, { version: source.version, texture });
+  return { texture, source };
+}
+
 const HEX_COLOR_RE = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 type PassTargetInfo = {
@@ -304,6 +358,32 @@ function setPassUniforms(
           uContentSize,
           Math.max(1, entry.source.cssWidth * contentScale),
           Math.max(1, entry.source.cssHeight * contentScale),
+        );
+      }
+    }
+    const uHasTexture = gl.getUniformLocation(program, "u_hasTexture");
+    if (uHasTexture) gl.uniform1i(uHasTexture, entry ? 1 : 0);
+  }
+
+  if (pass.layerType === "image" || pass.layerType === "video") {
+    const entry = ensureMediaTexture(pass, ctx);
+    if (entry) {
+      const uLayerTexture = gl.getUniformLocation(program, "u_layerTexture");
+      if (uLayerTexture) {
+        gl.activeTexture(gl.TEXTURE0 + texUnit);
+        gl.bindTexture(gl.TEXTURE_2D, entry.texture);
+        gl.uniform1i(uLayerTexture, texUnit);
+        texUnit++;
+      }
+      // Uncropped display size in buffer px; the shader shrinks it by the crop
+      // fractions and remaps sampling into the kept window.
+      const contentScale = ctx.contentScale ?? 1;
+      const uContentSize = gl.getUniformLocation(program, "u_contentSize");
+      if (uContentSize) {
+        gl.uniform2f(
+          uContentSize,
+          Math.max(1, entry.source.width * contentScale),
+          Math.max(1, entry.source.height * contentScale),
         );
       }
     }

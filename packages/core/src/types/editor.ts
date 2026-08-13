@@ -7,6 +7,8 @@ export type LayerType =
   | "noise"
   | "text"
   | "component"
+  | "image"
+  | "video"
   | "camera"
   | "shape"
   | "waveFill"
