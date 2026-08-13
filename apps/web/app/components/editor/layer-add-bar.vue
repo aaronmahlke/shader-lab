@@ -17,11 +17,17 @@ const emit = defineEmits<Emits>();
 
 const open = ref(false);
 
+function openPanel() {
+  open.value = true;
+}
+
 function onSelect(type: LayerType | null) {
   if (!type) return;
   emit("select", type);
   open.value = false;
 }
+
+defineExpose({ open, openPanel });
 </script>
 
 <template>
@@ -54,13 +60,11 @@ function onSelect(type: LayerType | null) {
       </ComboboxAnchor>
 
       <ComboboxPortal>
+        <!-- Fixed, screen-centered (cmd+k style) rather than anchored to the
+             + trigger, which sat off-center in the toolbar. -->
         <ComboboxContent
-          position="popper"
-          side="bottom"
-          align="center"
-          :side-offset="10"
-          :collision-padding="12"
-          class="floating-content-enter z-[9999] flex h-[min(60vh,28rem)] w-[min(92vw,36rem)] origin-[var(--reka-combobox-content-transform-origin)] flex-col overflow-hidden rounded-2xl border border-neutral bg-layer-1 shadow-panel backdrop-blur-xl outline-none"
+          position="inline"
+          class="floating-content-enter fixed top-[14%] left-1/2 z-[9999] flex h-[min(60vh,28rem)] w-[min(92vw,36rem)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-neutral bg-layer-1 shadow-panel backdrop-blur-xl outline-none"
           @open-auto-focus.prevent
         >
           <EditorLayerAddBarPanel />

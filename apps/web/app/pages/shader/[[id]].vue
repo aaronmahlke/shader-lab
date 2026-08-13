@@ -1020,6 +1020,18 @@ watch(shaderName, () => {
 
 const { register: registerKeyboard } = useEditorKeyboard();
 
+const layerAddBarRef = ref<{ openPanel: () => void } | null>(null);
+
+registerKeyboard({
+  id: "shader:add-layer-palette",
+  priority: EditorKeyboardPriority.transport,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return false;
+    layerAddBarRef.value?.openPanel();
+    return true;
+  },
+});
+
 registerKeyboard({
   id: "shader:undo",
   priority: EditorKeyboardPriority.transport,
@@ -1246,7 +1258,7 @@ registerKeyboard({
         </ClientOnly>
 
         <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">
-          <EditorLayerAddBar class="pointer-events-auto" @select="addLayer" />
+          <EditorLayerAddBar ref="layerAddBarRef" class="pointer-events-auto" @select="addLayer" />
           <UiPopover side="bottom" align="center">
             <template #trigger>
               <button

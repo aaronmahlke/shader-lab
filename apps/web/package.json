@@ -11,7 +11,8 @@
     "db:migrate": "drizzle-kit migrate --config=server/database/drizzle.config.ts",
     "migrate": "bun run db:migrate",
     "db:push": "drizzle-kit push --config=server/database/drizzle.config.ts",
-    "db:studio": "drizzle-kit studio --config=server/database/drizzle.config.ts"
+    "db:studio": "drizzle-kit studio --config=server/database/drizzle.config.ts",
+    "previews:generate": "xvfb-run -a node scripts/generate-catalog-previews.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.999.0",
