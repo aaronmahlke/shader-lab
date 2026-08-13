@@ -104,13 +104,18 @@ export function useMultiPassRenderer(
     exportLoopPaused = false;
     paused.value = false;
     lastFrameTime = 0;
+    resize();
     if (renderer && animationId === null) {
       animate();
     }
   }
 
   function resize() {
-    if (!renderer || !canvasRef.value) return;
+    // During export the buffer is driven explicitly (configureRenderer);
+    // resizing the buffer changes the canvas box, which fires the
+    // ResizeObserver, which would snap the buffer back to viewport size
+    // mid-export and break the encoder's constant-size requirement.
+    if (!renderer || !canvasRef.value || exportLoopPaused) return;
     const rect = canvasRef.value.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) return;
     renderer.syncCanvasSize();
@@ -179,6 +184,7 @@ export function useMultiPassRenderer(
     watch(
       () => `${fixedBufferSize.value.width}x${fixedBufferSize.value.height}`,
       () => {
+        if (exportLoopPaused) return;
         renderer?.setOptions({ fixedBufferSize: fixedBufferSize.value });
         renderer?.syncCanvasSize();
       },
