@@ -1,6 +1,7 @@
 import type { LayerInstance } from "@shader-lab/core";
 import {
   layerBoundsInCompUv,
+  type ContentExtent,
   type LayerTransformValues,
 } from "./layer-transform";
 import { PICKABLE_LAYER_TYPES } from "./canvas-picking";
@@ -50,6 +51,7 @@ export function collectSnapTargets(
   exclude: string | Iterable<string> | null,
   aspect: number,
   getTransform: (layer: LayerInstance) => LayerTransformValues,
+  getExtent?: (layer: LayerInstance) => ContentExtent,
 ): SnapTargets {
   const excluded = new Set(
     exclude == null ? [] : typeof exclude === "string" ? [exclude] : exclude,
@@ -59,7 +61,7 @@ export function collectSnapTargets(
   for (const layer of layers) {
     if (!layer.enabled || excluded.has(layer.id)) continue;
     if (!PICKABLE_LAYER_TYPES.has(layer.type)) continue;
-    const bounds = layerBoundsInCompUv(getTransform(layer), aspect);
+    const bounds = layerBoundsInCompUv(getTransform(layer), aspect, getExtent?.(layer));
     x.push(bounds.minX, bounds.centerX, bounds.maxX);
     y.push(bounds.minY, bounds.centerY, bounds.maxY);
   }

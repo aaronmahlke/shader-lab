@@ -1,6 +1,7 @@
 import type { LayerInstance } from "@shader-lab/core";
 import {
   isPointInLayer,
+  type ContentExtent,
   type LayerTransformValues,
   type Vec2,
 } from "./layer-transform";
@@ -23,10 +24,11 @@ export function topLayerAt(
   uv: Vec2,
   aspect: number,
   getTransform: (layer: LayerInstance) => LayerTransformValues,
+  getExtent?: (layer: LayerInstance) => ContentExtent,
 ): LayerInstance | null {
   for (const layer of layers) {
     if (!layer.enabled || !PICKABLE_LAYER_TYPES.has(layer.type)) continue;
-    if (isPointInLayer(uv, getTransform(layer), aspect)) return layer;
+    if (isPointInLayer(uv, getTransform(layer), aspect, getExtent?.(layer))) return layer;
   }
   return null;
 }

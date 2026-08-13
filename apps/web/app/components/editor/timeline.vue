@@ -38,6 +38,11 @@ import {
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
+  clampBarMoveIn,
+  fitPxPerSecond,
+  parseCompositionDuration,
+} from "#shared/editor/timeline-window";
+import {
   isKeyframeInSelection,
   toggleKeyframeInSelection,
 } from "#shared/editor/keyframe-selection";
@@ -256,6 +261,7 @@ function zoomAt(factor: number, anchorClientX: number) {
   );
   if (Math.abs(next - pxPerSecond.value) < 1e-6) return;
 
+  userZoomed.value = true;
   pxPerSecond.value = next;
   nextTick(() => {
     applyScrollLeft(anchorTime * next - anchorX);
@@ -275,6 +281,41 @@ function zoomOut() {
   const rect = body.getBoundingClientRect();
   zoomAt(0.8, rect.left + rect.width / 2);
 }
+
+/** Set after any manual zoom; auto-fit stays off until the Fit control resets it. */
+const userZoomed = ref(false);
+
+/** Zoom so the whole composition fills the visible track area. */
+function applyFitZoom() {
+  const body = bodyScrollRef.value;
+  if (!body) return;
+  const next = fitPxPerSecond(
+    body.clientWidth,
+    settings.duration,
+    MIN_PX_PER_SECOND,
+    MAX_PX_PER_SECOND,
+  );
+  if (next === null) return;
+  pxPerSecond.value = next;
+  nextTick(() => applyScrollLeft(0));
+}
+
+function fitTimeline() {
+  userZoomed.value = false;
+  applyFitZoom();
+}
+
+onMounted(() => {
+  nextTick(applyFitZoom);
+});
+
+watch(
+  () => settings.duration,
+  () => {
+    if (userZoomed.value) return;
+    nextTick(applyFitZoom);
+  },
+);
 
 function onTimelineWheel(e: WheelEvent) {
   if (e.altKey) {
@@ -855,6 +896,34 @@ function formatTime(seconds: number): string {
   return `${s.toFixed(2)}s`;
 }
 
+// --- Editable composition duration (transport readout) ---
+
+const editingDuration = ref<string | null>(null);
+
+function openDurationEditor() {
+  editingDuration.value = String(Number(settings.duration.toFixed(2)));
+}
+
+function commitDurationEditor() {
+  const text = editingDuration.value;
+  if (text === null) return;
+  editingDuration.value = null;
+
+  const next = parseCompositionDuration(text);
+  if (next === null || Math.abs(next - settings.duration) < 1e-9) return;
+
+  // Same write path as the composition settings panel: mutate + record.
+  settings.duration = next;
+  if (currentTime.value > next) currentTime.value = next;
+  history?.record();
+
+  if (!userZoomed.value) nextTick(applyFitZoom);
+}
+
+function cancelDurationEditor() {
+  editingDuration.value = null;
+}
+
 function scrollTimelineForScrub(e: PointerEvent) {
   const body = bodyScrollRef.value;
   if (!body) return;
@@ -1168,6 +1237,18 @@ registerKeyboard({
   },
 });
 
+registerKeyboard({
+  id: "timeline:zoom-to-fit",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (e.key.toLowerCase() !== "z" || !e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) {
+      return false;
+    }
+    fitTimeline();
+    return true;
+  },
+});
+
 /** AE-style property reveal shortcuts on the selected layer(s). */
 const PROPERTY_SHORTCUT_PARAMS: Record<string, string[]> = {
   p: ["layerPositionX", "layerPositionY"],
@@ -1247,19 +1328,24 @@ function layerBarStyle(layer: LayerInstance) {
   return { left: `${left}px`, width: `${width}px` };
 }
 
-/** Persist the window; a full-width window is stored as "no timing". */
+/**
+ * Persist the window; the exact full-width window is stored as "no timing".
+ * The window may overhang the composition on either side (in < 0 or
+ * out > duration); content outside [0, duration] simply never plays.
+ */
 function writeLayerTiming(layer: LayerInstance, inPoint: number, outPoint: number) {
   const frame = 1 / settings.fps;
-  const nextIn = Math.max(0, Math.min(inPoint, settings.duration - frame));
-  const nextOut = Math.min(settings.duration, Math.max(outPoint, nextIn + frame));
+  const nextIn = inPoint;
+  const nextOut = Math.max(outPoint, nextIn + frame);
+  const eps = 1e-6;
 
-  if (nextIn <= 0 && nextOut >= settings.duration) {
+  if (Math.abs(nextIn) < eps && Math.abs(nextOut - settings.duration) < eps) {
     if (layer.timing) layer.timing = undefined;
     return;
   }
   layer.timing = {
-    ...(nextIn > 0 ? { in: nextIn } : {}),
-    ...(nextOut < settings.duration ? { out: nextOut } : {}),
+    ...(Math.abs(nextIn) > eps ? { in: nextIn } : {}),
+    ...(Math.abs(nextOut - settings.duration) > eps ? { out: nextOut } : {}),
   };
 }
 
@@ -1306,18 +1392,25 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
 
     const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
     if (mode === "move") {
+      // The bar may overhang either end as long as a grabbable slice stays inside.
       const length = startOut - startIn;
-      const nextIn = Math.max(
-        0,
-        Math.min(snapTime(startIn + deltaTime), settings.duration - length),
+      const nextIn = clampBarMoveIn(
+        snapTime(startIn + deltaTime),
+        length,
+        settings.duration,
       );
       writeLayerTiming(layer, nextIn, nextIn + length);
       shiftLayerKeyframes(nextIn - startIn);
     } else if (mode === "in") {
-      const nextIn = Math.min(snapTime(startIn + deltaTime), startOut - frame);
+      // Trim stops at 0 as before, but keeps an existing left overhang reachable.
+      const nextIn = Math.max(
+        Math.min(0, startIn),
+        Math.min(snapTime(startIn + deltaTime), startOut - frame, settings.duration - frame),
+      );
       writeLayerTiming(layer, nextIn, startOut);
     } else {
-      const nextOut = Math.max(snapTime(startOut + deltaTime), startIn + frame);
+      // The out point may pass the composition end; that tail never plays.
+      const nextOut = Math.max(snapTime(startOut + deltaTime), startIn + frame, frame);
       writeLayerTiming(layer, startIn, nextOut);
     }
   }
@@ -1424,8 +1517,27 @@ function selectAllLayers() {
     <div class="flex shrink-0 items-center gap-2 border-b border-neutral px-2 py-1.5">
       <UiButton variant="ghost" size="sm" :icon-left="playing ? PauseIcon : PlayIcon" @click="togglePlay" />
       <span class="font-mono text-copy-xs text-neutral-strong">{{ formatTime(currentTime) }}</span>
-      <span class="text-copy-xs text-neutral-subtle">/ {{ formatTime(settings.duration) }}</span>
+      <input
+        v-if="editingDuration !== null"
+        :ref="focusValueInput"
+        v-model="editingDuration"
+        class="w-14 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+        spellcheck="false"
+        title="Composition duration (seconds)"
+        @keydown.enter.stop.prevent="commitDurationEditor"
+        @keydown.esc.stop.prevent="cancelDurationEditor"
+        @keydown.stop
+        @blur="commitDurationEditor"
+        @pointerdown.stop
+      />
+      <span
+        v-else
+        class="cursor-text rounded-sm px-1 text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+        title="Click to edit composition duration"
+        @click="openDurationEditor"
+      >/ {{ formatTime(settings.duration) }}</span>
       <div class="ml-auto flex items-center gap-0.5">
+        <UiButton variant="ghost" size="sm" title="Fit composition to view (⇧Z)" @click="fitTimeline">Fit</UiButton>
         <UiButton variant="ghost" size="sm" :icon-left="MinusIcon" title="Zoom out (⌥ scroll)" @click="zoomOut" />
         <span class="min-w-10 text-center font-mono text-copy-xs text-neutral-subtle">{{ zoomPercent }}%</span>
         <UiButton variant="ghost" size="sm" :icon-left="PlusIcon" title="Zoom in (⌥ scroll)" @click="zoomIn" />

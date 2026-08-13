@@ -43,8 +43,10 @@ export function useVideoExport() {
     const totalFrames = Math.ceil(fps * duration);
     const frameDuration = 1 / fps;
 
-    // Capture the current time so the video starts from the current animation state
-    const startTime = performance.now() / 1000;
+    // Export renders COMPOSITION time from 0: keyframe tracks and layer in/out
+    // windows live on the timeline. The previous wall-clock start (performance.now)
+    // evaluated tracks far past their last keyframe, freezing all keyframed
+    // animation in exports while self-animating DOM content kept moving.
 
     aborted = false;
     state.exporting = true;
@@ -81,7 +83,7 @@ export function useVideoExport() {
       for (let i = 0; i < totalFrames; i++) {
         if (aborted) break;
 
-        const time = startTime + i * frameDuration;
+        const time = i * frameDuration;
         await Promise.resolve(shader.renderFrame(time));
 
         await videoSource.add(i * frameDuration, frameDuration);

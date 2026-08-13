@@ -9,6 +9,7 @@ import {
   shortestAngleDelta,
   transformCenter,
   unionBounds,
+  type ContentExtent,
   type LayerBounds,
   type LayerTransformValues,
   type Vec2,
@@ -29,6 +30,8 @@ type Props = {
   snapTargets?: SnapTargets;
   /** Topmost pickable layer at a comp UV point (click-to-collapse). */
   pickAt?: (uv: Vec2, aspect: number) => string | null;
+  /** Per-layer content rect (component/text draw less than the full frame). */
+  getExtent?: (layer: LayerInstance) => ContentExtent;
 };
 
 type Emits = {
@@ -53,7 +56,11 @@ const SNAP_THRESHOLD_PX = 6;
 const GUIDE_COLOR = "#FF5D8F";
 
 const groupBounds = computed<LayerBounds | null>(() =>
-  unionBounds(props.layers.map((l) => layerBoundsInCompUv(props.getTransform(l), aspect.value))),
+  unionBounds(
+    props.layers.map((l) =>
+      layerBoundsInCompUv(props.getTransform(l), aspect.value, props.getExtent?.(l)),
+    ),
+  ),
 );
 
 function boundsCorners(b: LayerBounds): Vec2[] {
