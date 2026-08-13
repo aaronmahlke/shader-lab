@@ -204,6 +204,7 @@ async function handleVideoExport() {
                   v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
                   :key="preset.label"
                   variant="option"
+                  full-width
                   :active="selectedScale === i"
                   class="flex-1"
                   @click="selectedScale = i"
@@ -216,6 +217,7 @@ async function handleVideoExport() {
                   v-for="(res, i) in LEGACY_RESOLUTIONS"
                   :key="res.label"
                   variant="option"
+                  full-width
                   :active="selectedLegacyResolution === i"
                   class="flex-1"
                   @click="selectedLegacyResolution = i"
@@ -250,6 +252,7 @@ async function handleVideoExport() {
                     v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
                     :key="preset.label"
                     variant="option"
+                    full-width
                     :active="selectedScale === i"
                     class="flex-1"
                     @click="selectedScale = i"
@@ -262,6 +265,7 @@ async function handleVideoExport() {
                     v-for="(res, i) in LEGACY_RESOLUTIONS"
                     :key="res.label"
                     variant="option"
+                    full-width
                     :active="selectedLegacyResolution === i"
                     class="flex-1"
                     @click="selectedLegacyResolution = i"
@@ -285,6 +289,7 @@ async function handleVideoExport() {
                     v-for="(dur, i) in durationOptions"
                     :key="dur.label"
                     variant="option"
+                    full-width
                     :active="selectedDuration === i"
                     class="min-w-0 flex-1"
                     @click="selectedDuration = i"
@@ -301,6 +306,7 @@ async function handleVideoExport() {
                     v-for="(fps, i) in fpsOptions"
                     :key="fps.label"
                     variant="option"
+                    full-width
                     :active="selectedFps === i"
                     class="flex-1"
                     @click="selectedFps = i"
@@ -317,6 +323,7 @@ async function handleVideoExport() {
                     v-for="f in formatOptions"
                     :key="f.value"
                     variant="option"
+                    full-width
                     :active="selectedFormat === f.value"
                     class="flex-1"
                     @click="selectedFormat = f.value"
