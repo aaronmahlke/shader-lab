@@ -1,4 +1,5 @@
 import type { LayerInstance, MediaSource } from "@shader-lab/core";
+import { mediaDisplayFit } from "#shared/editor/layer-content-extent";
 import {
   mediaSrcFromValues,
   videoLoopFromValues,
@@ -45,6 +46,8 @@ type MediaSourcesOptions = {
   requestRender: () => void;
   /** Playhead in seconds; video elements follow it. */
   currentTime: Ref<number>;
+  /** Composition size; media is displayed contain-fitted to it (never upscaled). */
+  compSize: () => { width: number; height: number };
 };
 
 export function useMediaSources(options: MediaSourcesOptions) {
@@ -102,14 +105,33 @@ export function useMediaSources(options: MediaSourcesOptions) {
       height = entry.element.naturalHeight;
     }
     if (!(width > 0) || !(height > 0)) return;
+    // Contain-fit: a 4K photo in a 1080p comp should show whole, not a
+    // zoomed-in center crop. Downscale to fit the comp, never upscale small
+    // media (they stay at natural pixel size and the user scales via the
+    // transform). Must match mediaContentExtent's fit so gizmos stay honest.
+    const fit = mediaDisplayFit(width, height, options.compSize());
     options.setMediaSource(layerId, {
       source: entry.element,
-      width,
-      height,
+      width: width * fit,
+      height: height * fit,
       version: ++entry.version,
     });
     if (render) options.requestRender();
   }
+
+  // Comp resize changes the fitted display size: re-push current frames with
+  // fresh dimensions (same version, so no texture re-upload for images).
+  watch(
+    () => {
+      const c = options.compSize();
+      return `${c.width}x${c.height}`;
+    },
+    () => {
+      for (const [layerId, entry] of entries) {
+        if (entry.element) pushFrame(layerId, entry, true);
+      }
+    },
+  );
 
   function disposeEntry(layerId: string): void {
     const entry = entries.get(layerId);

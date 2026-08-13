@@ -334,6 +334,7 @@ const mediaSources = useMediaSources({
   setMediaSource,
   requestRender,
   currentTime,
+  compSize: () => ({ width: settings.value.width, height: settings.value.height }),
 });
 
 // Default clip length: a video layer with no timing yet gets out = its clip

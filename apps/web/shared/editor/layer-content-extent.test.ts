@@ -3,6 +3,7 @@ import {
   FULL_CONTENT_EXTENT,
   componentContentExtent,
   mediaContentExtent,
+  mediaDisplayFit, mediaDisplayFit,
   textContentExtent,
   textExtentSpecFromValues,
   type MediaCropValues,
@@ -76,12 +77,13 @@ describe("mediaContentExtent", () => {
     expect(e.maxX).toBe(1);
   });
 
-  it("clamps media larger than the frame (FBO clips it)", () => {
+  it("contain-fits media larger than the frame", () => {
+    // 4000x540 in 1920x1080: width limits, fit = 0.48 -> 1920x259.2 on screen.
     const e = mediaContentExtent(4000, 540, 1920, 1080, NO_CROP);
     expect(e.minX).toBe(0);
     expect(e.maxX).toBe(1);
-    expect(e.minY).toBeCloseTo(0.25);
-    expect(e.maxY).toBeCloseTo(0.75);
+    expect(e.maxY - e.minY).toBeCloseTo((540 * (1920 / 4000)) / 1080);
+    expect(e.minY + e.maxY).toBeCloseTo(1); // centered
   });
 
   it("falls back to the full frame without a valid size or when uncropped media fills it", () => {
@@ -164,5 +166,25 @@ describe("textExtentSpecFromValues", () => {
       lineHeight: 1.1,
       textAlign: "center",
     });
+  });
+});
+
+describe("mediaDisplayFit", () => {
+  it("downscales large media to contain within the comp", () => {
+    // 4000x3000 photo in a 1920x1080 comp: height is the limiting axis.
+    expect(mediaDisplayFit(4000, 3000, { width: 1920, height: 1080 })).toBeCloseTo(1080 / 3000);
+  });
+
+  it("never upscales small media", () => {
+    expect(mediaDisplayFit(640, 360, { width: 1920, height: 1080 })).toBe(1);
+  });
+
+  it("extent uses the fitted size", () => {
+    // 4000x3000 fitted by 0.36 -> 1440x1080 -> fractions 0.75 x 1.0
+    const e = mediaContentExtent(4000, 3000, 1920, 1080, {
+      cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0,
+    });
+    expect(e.maxX - e.minX).toBeCloseTo(1440 / 1920);
+    expect(e.maxY - e.minY).toBeCloseTo(1);
   });
 });

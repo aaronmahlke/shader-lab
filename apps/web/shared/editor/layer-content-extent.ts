@@ -65,6 +65,22 @@ export type MediaCropValues = {
  * terms maxY (the on-screen top edge) moves down while minY moves up by the
  * same amount as the shrunken rect re-centers.
  */
+/**
+ * Uniform contain-fit scale for media display: downscale to fit the comp,
+ * never upscale. The media runtime pushes display dimensions scaled by this,
+ * and the extent math below applies the same factor so both agree.
+ */
+export function mediaDisplayFit(
+  naturalWidth: number,
+  naturalHeight: number,
+  comp: { width: number; height: number },
+): number {
+  if (!(naturalWidth > 0) || !(naturalHeight > 0) || !(comp.width > 0) || !(comp.height > 0)) {
+    return 1;
+  }
+  return Math.min(1, comp.width / naturalWidth, comp.height / naturalHeight);
+}
+
 export function mediaContentExtent(
   naturalWidth: number,
   naturalHeight: number,
@@ -83,8 +99,10 @@ export function mediaContentExtent(
   // Mirror the frag's `keep` clamp: degenerate crop sums can't go negative.
   const keepX = Math.max(0, 1 - crops.cropLeft - crops.cropRight);
   const keepY = Math.max(0, 1 - crops.cropTop - crops.cropBottom);
-  const w = clamp01((naturalWidth * keepX) / compWidth);
-  const h = clamp01((naturalHeight * keepY) / compHeight);
+  // Same contain-fit the runtime applies when pushing display dimensions.
+  const fit = mediaDisplayFit(naturalWidth, naturalHeight, { width: compWidth, height: compHeight });
+  const w = clamp01((naturalWidth * fit * keepX) / compWidth);
+  const h = clamp01((naturalHeight * fit * keepY) / compHeight);
   if (w >= 1 && h >= 1) return FULL_CONTENT_EXTENT;
   return {
     minX: 0.5 - w / 2,
