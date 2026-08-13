@@ -133,7 +133,7 @@ async function handleVideoExport() {
     experimentId,
   });
 
-  if (!videoState.exporting) {
+  if (!videoState.exporting && !videoState.error) {
     open.value = false;
   }
 }
@@ -283,8 +283,12 @@ async function handleVideoExport() {
               </div>
 
               <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleVideoExport">
-                Render MP4
+                Render video
               </UiButton>
+
+              <p v-if="videoState.error" class="text-copy-xs text-red-400">
+                {{ videoState.error }}
+              </p>
             </div>
 
             <div v-else class="flex flex-col gap-3">

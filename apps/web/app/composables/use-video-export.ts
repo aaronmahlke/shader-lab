@@ -1,5 +1,5 @@
-import { Output, Mp4OutputFormat, BufferTarget, CanvasSource } from "mediabunny";
-import { canvasVideoEncodingConfig } from "#shared/editor/video-encoding";
+import { Output, Mp4OutputFormat, WebMOutputFormat, BufferTarget, CanvasSource } from "mediabunny";
+import { negotiateCanvasEncoding } from "#shared/editor/video-encoding";
 
 type ExportOptions = {
   width: number;
@@ -23,6 +23,7 @@ type ExportState = {
   progress: number;
   currentFrame: number;
   totalFrames: number;
+  error: string | null;
 };
 
 export function useVideoExport() {
@@ -31,6 +32,7 @@ export function useVideoExport() {
     progress: 0,
     currentFrame: 0,
     totalFrames: 0,
+    error: null,
   });
 
   let aborted = false;
@@ -49,6 +51,7 @@ export function useVideoExport() {
     // animation in exports while self-animating DOM content kept moving.
 
     aborted = false;
+    state.error = null;
     state.exporting = true;
     state.progress = 0;
     state.currentFrame = 0;
@@ -66,15 +69,16 @@ export function useVideoExport() {
     }
 
     try {
+      // Pick a codec the browser can actually encode at this size: H.264
+      // levels cap out around 4K, so 4x-scale exports fall back to VP9/AV1.
+      const encoding = await negotiateCanvasEncoding(width, height, fps);
+
       const output = new Output({
-        format: new Mp4OutputFormat(),
+        format: encoding.container === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat(),
         target: new BufferTarget(),
       });
 
-      const videoSource = new CanvasSource(
-        canvas,
-        canvasVideoEncodingConfig(width, height, fps),
-      );
+      const videoSource = new CanvasSource(canvas, encoding.config);
 
       output.addVideoTrack(videoSource);
       await output.start();
@@ -103,15 +107,17 @@ export function useVideoExport() {
       if (!aborted) {
         const buffer = output.target.buffer;
         if (buffer) {
-          const blob = new Blob([buffer], { type: "video/mp4" });
+          const blob = new Blob([buffer], { type: encoding.mimeType });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `${experimentId}-${width}x${height}-${fps}fps.mp4`;
+          a.download = `${experimentId}-${width}x${height}-${fps}fps.${encoding.extension}`;
           a.click();
           URL.revokeObjectURL(url);
         }
       }
+    } catch (err) {
+      state.error = err instanceof Error ? err.message : "Export failed.";
     } finally {
       shader.restoreRenderer();
       shader.resume();
