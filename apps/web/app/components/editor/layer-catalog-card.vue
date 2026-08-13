@@ -27,18 +27,9 @@ const previewImageFailed = ref(false);
     <div
       class="relative aspect-[4/3] w-full overflow-hidden rounded-xl border border-edge bg-base-0 transition-colors duration-150 group-data-[highlighted]:border-edge-strong group-data-[state=checked]:border-edge-strong"
     >
-      <DashboardCompositionPreview
-        v-if="active"
-        :layers="entry.previewLayers"
-        :lfos="entry.previewLfos"
-        :assignments="entry.previewAssignments"
-        active
-        class="size-full"
-      />
       <div
-        v-else
         class="size-full"
-        :style="{ background: categoryGradients[entry.category] }"
+        :style="previewImageFailed ? { background: categoryGradients[entry.category] } : undefined"
       >
         <img
           v-if="!previewImageFailed"
