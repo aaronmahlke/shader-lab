@@ -261,6 +261,25 @@ Long term: staged demo components are better authored as native compositions
 (GPU-crisp, keyframable); DOM capture remains for filming *real* product UI,
 which is its unique value.
 
+### Compositions as code (design sketch, 2026-08-13)
+
+`CompositionConfig` is already a declarative IR for a composition. Idea: add
+authoring surfaces on top of it — a `defineComposition()` builder (TS/Vue) that
+compiles to the same IR, so opening a code-defined composition in the editor
+shows real layers/keyframes on the timeline.
+
+Model (Framer-style, avoids the two-way source-sync tar pit):
+
+- **Code owns structure** — the definition is read-only linked in the editor
+- **Editor owns parameters** — exposed `input()`s are editable and stored as
+  data overrides; "fork to data" detaches into a normal editable comp
+- One IR, three authoring surfaces: canvas (editor), code (builder), capture
+  (DOM components via the seekable clock)
+
+Depends on Phase 5 (comps as assets) + the unified clock; design the builder
+API together with the SDK config surface (same types). Differentiator vs
+Remotion (code-only) and Rive (editor-only).
+
 ### Renderer scalability (found 2026-08-13)
 
 - **FBO pooling**: every layer holds a persistent full-res FBO (`render-passes.ts` fbos map): ~33 MB/layer at 4K, ~132 MB at 8K -> multi-GB VRAM on big exports. The pass graph is linear; effects could ping-pong 2-3 shared targets. Medium refactor, biggest scalability win.
