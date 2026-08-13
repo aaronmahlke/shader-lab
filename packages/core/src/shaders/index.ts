@@ -73,6 +73,10 @@ export const INT_UNIFORMS = new Set([
   "coordMode",
   "mode",
   "steps",
+  // camera DOF sample count: declared `uniform int` in camera-dof.frag.
+  // Uploading it as float is silently ignored by WebGL, leaving it 0 and
+  // making the DOF pass early-out on every pixel (no blur at any aperture).
+  "dofSamples",
 ]);
 
 export const GRADIENT_RESOLUTION = 256;

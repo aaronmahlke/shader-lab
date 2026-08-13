@@ -654,33 +654,6 @@ export function renderPasses(
       auxTexture,
     });
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-    if (pass.layerType === "distortion" && typeof window !== "undefined") {
-      const fbo = fbos.get(pass.layerId);
-      if (fbo) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo.framebuffer);
-        const probe = new Float32Array(4);
-        gl.readPixels(
-          Math.floor(width / 2),
-          Math.floor(height / 2),
-          1,
-          1,
-          gl.RGBA,
-          gl.FLOAT,
-          probe,
-        );
-        gl.bindFramebuffer(
-          gl.FRAMEBUFFER,
-          pass.isOutput ? null : fbos.get(pass.layerId)?.framebuffer ?? null,
-        );
-        (window as unknown as { __distDbg?: unknown }).__distDbg = {
-          layerId: pass.layerId,
-          fboStatus: gl.checkFramebufferStatus(fbo.framebuffer),
-          probe: Array.from(probe),
-          amplitude: resolvePassUniformValues(pass, ctx).amplitude,
-        };
-      }
-    }
   }
 
   const pixels = readPixels ? new Uint8Array(width * height * 4) : undefined;

@@ -35,9 +35,13 @@ void main() {
   p.x /= aspect;
   vec2 luv = p + anchor;
 
-  // Coverage: 1 inside layer bounds, anti-aliased over ~1 texel at the edges.
+  // Coverage: 1 inside layer bounds, anti-aliased over ~1 texel just OUTSIDE
+  // the edges. Keeping the AA band outside [0,1] means an untransformed layer
+  // has full coverage on its outermost texel; the old inside-band darkened that
+  // ring, and distortion layers (which clamp displaced UVs onto it) smeared it
+  // into dark blocky artifacts across the frame.
   vec2 aa = 1.0 / (u_resolution * scale);
-  vec2 inside = smoothstep(vec2(0.0), aa, luv) * smoothstep(vec2(0.0), aa, 1.0 - luv);
+  vec2 inside = smoothstep(-aa, vec2(0.0), luv) * smoothstep(-aa, vec2(0.0), 1.0 - luv);
   float coverage = inside.x * inside.y;
 
   vec4 content = texture2D(u_color, clamp(luv, 0.0, 1.0));
