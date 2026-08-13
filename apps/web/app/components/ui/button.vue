@@ -180,7 +180,7 @@ const hoverShellClass = computed(() => [
       ]"
     >
       <div
-        class="flex items-center justify-center transition-opacity duration-100 ease-out-expo motion-reduce:transition-none"
+        class="flex min-w-0 max-w-full items-center justify-center transition-opacity duration-100 ease-out-expo motion-reduce:transition-none"
         :class="[
           size === 'inline' ? 'gap-0' : 'gap-0.5',
           loading ? 'opacity-0' : 'relative z-10',
@@ -193,7 +193,7 @@ const hoverShellClass = computed(() => [
           class="size-4 shrink-0"
           aria-hidden="true"
         />
-        <span v-if="slots.default" class="px-0.5"><slot /></span>
+        <span v-if="slots.default" class="min-w-0 truncate px-0.5"><slot /></span>
         <component
           v-if="iconRight"
           :is="iconRight"

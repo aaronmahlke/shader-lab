@@ -71,13 +71,13 @@ const durationOptions = computed(() => {
   const opts: { label: string; value: number }[] = [];
   if (compositionDuration > 0.05) {
     opts.push({
-      label: `Composition (${formatDuration(compositionDuration)})`,
+      label: `Comp · ${formatDuration(compositionDuration)}`,
       value: compositionDuration,
     });
   }
   if (canvasVideoDuration > 0.05) {
     opts.push({
-      label: `Canvas video (${formatDuration(canvasVideoDuration)})`,
+      label: `Video · ${formatDuration(canvasVideoDuration)}`,
       value: canvasVideoDuration,
     });
   }
