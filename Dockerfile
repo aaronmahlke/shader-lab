@@ -45,5 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/apps/web/.output ./.output
+# Migrations run on boot (server/plugins/migrate-on-boot.ts); ship the SQL.
+COPY --from=build /app/apps/web/server/database/migrations ./migrations
+ENV NUXT_MIGRATIONS_DIR=/app/migrations
 EXPOSE 3000
 CMD ["xvfb-run", "-a", "node", ".output/server/index.mjs"]
