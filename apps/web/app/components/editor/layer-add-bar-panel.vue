@@ -131,20 +131,17 @@ function onItemLeave() {
               {{ group.label }}
             </ComboboxLabel>
 
-            <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div class="flex flex-col gap-0.5">
               <ComboboxItem
                 v-for="entry in group.items"
                 :key="entry.type"
                 :value="entry.type"
                 :text-value="entry.searchText"
-                class="group cursor-pointer rounded-xl p-1 outline-none transition-colors duration-150 select-none data-[highlighted]:bg-surface-1"
+                class="group flex cursor-pointer items-center gap-3 rounded-lg p-1.5 outline-none transition-colors duration-150 select-none data-[highlighted]:bg-surface-1"
                 @pointerenter="onItemHover(entry)"
                 @pointerleave="onItemLeave"
               >
-                <EditorLayerCatalogCard
-                  :entry="entry"
-                  :active="hoveredType === entry.type"
-                />
+                <EditorLayerCatalogRow :entry="entry" />
               </ComboboxItem>
             </div>
           </ComboboxGroup>
