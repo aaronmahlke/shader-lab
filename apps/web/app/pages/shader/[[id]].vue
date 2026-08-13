@@ -55,6 +55,12 @@ import {
 } from "#shared/editor/shader-presets";
 import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
+import {
+  beginExportClock,
+  seekExportClock,
+  endExportClock,
+  createDomAnimationStepper,
+} from "~/utils/export-clock";
 import { ChevronRightIcon } from "@heroicons/vue/16/solid";
 import {
   WAVE_AMPLITUDE,
@@ -324,6 +330,22 @@ const componentCapture = useComponentCapture({
 // the frozen playhead and exports lose every keyframed animation.
 let exportRestoreTime: number | null = null;
 
+// Virtual clock: while exporting, timed sequences are seeked to exact frame
+// times and Web Animations under the component stages are paused and stepped
+// per frame, so self-animating components bake identically on every run.
+const exportAnimationStepper = createDomAnimationStepper();
+let lastExportFrameTime: number | null = null;
+
+function componentStageRoots(): Element[] {
+  const roots: Element[] = [];
+  for (const layer of layers.value) {
+    if (layer.type !== "component") continue;
+    const el = stageHostRef.value?.getElement(layer.id);
+    if (el) roots.push(el);
+  }
+  return roots;
+}
+
 const shaderExport = {
   capture: async (w: number, h: number) => {
     await componentCapture.captureAll();
@@ -332,10 +354,14 @@ const shaderExport = {
   // Exports drive capture per frame; the live loop would only race them.
   pause: () => {
     exportRestoreTime = currentTime.value;
+    lastExportFrameTime = null;
     componentCapture.pause();
     pause();
+    beginExportClock();
   },
   resume: () => {
+    exportAnimationStepper.release(componentStageRoots());
+    endExportClock();
     if (exportRestoreTime !== null) {
       currentTime.value = exportRestoreTime;
       exportRestoreTime = null;
@@ -348,6 +374,20 @@ const shaderExport = {
   restoreRenderer,
   renderFrame: async (time: number) => {
     currentTime.value = time;
+    // 1. Seek sequences to the frame time (fires their due events).
+    seekExportClock(time * 1000);
+    // 2. Let Vue flush the resulting DOM changes so new CSS transitions exist.
+    await nextTick();
+    // 3. Freeze + step all stage animations by exactly one frame. The first
+    //    frame instead cancels animations inherited from the live preview so
+    //    every run starts from the same clean state.
+    if (lastExportFrameTime === null) {
+      exportAnimationStepper.reset(componentStageRoots());
+    } else {
+      exportAnimationStepper.step(componentStageRoots(), (time - lastExportFrameTime) * 1000);
+    }
+    lastExportFrameTime = time;
+    // 4. Capture the DOM in that exact state and render.
     await componentCapture.captureAll();
     renderFrame(time);
   },
