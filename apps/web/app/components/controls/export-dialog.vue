@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { negotiateCanvasEncoding } from "#shared/editor/video-encoding";
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
 import { ArrowDownTrayIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import {
@@ -109,6 +110,22 @@ watch(
 );
 
 const { state: videoState, exportVideo, abort } = useVideoExport();
+
+// Resolve which codec/container this browser will actually use for the
+// selected size/fps, so the dialog says "mp4" or "webm" before rendering.
+const resolvedFormat = ref<string | null>(null);
+watchEffect(async () => {
+  const { width, height } = exportSize.value;
+  const fps = fpsOptions[selectedFps.value]!.value;
+  resolvedFormat.value = null;
+  try {
+    const enc = await negotiateCanvasEncoding(width, height, fps);
+    const codecLabel = enc.codec === "avc" ? "h.264" : enc.codec;
+    resolvedFormat.value = `${enc.extension} · ${codecLabel}`;
+  } catch {
+    resolvedFormat.value = "unsupported size";
+  }
+});
 
 async function handleImageExport() {
   if (!shader) return;
@@ -284,6 +301,7 @@ async function handleVideoExport() {
 
               <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleVideoExport">
                 Render video
+                <span v-if="resolvedFormat" class="ml-1 opacity-60">({{ resolvedFormat }})</span>
               </UiButton>
 
               <p v-if="videoState.error" class="text-copy-xs text-red-400">
