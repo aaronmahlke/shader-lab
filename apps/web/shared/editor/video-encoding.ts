@@ -41,16 +41,22 @@ export type NegotiatedEncoding = {
  * (e.g. 4x scale = 8K) fall back to VP9 (WebM) and then AV1, both of which
  * support 8K. Throws a user-readable error when nothing fits.
  */
+export type ExportFormatPreference = "auto" | "mp4" | "webm";
+
 export async function negotiateCanvasEncoding(
   width: number,
   height: number,
   fps: number,
+  prefer: ExportFormatPreference = "auto",
 ): Promise<NegotiatedEncoding> {
-  const candidates: Array<{ codec: VideoCodec; container: "mp4" | "webm" }> = [
+  let candidates: Array<{ codec: VideoCodec; container: "mp4" | "webm" }> = [
     { codec: "avc", container: "mp4" }, // plays anywhere
     { codec: "vp9", container: "webm" }, // 8K-capable, small files
     { codec: "av1", container: "mp4" }, // 8K-capable, best quality/bit
   ];
+  if (prefer !== "auto") {
+    candidates = candidates.filter((c) => c.container === prefer);
+  }
 
   for (const candidate of candidates) {
     const config = canvasVideoEncodingConfig(width, height, fps, candidate.codec);
@@ -71,6 +77,8 @@ export async function negotiateCanvasEncoding(
   }
 
   throw new Error(
-    `This browser cannot encode video at ${width}x${height}. Try a smaller export scale.`,
+    prefer === "auto"
+      ? `This browser cannot encode video at ${width}x${height}. Try a smaller export scale.`
+      : `${prefer} cannot encode ${width}x${height} in this browser. Try a smaller scale or another format.`,
   );
 }

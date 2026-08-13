@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { negotiateCanvasEncoding } from "#shared/editor/video-encoding";
+import { negotiateCanvasEncoding, type ExportFormatPreference } from "#shared/editor/video-encoding";
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
 import { ArrowDownTrayIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import {
@@ -113,17 +113,27 @@ const { state: videoState, exportVideo, abort } = useVideoExport();
 
 // Resolve which codec/container this browser will actually use for the
 // selected size/fps, so the dialog says "mp4" or "webm" before rendering.
+const formatOptions: Array<{ label: string; value: ExportFormatPreference }> = [
+  { label: "Auto", value: "auto" },
+  { label: "MP4", value: "mp4" },
+  { label: "WebM", value: "webm" },
+];
+const selectedFormat = ref<ExportFormatPreference>("auto");
+
 const resolvedFormat = ref<string | null>(null);
+const formatUnsupported = ref(false);
 watchEffect(async () => {
   const { width, height } = exportSize.value;
   const fps = fpsOptions[selectedFps.value]!.value;
   resolvedFormat.value = null;
+  formatUnsupported.value = false;
   try {
-    const enc = await negotiateCanvasEncoding(width, height, fps);
+    const enc = await negotiateCanvasEncoding(width, height, fps, selectedFormat.value);
     const codecLabel = enc.codec === "avc" ? "h.264" : enc.codec;
     resolvedFormat.value = `${enc.extension} · ${codecLabel}`;
   } catch {
-    resolvedFormat.value = "unsupported size";
+    resolvedFormat.value = "not supported at this size";
+    formatUnsupported.value = true;
   }
 });
 
@@ -148,6 +158,7 @@ async function handleVideoExport() {
     fps: fps.value,
     duration: dur.value,
     experimentId,
+    format: selectedFormat.value,
   });
 
   if (!videoState.exporting && !videoState.error) {
@@ -299,7 +310,23 @@ async function handleVideoExport() {
                 </div>
               </div>
 
-              <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleVideoExport">
+              <div class="flex flex-col gap-1.5">
+                <span class="text-copy-sm text-tertiary">Format</span>
+                <div class="flex gap-1.5">
+                  <UiButton
+                    v-for="f in formatOptions"
+                    :key="f.value"
+                    variant="option"
+                    :active="selectedFormat === f.value"
+                    class="flex-1"
+                    @click="selectedFormat = f.value"
+                  >
+                    {{ f.label }}
+                  </UiButton>
+                </div>
+              </div>
+
+              <UiButton variant="action" :icon-left="ArrowDownTrayIcon" :disabled="formatUnsupported" @click="handleVideoExport">
                 Render video
                 <span v-if="resolvedFormat" class="ml-1 opacity-60">({{ resolvedFormat }})</span>
               </UiButton>

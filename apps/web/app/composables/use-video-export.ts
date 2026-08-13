@@ -1,5 +1,5 @@
 import { Output, Mp4OutputFormat, WebMOutputFormat, BufferTarget, CanvasSource } from "mediabunny";
-import { negotiateCanvasEncoding } from "#shared/editor/video-encoding";
+import { negotiateCanvasEncoding, type ExportFormatPreference } from "#shared/editor/video-encoding";
 
 type ExportOptions = {
   width: number;
@@ -7,6 +7,7 @@ type ExportOptions = {
   fps: number;
   duration: number;
   experimentId: string;
+  format?: ExportFormatPreference;
 };
 
 type ShaderControls = {
@@ -41,7 +42,7 @@ export function useVideoExport() {
     shader: ShaderControls,
     options: ExportOptions,
   ): Promise<void> {
-    const { width, height, fps, duration, experimentId } = options;
+    const { width, height, fps, duration, experimentId, format = "auto" } = options;
     const totalFrames = Math.ceil(fps * duration);
     const frameDuration = 1 / fps;
 
@@ -71,7 +72,7 @@ export function useVideoExport() {
     try {
       // Pick a codec the browser can actually encode at this size: H.264
       // levels cap out around 4K, so 4x-scale exports fall back to VP9/AV1.
-      const encoding = await negotiateCanvasEncoding(width, height, fps);
+      const encoding = await negotiateCanvasEncoding(width, height, fps, format);
 
       const output = new Output({
         format: encoding.container === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat(),
