@@ -4,3 +4,10 @@ node_modules
 .git
 .DS_Store
 *.md
+**/.env
+**/.env.*
+docker
+.github
+apps/web/.output
+apps/web/.nuxt
+packages/*/dist
