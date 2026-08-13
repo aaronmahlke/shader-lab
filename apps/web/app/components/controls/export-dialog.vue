@@ -68,16 +68,18 @@ function formatDuration(seconds: number) {
 }
 
 const durationOptions = computed(() => {
-  const opts: { label: string; value: number }[] = [];
+  const opts: { label: string; value: number; dynamic?: boolean }[] = [];
   if (compositionDuration > 0.05) {
     opts.push({
-      label: `Comp · ${formatDuration(compositionDuration)}`,
+      label: `Composition (${formatDuration(compositionDuration)})`,
+      dynamic: true,
       value: compositionDuration,
     });
   }
   if (canvasVideoDuration > 0.05) {
     opts.push({
-      label: `Video · ${formatDuration(canvasVideoDuration)}`,
+      label: `Canvas video (${formatDuration(canvasVideoDuration)})`,
+      dynamic: true,
       value: canvasVideoDuration,
     });
   }
@@ -172,7 +174,7 @@ async function handleVideoExport() {
     <DialogPortal>
       <DialogOverlay class="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-contentShow" />
       <DialogContent
-        class="fixed left-1/2 top-[20%] z-50 w-80 -translate-x-1/2 rounded-2xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl data-[state=open]:animate-contentShow"
+        class="fixed left-1/2 top-[20%] z-50 w-[26rem] -translate-x-1/2 rounded-2xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl data-[state=open]:animate-contentShow"
       >
         <div class="flex items-center justify-between border-b border-edge px-4 py-3">
           <DialogTitle class="text-copy-sm text-primary">
@@ -284,14 +286,15 @@ async function handleVideoExport() {
 
               <div class="flex flex-col gap-2">
                 <span class="text-copy-sm text-tertiary">Duration</span>
-                <div class="flex flex-wrap gap-1.5">
+                <div class="grid grid-cols-3 gap-1.5">
                   <UiButton
                     v-for="(dur, i) in durationOptions"
                     :key="dur.label"
                     variant="option"
                     full-width
                     :active="selectedDuration === i"
-                    class="min-w-0 flex-1"
+                    :class="dur.dynamic ? 'col-span-3' : ''"
+                    :title="dur.label"
                     @click="selectedDuration = i"
                   >
                     {{ dur.label }}
