@@ -13,13 +13,18 @@ import {
 import type { LayerType } from "@shader-lab/core";
 import {
   LAYER_CATALOG,
-  LAYER_CATALOG_CATEGORIES,
+  LAYER_CATALOG_SECTIONS,
   groupCatalogEntries,
-  type LayerCatalogCategory,
   type LayerCatalogEntry,
+  type LayerCatalogSectionFilter,
 } from "#shared/editor/layer-catalog";
 
-const activeCategory = ref<LayerCatalogCategory>("all");
+const SECTION_FILTERS: { key: LayerCatalogSectionFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  ...LAYER_CATALOG_SECTIONS,
+];
+
+const activeSection = ref<LayerCatalogSectionFilter>("all");
 const hoveredType = ref<LayerType | null>(null);
 const query = ref("");
 
@@ -27,7 +32,7 @@ const { contains } = useFilter({ sensitivity: "base" });
 const combobox = injectComboboxRootContext();
 
 function resetPanel() {
-  activeCategory.value = "all";
+  activeSection.value = "all";
   hoveredType.value = null;
   query.value = "";
   combobox.filterSearch.value = "";
@@ -39,6 +44,8 @@ watch(
     if (!isOpen) return;
     await nextTick();
     resetPanel();
+    // Programmatic opens (e.g. ⌘K) bypass reka's trigger focus handling.
+    combobox.inputElement.value?.focus();
   },
 );
 
@@ -46,7 +53,7 @@ const filteredEntries = computed(() => {
   const search = query.value.trim();
 
   return LAYER_CATALOG.filter((entry) => {
-    if (activeCategory.value !== "all" && entry.category !== activeCategory.value) {
+    if (activeSection.value !== "all" && entry.section !== activeSection.value) {
       return false;
     }
 
@@ -63,15 +70,15 @@ const filteredEntries = computed(() => {
 
 const catalogGroups = computed(() =>
   groupCatalogEntries(filteredEntries.value, {
-    category: activeCategory.value,
+    section: activeSection.value,
     query: query.value,
   }),
 );
 
 const hasResults = computed(() => filteredEntries.value.length > 0);
 
-function setCategory(category: LayerCatalogCategory) {
-  activeCategory.value = category;
+function setSection(section: LayerCatalogSectionFilter) {
+  activeSection.value = section;
 }
 
 function onItemHover(entry: LayerCatalogEntry) {
@@ -100,14 +107,14 @@ function onItemLeave() {
 
       <div class="flex flex-wrap gap-1.5">
         <UiButton
-          v-for="category in LAYER_CATALOG_CATEGORIES"
-          :key="category.key"
+          v-for="section in SECTION_FILTERS"
+          :key="section.key"
           variant="option"
           size="sm"
-          :active="activeCategory === category.key"
-          @click="setCategory(category.key)"
+          :active="activeSection === section.key"
+          @click="setSection(section.key)"
         >
-          {{ category.label }}
+          {{ section.label }}
         </UiButton>
       </div>
     </div>

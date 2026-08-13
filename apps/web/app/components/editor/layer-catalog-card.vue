@@ -11,11 +11,15 @@ type Props = {
 
 const { entry, active = false } = defineProps<Props>();
 
+// Fallback shown behind (and instead of) the baked thumbnail when the
+// /previews/<type>.webp asset is missing or fails to load.
 const categoryGradients: Record<LayerCategory, string> = {
   generator: "linear-gradient(135deg, #f35a0d 0%, #6b2cff 55%, #0f3839 100%)",
   distortion: "linear-gradient(160deg, #1a1a2e 0%, #3d5a80 45%, #ee6c4d 100%)",
   effect: "linear-gradient(145deg, #2d3436 0%, #636e72 40%, #dfe6e9 100%)",
 };
+
+const previewImageFailed = ref(false);
 </script>
 
 <template>
@@ -35,7 +39,17 @@ const categoryGradients: Record<LayerCategory, string> = {
         v-else
         class="size-full"
         :style="{ background: categoryGradients[entry.category] }"
-      />
+      >
+        <img
+          v-if="!previewImageFailed"
+          :src="`/previews/${entry.type}.webp`"
+          :alt="`${entry.label} preview`"
+          class="size-full object-cover"
+          loading="lazy"
+          draggable="false"
+          @error="previewImageFailed = true"
+        />
+      </div>
     </div>
 
     <div class="flex min-w-0 items-center justify-between gap-2">

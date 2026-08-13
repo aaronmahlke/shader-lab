@@ -17,11 +17,17 @@ const emit = defineEmits<Emits>();
 
 const open = ref(false);
 
+function openPanel() {
+  open.value = true;
+}
+
 function onSelect(type: LayerType | null) {
   if (!type) return;
   emit("select", type);
   open.value = false;
 }
+
+defineExpose({ open, openPanel });
 </script>
 
 <template>
