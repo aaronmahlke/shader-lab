@@ -57,8 +57,9 @@ import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
 import {
   beginExportClock,
-  seekExportClock,
+  seekStageSequences,
   endExportClock,
+  setTimelineDrive,
   createDomAnimationStepper,
 } from "~/utils/export-clock";
 import { ChevronRightIcon } from "@heroicons/vue/16/solid";
@@ -336,6 +337,30 @@ let exportRestoreTime: number | null = null;
 const exportAnimationStepper = createDomAnimationStepper();
 let lastExportFrameTime: number | null = null;
 
+/**
+ * Timeline drive: a staged component's internal time is the playhead time
+ * minus the layer's in-point, so component beats line up with keyframes both
+ * while scrubbing and in exports.
+ */
+function seekStageToCompTime(tSec: number): void {
+  const offsets = new Map<string, number>();
+  for (const layer of layers.value) {
+    if (layer.type !== "component") continue;
+    offsets.set(layer.id, Math.max(0, (tSec - (layer.timing?.in ?? 0)) * 1000));
+  }
+  seekStageSequences((layerId) => {
+    if (layerId === null) return Math.max(0, tSec * 1000);
+    return offsets.get(layerId) ?? null;
+  });
+}
+
+onMounted(() => setTimelineDrive(true));
+onBeforeUnmount(() => setTimelineDrive(false));
+
+watch(currentTime, (t) => {
+  seekStageToCompTime(t);
+});
+
 function componentStageRoots(): Element[] {
   const roots: Element[] = [];
   for (const layer of layers.value) {
@@ -375,7 +400,7 @@ const shaderExport = {
   renderFrame: async (time: number) => {
     currentTime.value = time;
     // 1. Seek sequences to the frame time (fires their due events).
-    seekExportClock(time * 1000);
+    seekStageToCompTime(time);
     // 2. Let Vue flush the resulting DOM changes so new CSS transitions exist.
     await nextTick();
     // 3. Freeze + step all stage animations by exactly one frame. The first

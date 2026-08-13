@@ -1,3 +1,5 @@
+import type { InjectionKey } from "vue";
+
 /**
  * Virtual clock for deterministic exports.
  *
@@ -20,31 +22,74 @@ export type SequenceExportHandle = {
   seekTo: (ms: number) => void;
 };
 
-const sequences = new Set<SequenceExportHandle>();
-let exportActive = false;
+/** Injection key: the component layer id a staged subtree belongs to. */
+export const STAGE_LAYER_ID_KEY = Symbol("stage-layer-id") as InjectionKey<string>;
 
-export function registerExportSequence(handle: SequenceExportHandle): () => void {
-  sequences.add(handle);
-  if (exportActive) handle.suspend();
-  return () => sequences.delete(handle);
+type StageSequenceEntry = {
+  handle: SequenceExportHandle;
+  layerId: string | null;
+};
+
+const sequences = new Set<StageSequenceEntry>();
+let exportActive = false;
+let timelineDriven = false;
+
+function suspended(): boolean {
+  return exportActive || timelineDriven;
+}
+
+export function registerExportSequence(
+  handle: SequenceExportHandle,
+  layerId: string | null = null,
+): () => void {
+  const entry: StageSequenceEntry = { handle, layerId };
+  sequences.add(entry);
+  if (suspended()) handle.suspend();
+  return () => sequences.delete(entry);
 }
 
 export function isExportClockActive(): boolean {
   return exportActive;
 }
 
-export function beginExportClock(): void {
-  exportActive = true;
-  for (const s of sequences) s.suspend();
+/**
+ * Editor mode: staged sequences never free-run on wall time; the playhead
+ * drives them (via seekStageSequences) so a component's internal state always
+ * corresponds to the timeline position — scrubbing, playing, and export all
+ * agree on what "t" looks like.
+ */
+export function setTimelineDrive(active: boolean): void {
+  if (timelineDriven === active) return;
+  timelineDriven = active;
+  for (const s of sequences) {
+    if (suspended()) s.handle.suspend();
+    else s.handle.resume();
+  }
 }
 
-export function seekExportClock(ms: number): void {
-  for (const s of sequences) s.seekTo(ms);
+export function beginExportClock(): void {
+  exportActive = true;
+  for (const s of sequences) s.handle.suspend();
+}
+
+/**
+ * Seek every staged sequence. `msForLayer` maps a component layer id (or null
+ * for sequences outside any stage scope) to the sequence-local time in ms;
+ * return null to leave a sequence untouched.
+ */
+export function seekStageSequences(msForLayer: (layerId: string | null) => number | null): void {
+  for (const s of sequences) {
+    const ms = msForLayer(s.layerId);
+    if (ms !== null) s.handle.seekTo(ms);
+  }
 }
 
 export function endExportClock(): void {
   exportActive = false;
-  for (const s of sequences) s.resume();
+  for (const s of sequences) {
+    if (suspended()) s.handle.suspend();
+    else s.handle.resume();
+  }
 }
 
 /**

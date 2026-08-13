@@ -3,7 +3,8 @@
 
 import { onBeforeUnmount, readonly, ref } from "vue";
 import { createSequenceClock } from "#shared/editor/sequence-clock";
-import { registerExportSequence } from "~/utils/export-clock";
+import { registerExportSequence, STAGE_LAYER_ID_KEY } from "~/utils/export-clock";
+import { inject } from "vue";
 
 /**
  * Tiny rAF-based sequencer for inline doc demos.
@@ -72,6 +73,8 @@ export function useTimedSequence(opts: UseTimedSequenceOptions) {
     }
   }
 
+  const stageLayerId = inject(STAGE_LAYER_ID_KEY, null);
+
   const unregisterExport = registerExportSequence({
     suspend() {
       suspended = true;
@@ -93,7 +96,7 @@ export function useTimedSequence(opts: UseTimedSequenceOptions) {
       clock.advanceTo(ms);
       elapsed.value = clock.elapsed();
     },
-  });
+  }, stageLayerId);
 
   function start() {
     if (started.value) return;

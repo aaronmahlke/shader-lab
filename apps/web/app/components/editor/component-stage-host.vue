@@ -61,7 +61,9 @@ defineExpose({
       :ref="(el) => setElement(layer.id, el)"
       :style="{ width: `${componentStageWidthFromValues(layer.values)}px` }"
     >
-      <component :is="stagedComponent(layer)" v-if="stagedComponent(layer)" />
+      <EditorStageSequenceScope :layer-id="layer.id">
+        <component :is="stagedComponent(layer)" v-if="stagedComponent(layer)" />
+      </EditorStageSequenceScope>
     </div>
   </div>
 </template>
