@@ -40,7 +40,10 @@ type Emits = {
   "set-animated-value": [paramName: string, value: number];
 };
 
-const props = defineProps<Props>();
+// Reactive props destructure (must happen directly on defineProps: pulling
+// fields out of a `props` variable captures one-time references, which left
+// the whole inspector rendering a stale layer object after undo/redo
+// replaced the layers array).
 const {
   layer,
   template,
@@ -48,7 +51,10 @@ const {
   lfos,
   draggingLfoId,
   meshSelectedPointIndex = 0,
-} = props;
+  tracks,
+  currentTime,
+  compositionAspect,
+} = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
 const history = useEditorHistory();
@@ -69,10 +75,10 @@ function getLiveValue(def: LayerUniformDef): number | undefined {
 }
 
 function getModulatedFloat(paramName: string, fallback: number): number {
-  const track = findPropertyTrack(props.tracks, layer.id, paramName);
+  const track = findPropertyTrack(tracks, layer.id, paramName);
   if (isPropertyTrackActive(track)) {
     const base = (layer.values[paramName] as number) ?? fallback;
-    return evaluatePropertyTrack(track, props.currentTime, base);
+    return evaluatePropertyTrack(track, currentTime, base);
   }
   const base = (layer.values[paramName] as number) ?? fallback;
   const assignment = getAssignment(paramName);
@@ -82,11 +88,11 @@ function getModulatedFloat(paramName: string, fallback: number): number {
 }
 
 function isTrackEnabled(paramName: string): boolean {
-  return isPropertyTrackActive(findPropertyTrack(props.tracks, layer.id, paramName));
+  return isPropertyTrackActive(findPropertyTrack(tracks, layer.id, paramName));
 }
 
 function isKeyedAtPlayhead(paramName: string): boolean {
-  return hasKeyframeAt(findPropertyTrack(props.tracks, layer.id, paramName), props.currentTime);
+  return hasKeyframeAt(findPropertyTrack(tracks, layer.id, paramName), currentTime);
 }
 
 function getLfoColor(sourceId: string): string | undefined {
@@ -182,7 +188,7 @@ type AlignEdge = "left" | "centerX" | "right" | "top" | "centerY" | "bottom";
 
 /** Move the layer's transformed bounds flush to the frame (comp UV is y-up). */
 function alignLayer(edge: AlignEdge) {
-  const aspect = props.compositionAspect;
+  const aspect = compositionAspect;
   if (!aspect) return;
   const v = currentTransform();
   const bounds = layerBoundsInCompUv(v, aspect);
