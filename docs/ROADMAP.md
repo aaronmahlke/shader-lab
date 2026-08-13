@@ -2,7 +2,7 @@
 
 Living reference for planned work toward a **modern motion-design tool with shader superpowers** (After Effects mental model, unified stack, GPU-native).
 
-Last updated: 2026-06-15
+Last updated: 2026-08-13
 
 ---
 
@@ -116,7 +116,7 @@ We have a **headless renderer** — use it systematically.
 
 - Defined preview compositions per layer type / effect (like current `layer-previews` but rendered, not hand-picked)
 - Headless render → PNG/WebP for:
-  - Layer add menu / catalog cards
+  - [x] Layer add menu / catalog cards (`previews:generate`, 2026-08-13)
   - Dashboard composition cards
   - OG images / social previews
 - Script or CI job to regenerate preview assets when shaders change
@@ -225,6 +225,23 @@ LFO engine exists (`LFOSource`, `ModulationAssignment`). UI/integration is unres
 | **Baking** | Optional “bake LFO to keyframes” for export compatibility |
 
 Recommendation: treat LFO as an **assignment** (already in model), not duplicate state. UI always reads/writes `assignments[]`. Timeline shows an icon + optional sub-lane; inspector shows full LFO editor when assignment selected.
+
+---
+
+## Research — worth investigating, nothing scoped
+
+### Vector-first rendering
+
+Text and shapes are currently rasterized (Canvas 2D -> texture) and scaled on the GPU: soft under camera zoom / scale-up, and keyframing text params re-rasterizes every frame. At some point we should lean into vector graphics properly:
+
+- **MSDF / glyph-atlas text**: bake glyphs once, compose words as GPU quads. Crisp at any zoom, per-character animators become cheap transforms instead of re-rasters. Industry standard for GPU motion tools. Should land before/with per-char text animators if possible.
+- **SDF / vector shapes beyond rect & ellipse**: paths, strokes, boolean ops; possibly SVG import (tessellation or SDF baking).
+- Open question: how far to go — full vector pipeline vs "vector where it hurts" (text + shapes only).
+
+### Renderer scalability (found 2026-08-13)
+
+- **FBO pooling**: every layer holds a persistent full-res FBO (`render-passes.ts` fbos map): ~33 MB/layer at 4K, ~132 MB at 8K -> multi-GB VRAM on big exports. The pass graph is linear; effects could ping-pong 2-3 shared targets. Medium refactor, biggest scalability win.
+- **Component capture-on-mutation**: DOM capture polls at ~30 Hz and serializes the whole subtree on the main thread. Switch to MutationObserver/animation-event triggers + `createImageBitmap` decode.
 
 ---
 
