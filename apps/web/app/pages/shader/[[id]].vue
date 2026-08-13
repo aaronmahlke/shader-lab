@@ -318,6 +318,12 @@ const componentCapture = useComponentCapture({
   requestRender,
 });
 
+// The renderer follows the playhead (compositionTime: currentTime), so an
+// export must DRIVE the playhead: keyframe tracks and LFO sampling all key
+// off currentTime. Passing a time only into renderFrame() gets overridden by
+// the frozen playhead and exports lose every keyframed animation.
+let exportRestoreTime: number | null = null;
+
 const shaderExport = {
   capture: async (w: number, h: number) => {
     await componentCapture.captureAll();
@@ -325,10 +331,15 @@ const shaderExport = {
   },
   // Exports drive capture per frame; the live loop would only race them.
   pause: () => {
+    exportRestoreTime = currentTime.value;
     componentCapture.pause();
     pause();
   },
   resume: () => {
+    if (exportRestoreTime !== null) {
+      currentTime.value = exportRestoreTime;
+      exportRestoreTime = null;
+    }
     resume();
     componentCapture.resume();
   },
@@ -336,6 +347,7 @@ const shaderExport = {
   configureRenderer,
   restoreRenderer,
   renderFrame: async (time: number) => {
+    currentTime.value = time;
     await componentCapture.captureAll();
     renderFrame(time);
   },
