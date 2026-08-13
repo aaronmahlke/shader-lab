@@ -238,6 +238,29 @@ Text and shapes are currently rasterized (Canvas 2D -> texture) and scaled on th
 - **SDF / vector shapes beyond rect & ellipse**: paths, strokes, boolean ops; possibly SVG import (tessellation or SDF baking).
 - Open question: how far to go — full vector pipeline vs "vector where it hurts" (text + shapes only).
 
+### One clock to rule them all (design direction, 2026-08-13)
+
+The virtual-clock work created an interface worth generalizing: **everything
+on the timeline is a seekable clock consumer** (`seekTo(ms)` + registry +
+per-layer in-point offsets).
+
+- Components (today): timed sequences seeked by the playhead
+- Nested compositions (Phase 5): should implement the same handle — a child
+  comp is just another clock consumer with a local offset
+- Media layers: `video.currentTime = t`
+- Author-facing: extract `sequence-clock` into a tiny animation lib
+  (`useStageTimeline`) — the authoring contract is "derive everything from
+  one `t` the host owns". Editor scrubs it, export steps it, the SDK ships it
+  (plugs into the planned `composition.setInput()` interactivity API).
+
+Falls out for free once formalized: components self-report duration (clip
+auto-cuts to length) and their named events can render as **beat markers on
+the timeline clip** for snapping keyframes to component moments.
+
+Long term: staged demo components are better authored as native compositions
+(GPU-crisp, keyframable); DOM capture remains for filming *real* product UI,
+which is its unique value.
+
 ### Renderer scalability (found 2026-08-13)
 
 - **FBO pooling**: every layer holds a persistent full-res FBO (`render-passes.ts` fbos map): ~33 MB/layer at 4K, ~132 MB at 8K -> multi-GB VRAM on big exports. The pass graph is linear; effects could ping-pong 2-3 shared targets. Medium refactor, biggest scalability win.
