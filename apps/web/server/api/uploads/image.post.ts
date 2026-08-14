@@ -12,7 +12,12 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "File must be an image" });
   }
 
-  const ext = mime === "image/jpeg" ? "jpg" : mime.split("/")[1] ?? "png";
+  // "svg+xml" is not a usable file extension, and the media runtime detects
+  // SVG sources by the ".svg" suffix to route them through vector rasterizing.
+  const ext =
+    mime === "image/jpeg" ? "jpg"
+    : mime === "image/svg+xml" ? "svg"
+    : mime.split("/")[1] ?? "png";
   const key = `uploads/${userId}/${Date.now()}.${ext}`;
   const s3 = useS3();
   const url = await s3.putObject(key, file.data, mime);

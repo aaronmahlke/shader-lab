@@ -18,6 +18,27 @@ export async function uploadMediaFile(
   return response.url;
 }
 
+/** Upload kind a file maps to by MIME type, or null when the editor can't use it. */
+export function mediaUploadKindForFile(file: File): MediaUploadKind | null {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return null;
+}
+
+/** Media files (image/video) in a drop or paste payload, in listed order. */
+export function mediaFilesFromDataTransfer(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  return [...data.files].filter((file) => mediaUploadKindForFile(file) !== null);
+}
+
+/**
+ * Whether a drag payload carries files. During dragover the browser hides
+ * file contents, so `types` is the only signal available before the drop.
+ */
+export function dataTransferHasFiles(data: DataTransfer | null): boolean {
+  return !!data && [...data.types].includes("Files");
+}
+
 /** Last path segment of a src URL (query stripped) for compact display. */
 export function mediaSrcFileName(src: string): string {
   if (!src) return "";

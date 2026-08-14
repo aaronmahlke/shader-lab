@@ -1,5 +1,6 @@
 import type { LayerInstance, MediaSource } from "@shader-lab/core";
 import { mediaDisplayFit } from "#shared/editor/layer-content-extent";
+import { TRANSFORM_PARAM_NAMES } from "#shared/editor/layer-transform";
 import {
   mediaSrcFromValues,
   videoLoopFromValues,
@@ -28,16 +29,64 @@ const PLAYBACK_DRIFT_MAX_S = 0.3;
 const PLAYHEAD_STALL_MS = 300;
 /** Export seeks resolve on `seeked` or after this watchdog, so a stalled decoder can't hang the export. */
 const EXPORT_SEEK_TIMEOUT_MS = 400;
+/** Hard cap on either dimension of an SVG raster (texture-size safety). */
+const SVG_MAX_RASTER_DIM = 4096;
+
+/** Vector state for SVG image layers, re-rasterized when comp size or layer scale demands it. */
+type SvgState = {
+  /** Decoded SVG document, drawn into `canvas` at arbitrary sizes losslessly. */
+  image: HTMLImageElement;
+  /** Intrinsic (or viewBox-derived) size, used only for the aspect ratio. */
+  width: number;
+  height: number;
+  /** The raster the renderer samples; entry.element points at it once drawn. */
+  canvas: HTMLCanvasElement;
+  /** Raster px per display px (supersampling for scaled-up layers). Only grows. */
+  density: number;
+};
 
 type MediaEntry = {
   kind: "image" | "video";
   src: string;
-  element: HTMLImageElement | HTMLVideoElement | null;
+  element: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement | null;
+  /** Set for SVG sources: element is the raster canvas, not the <img>. */
+  svg?: SvgState;
   /** Upload dedupe: bumps on every frame push. */
   version: number;
   /** Remove listeners and stop the element's network/decode work. */
   dispose: () => void;
 };
+
+/** Whether an image src points at an SVG document (query/hash stripped). */
+function isSvgSrc(src: string): boolean {
+  const path = src.split(/[?#]/, 1)[0] ?? src;
+  return /\.svg$/i.test(path);
+}
+
+/**
+ * Size an SVG document declares: width/height attributes when both are plain
+ * numbers (or px), else the viewBox. Browsers disagree on `naturalWidth` for
+ * attribute-less SVGs, so this parse is the single source of truth.
+ */
+function svgDocumentSize(text: string): { width: number; height: number } | null {
+  const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+  const root = doc.documentElement;
+  if (root.tagName.toLowerCase() !== "svg") return null;
+  const attrPx = (name: string): number | null => {
+    const raw = root.getAttribute(name)?.trim();
+    if (!raw || !/^\d*\.?\d+(px)?$/.test(raw)) return null;
+    const value = Number.parseFloat(raw);
+    return value > 0 ? value : null;
+  };
+  const width = attrPx("width");
+  const height = attrPx("height");
+  if (width !== null && height !== null) return { width, height };
+  const viewBox = root.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
+  if (viewBox?.length === 4 && viewBox[2]! > 0 && viewBox[3]! > 0) {
+    return { width: viewBox[2]!, height: viewBox[3]! };
+  }
+  return null;
+}
 
 type MediaSourcesOptions = {
   layers: Ref<LayerInstance[]>;
@@ -100,6 +149,10 @@ export function useMediaSources(options: MediaSourcesOptions) {
       if (entry.element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
       width = entry.element.videoWidth;
       height = entry.element.videoHeight;
+    } else if (entry.element instanceof HTMLCanvasElement) {
+      // SVG raster: already sized to the comp times a density factor.
+      width = entry.element.width;
+      height = entry.element.height;
     } else {
       width = entry.element.naturalWidth;
       height = entry.element.naturalHeight;
@@ -121,6 +174,7 @@ export function useMediaSources(options: MediaSourcesOptions) {
 
   // Comp resize changes the fitted display size: re-push current frames with
   // fresh dimensions (same version, so no texture re-upload for images).
+  // SVGs re-rasterize instead so the vector stays crisp at the new fit.
   watch(
     () => {
       const c = options.compSize();
@@ -128,10 +182,115 @@ export function useMediaSources(options: MediaSourcesOptions) {
     },
     () => {
       for (const [layerId, entry] of entries) {
-        if (entry.element) pushFrame(layerId, entry, true);
+        if (entry.svg) rasterizeSvg(layerId, entry);
+        else if (entry.element) pushFrame(layerId, entry, true);
       }
     },
   );
+
+  // Scaling an SVG layer up may need a denser raster; join-key over transform
+  // scale so gestures only re-rasterize when the rounded target size grows.
+  watch(
+    () =>
+      options.layers.value
+        .filter((layer) => layer.type === "image" && layer.enabled)
+        .map((layer) => `${layer.id}:${svgTargetDensity(layer)}`)
+        .join("|"),
+    () => {
+      for (const [layerId, entry] of entries) {
+        if (entry.svg) rasterizeSvg(layerId, entry);
+      }
+    },
+  );
+
+  /** Raster px per display px the layer's transform scale asks for (>= 1). */
+  function svgTargetDensity(layer: LayerInstance | undefined): number {
+    const scale = layer?.values[TRANSFORM_PARAM_NAMES.scale];
+    return Math.max(1, (typeof scale === "number" ? scale : 100) / 100);
+  }
+
+  /**
+   * Draw the SVG contain-fitted to the comp times a density factor covering
+   * the layer's scale, so scaled-up vectors stay crisp. Unlike raster media,
+   * the fit may exceed 1: upscaling a vector is lossless, so small SVGs fill
+   * the comp instead of staying icon-sized. Density only grows (no churn
+   * while a scale gesture moves down) and the raster is capped at
+   * SVG_MAX_RASTER_DIM per side.
+   */
+  function rasterizeSvg(layerId: string, entry: MediaEntry, render = true): void {
+    const svg = entry.svg;
+    if (!svg) return;
+    const comp = options.compSize();
+    if (!(comp.width > 0) || !(comp.height > 0)) return;
+    const fit = Math.min(comp.width / svg.width, comp.height / svg.height);
+    const maxDensity = SVG_MAX_RASTER_DIM / Math.max(1, svg.width * fit, svg.height * fit);
+    const density = Math.min(
+      Math.max(svg.density, svgTargetDensity(liveLayer(layerId))),
+      Math.max(1, maxDensity),
+    );
+    const width = Math.max(1, Math.round(svg.width * fit * density));
+    const height = Math.max(1, Math.round(svg.height * fit * density));
+    if (entry.element === svg.canvas && svg.canvas.width === width && svg.canvas.height === height) {
+      return; // raster already current
+    }
+    svg.canvas.width = width;
+    svg.canvas.height = height;
+    const ctx = svg.canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(svg.image, 0, 0, width, height);
+    svg.density = density;
+    entry.element = svg.canvas;
+    // The raster is the layer's natural size: extent math applies the same
+    // mediaDisplayFit, so the density factor cancels and gizmos stay honest.
+    naturalSizes.set(layerId, { width, height });
+    pushFrame(layerId, entry, render);
+  }
+
+  /**
+   * SVG image path: fetch the document (size attributes are the source of
+   * truth), decode it via a same-origin blob URL, then rasterize on demand.
+   */
+  function loadSvgLayer(layer: LayerInstance, entry: MediaEntry): void {
+    const stale = () => disposed || entries.get(layer.id) !== entry;
+    const img = new Image();
+    let blobUrl = "";
+    const onLoad = () => {
+      if (stale()) return;
+      pendingSize.then((size) => {
+        if (stale()) return;
+        entry.svg = {
+          image: img,
+          width: Math.max(1, size?.width ?? options.compSize().width),
+          height: Math.max(1, size?.height ?? options.compSize().height),
+          canvas: document.createElement("canvas"),
+          density: 0,
+        };
+        rasterizeSvg(layer.id, entry);
+      }).catch(() => {});
+    };
+    entry.dispose = () => {
+      img.removeEventListener("load", onLoad);
+      img.src = "";
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+    let resolveSize: (size: { width: number; height: number } | null) => void;
+    const pendingSize = new Promise<{ width: number; height: number } | null>((resolve) => {
+      resolveSize = resolve;
+    });
+    void fetch(entry.src, { mode: "cors" })
+      .then((response) => response.text())
+      .then((text) => {
+        if (stale()) return;
+        resolveSize(svgDocumentSize(text));
+        blobUrl = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+        img.addEventListener("load", onLoad);
+        img.src = blobUrl;
+      })
+      .catch(() => {
+        // Unreachable/invalid SVG: layer stays transparent, same as a broken raster src.
+      });
+  }
 
   function disposeEntry(layerId: string): void {
     const entry = entries.get(layerId);
@@ -157,6 +316,11 @@ export function useMediaSources(options: MediaSourcesOptions) {
     };
     entries.set(layer.id, entry);
     const stale = () => disposed || entries.get(layer.id) !== entry;
+
+    if (entry.kind === "image" && isSvgSrc(src)) {
+      loadSvgLayer(layer, entry);
+      return;
+    }
 
     if (entry.kind === "image") {
       const img = new Image();
