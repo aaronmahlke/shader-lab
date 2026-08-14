@@ -36,10 +36,6 @@ const error = useRoute().query.error as string | undefined;
         </svg>
         Continue with Google
       </a>
-
-      <p class="text-copy-sm text-tertiary">
-        By signing in, you agree to our terms of service.
-      </p>
     </div>
   </div>
 </template>
