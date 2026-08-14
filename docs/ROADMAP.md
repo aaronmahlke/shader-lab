@@ -179,6 +179,8 @@ Port ideas from pre-v2 **artworks**, not its pipeline.
 
 All use universal transform + opacity + in/out + same effect stack.
 
+Inspector direction: rework paint-like params into a Figma-style **Fill** section (solid / gradient / image variants) instead of per-type gradient fields (2026-08-14).
+
 Old artworks reference commit: `a3f6bdb` (`shared/artwork/text-layer.ts`, etc.) — data model hints only.
 
 ---

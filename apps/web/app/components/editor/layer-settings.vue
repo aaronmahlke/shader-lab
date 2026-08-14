@@ -141,6 +141,8 @@ const PAIRED_UNIVERSALS = [
   { label: "Anchor", x: "layerAnchorX", y: "layerAnchorY" },
 ];
 
+const APPEARANCE_UNIVERSALS = new Set(["layerOpacity", "layerBlendMode"]);
+
 /** Position X/Y and Anchor X/Y collapse into one two-column row each. */
 const universalRows: UniversalRow[] = (() => {
   const rows: UniversalRow[] = [];
@@ -169,6 +171,13 @@ const universalRows: UniversalRow[] = (() => {
   }
   return rows;
 })();
+
+const transformRows = universalRows.filter(
+  (row) => !APPEARANCE_UNIVERSALS.has(row.select?.name ?? row.fields[0]?.def.name ?? ""),
+);
+const appearanceRows = universalRows.filter(
+  (row) => APPEARANCE_UNIVERSALS.has(row.select?.name ?? row.fields[0]?.def.name ?? ""),
+);
 
 // --- Alignment (Figma-style, relative to the composition frame) ---
 
@@ -499,16 +508,6 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     </div>
 
     <EditorInspectorSection title="Transform">
-      <template #actions>
-        <UiButton
-          variant="ghost"
-          size="sm"
-          class="!size-6"
-          :icon-left="layer.enabled ? EyeIcon : EyeSlashIcon"
-          :title="layer.enabled ? 'Hide layer' : 'Show layer'"
-          @click="toggleLayerEnabled"
-        />
-      </template>
       <div
         v-if="isGenerator && compositionAspect"
         class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
@@ -549,7 +548,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           </button>
         </UiTooltip>
       </div>
-      <template v-for="row in universalRows" :key="`universal-${row.key}`">
+      <template v-for="row in transformRows" :key="`universal-${row.key}`">
         <UiSelect
           v-if="row.select"
           :model-value="getSelect(row.select, layer.values) as string | number"
@@ -570,6 +569,63 @@ function isUniformVisible(def: LayerUniformDef): boolean {
                 <UiSliderField
                   :model-value="getFloat(field.def, layer.values)"
                   :label="field.label"
+                  :min="field.def.min"
+                  :max="field.def.max"
+                  :step="field.def.step ?? 0.01"
+                  :mod-color="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.color"
+                  :mod-depth="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.depth"
+                  :mod-live-value="isTrackEnabled(field.def.name) ? undefined : getLiveValue(field.def)"
+                  :is-drop-target="draggingLfoId !== null && !isTrackEnabled(field.def.name)"
+                  :animatable="isKeyframeableUniform(field.def)"
+                  :track-enabled="isTrackEnabled(field.def.name)"
+                  :keyed-at-playhead="isKeyedAtPlayhead(field.def.name)"
+                  @update:model-value="setFloat(field.def, layer.values, $event)"
+                  @update:mod-depth="onDepthUpdate(field.def, $event)"
+                  @toggle-track="emit('toggle-stopwatch', field.def.name)"
+                  @toggle-keyframe="emit('toggle-keyframe', field.def.name)"
+                />
+              </div>
+              <template #menu>
+                <UiContextMenuItem @click="resetUniform(field.def)">Reset to default</UiContextMenuItem>
+                <template v-if="getAssignment(field.def.name)">
+                  <UiContextMenuSeparator />
+                  <UiContextMenuItem @click="emit('remove-assignment', getAssignment(field.def.name)!.sourceId, field.def.name)">
+                    Remove {{ lfos.find(l => l.id === getAssignment(field.def.name)!.sourceId)?.label }}
+                  </UiContextMenuItem>
+                </template>
+              </template>
+            </UiContextMenu>
+          </div>
+        </div>
+      </template>
+    </EditorInspectorSection>
+
+    <EditorInspectorSection title="Appearance">
+      <template #actions>
+        <UiButton
+          variant="ghost"
+          size="sm"
+          class="!size-6"
+          :icon-left="layer.enabled ? EyeIcon : EyeSlashIcon"
+          :title="layer.enabled ? 'Hide layer' : 'Show layer'"
+          @click="toggleLayerEnabled"
+        />
+      </template>
+      <template v-for="row in appearanceRows" :key="`universal-${row.key}`">
+        <UiSelect
+          v-if="row.select"
+          :model-value="getSelect(row.select, layer.values) as string | number"
+          :options="row.select.options ?? []"
+          :label="row.select.label"
+          @update:model-value="setSelect(row.select, layer.values, $event as string | number)"
+        />
+        <div v-else class="flex flex-col gap-1">
+          <div class="grid gap-1.5 grid-cols-1">
+            <UiContextMenu v-for="field in row.fields" :key="field.def.name">
+              <div @pointerup="draggingLfoId && emit('assign-lfo', field.def.name)">
+                <UiSliderField
+                  :model-value="getFloat(field.def, layer.values)"
+                  :label="field.def.label"
                   :min="field.def.min"
                   :max="field.def.max"
                   :step="field.def.step ?? 0.01"
@@ -726,7 +782,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           <UiGradientField
             v-else-if="def.type === 'gradient'"
             :model-value="getGradient(def, layer.values)"
-            :label="def.label"
+            :label="def.label === template.label ? undefined : def.label"
             @update:model-value="setGradient(def, layer.values, $event)"
           />
           <EditorMeshPointsField

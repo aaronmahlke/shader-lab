@@ -12,7 +12,7 @@ defineProps<{ title: string }>();
 <template>
   <section class="flex shrink-0 flex-col gap-2.5 border-b border-neutral p-3">
     <div class="flex h-6 items-center justify-between gap-2">
-      <h3 class="text-copy-sm font-semibold text-primary select-none">
+      <h3 class="text-copy-sm text-secondary select-none">
         {{ title }}
       </h3>
       <div v-if="$slots.actions" class="flex shrink-0 items-center gap-0.5">
