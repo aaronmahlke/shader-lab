@@ -10,6 +10,13 @@ export default defineNuxtConfig({
   css: ["~/assets/css/app.css"],
   compatibilityDate: "latest",
   ssr: true,
+  routeRules: {
+    // The dashboard is behind login anyway; serving it as an SPA shell makes
+    // GET / return 200 for anonymous requests (platform healthchecks probe /
+    // and only accept 2xx — the SSR auth redirect was a 302). The auth
+    // middleware still redirects logged-out visitors client-side.
+    "/": { ssr: false },
+  },
   future: { compatibilityVersion: 4 },
   fonts: { experimental: { disableLocalFallbacks: true } },
   build: {
