@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { LayerInstance, LFOSource, ModulationAssignment } from "@shader-lab/core";
+import type { CompositionSettings, LayerInstance, LFOSource, ModulationAssignment, PropertyTrack } from "@shader-lab/core";
 
 type Props = {
   id: string;
@@ -10,6 +10,8 @@ type Props = {
     layers: LayerInstance[];
     lfos: LFOSource[];
     assignments: ModulationAssignment[];
+    tracks?: PropertyTrack[];
+    settings?: CompositionSettings;
   };
 };
 
@@ -31,10 +33,16 @@ const shimmerY = ref("50%");
 
 const innerGlow = "inset 0 1px 0 0 rgba(255,255,255,0.1), inset 0 -1px 0 0 rgba(0,0,0,0.3), inset 0 20px 30px -15px rgba(255,255,255,0.07), inset 0 -20px 30px -15px rgba(0,0,0,0.5)";
 
-// --- Offscreen rendering at reference resolution ---
+// --- Offscreen rendering at the composition's native aspect ---
 
-const RENDER_WIDTH = 1920;
-const RENDER_HEIGHT = 1080;
+// Match the editor: buffer follows the comp size (capped for VRAM) and the
+// comp dimensions feed u_scale / text raster scale so effects like
+// distortion displace identically to the editor render.
+const compWidth = data.settings?.width ?? 1920;
+const compHeight = data.settings?.height ?? 1080;
+const bufferScale = Math.min(1, 1920 / Math.max(compWidth, compHeight));
+const RENDER_WIDTH = Math.max(2, Math.round(compWidth * bufferScale));
+const RENDER_HEIGHT = Math.max(2, Math.round(compHeight * bufferScale));
 
 // Hidden offscreen canvas for WebGL rendering at full resolution
 const offscreenCanvas = ref<HTMLCanvasElement | null>(null);
@@ -52,8 +60,16 @@ onMounted(() => {
 const layers = ref<LayerInstance[]>(data.layers ?? []);
 const lfos = ref<LFOSource[]>(data.lfos ?? []);
 const assignments = ref<ModulationAssignment[]>(data.assignments ?? []);
+const tracks = ref<PropertyTrack[]>(data.tracks ?? []);
 
-const { getModulatedValue } = useModulationEngine(lfos, assignments);
+// Render-time clock drives both LFO sampling and keyframe evaluation, so the
+// hover preview animates exactly like the editor (previously tracks were
+// ignored and keyframed properties stuck at their base values).
+const previewTime = ref(0);
+const { getModulatedValue, sampleLfosAtTime } = useModulationEngine(lfos, assignments, {
+  clockTime: previewTime,
+  tracks,
+});
 const modFn = computed(() => getModulatedValue);
 const { passes } = useLayerCompiler(layers, modFn, lfos, assignments);
 
@@ -61,7 +77,15 @@ const { passes } = useLayerCompiler(layers, modFn, lfos, assignments);
 const activeCanvasRef = computed(() => isHovered.value ? offscreenCanvas.value : null);
 useMultiPassRenderer(activeCanvasRef, passes, {
   layers,
+  tracks,
   getModulatedValue: modFn,
+  sampleLfosAtTime: (t: number) => {
+    previewTime.value = t;
+    sampleLfosAtTime(t);
+  },
+  fixedBufferSize: ref({ width: RENDER_WIDTH, height: RENDER_HEIGHT }),
+  scaleReferenceWidth: ref(compWidth),
+  contentReferenceHeight: ref(compHeight),
 });
 
 // Blit offscreen canvas to the visible display canvas
@@ -88,7 +112,11 @@ function startBlit() {
 
     const ctx = display.getContext("2d");
     if (ctx) {
-      ctx.drawImage(offscreen, 0, 0, w, h);
+      // Cover-fit (like the thumbnail's object-cover) instead of stretching.
+      const scale = Math.max(w / offscreen.width, h / offscreen.height);
+      const dw = offscreen.width * scale;
+      const dh = offscreen.height * scale;
+      ctx.drawImage(offscreen, (w - dw) / 2, (h - dh) / 2, dw, dh);
     }
 
     blitId = requestAnimationFrame(blit);

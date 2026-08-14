@@ -48,13 +48,16 @@ export function useAutoSave(
     thumbnailInFlight = true;
 
     try {
+      // Preserve the composition aspect so cards don't show a squashed frame.
+      const thumbWidth = 640;
+      const thumbHeight = Math.max(2, Math.round((thumbWidth * canvas.height) / canvas.width));
       const thumbCanvas = document.createElement("canvas");
-      thumbCanvas.width = 400;
-      thumbCanvas.height = 300;
+      thumbCanvas.width = thumbWidth;
+      thumbCanvas.height = thumbHeight;
       const ctx = thumbCanvas.getContext("2d");
       if (!ctx) return;
 
-      ctx.drawImage(canvas, 0, 0, 400, 300);
+      ctx.drawImage(canvas, 0, 0, thumbWidth, thumbHeight);
 
       const blob = await new Promise<Blob | null>((resolve) => {
         thumbCanvas.toBlob(resolve, "image/png");
