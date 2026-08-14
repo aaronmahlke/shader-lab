@@ -28,6 +28,28 @@ export function clampBarMoveIn(inPoint: number, length: number, duration: number
 }
 
 /**
+ * Clamp a shared move delta so every bar in the group keeps its grabbable
+ * slice inside the composition. The one delta preserves the group's relative
+ * offsets: the whole group stops when any bar hits its limit.
+ */
+export function clampGroupBarMoveDelta(
+  delta: number,
+  windows: ReadonlyArray<{ in: number; out: number }>,
+  duration: number,
+): number {
+  let min = Number.NEGATIVE_INFINITY;
+  let max = Number.POSITIVE_INFINITY;
+  for (const w of windows) {
+    const length = w.out - w.in;
+    const inside = minBarInside(length);
+    min = Math.max(min, inside - length - w.in);
+    max = Math.min(max, duration - inside - w.in);
+  }
+  if (min > max) return 0;
+  return Math.max(min, Math.min(max, delta));
+}
+
+/**
  * Px-per-second so `duration` exactly fills `availableWidth`, clamped to the
  * zoom bounds. Null when there is nothing sensible to fit to.
  */

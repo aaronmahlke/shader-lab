@@ -38,7 +38,7 @@ import {
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
-  clampBarMoveIn,
+  clampGroupBarMoveDelta,
   fitPxPerSecond,
   parseCompositionDuration,
 } from "#shared/editor/timeline-window";
@@ -1363,18 +1363,25 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
   const frame = 1 / settings.fps;
   let dragging = false;
 
-  // Moving the bar shifts the layer in time: keyframes travel with it.
+  // Moving a bar moves every selected bar together; trims stay on the pressed layer.
+  const movedLayers =
+    mode === "move" ? layers.value.filter((l) => selectedLayerIds.value.has(l.id)) : [layer];
+  const movedIds = new Set(movedLayers.map((l) => l.id));
+  const startWindows = new Map(
+    movedLayers.map((l) => [l.id, { in: layerInPoint(l), out: layerOutPoint(l) }]),
+  );
+
+  // Moving a bar shifts the layer in time: keyframes travel with it.
   const startKeyTimes = new Map(
     tracks.value
-      .filter((t) => t.layerId === layer.id)
-      .map((t) => [t.paramName, t.keys.map((k) => k.time)]),
+      .filter((t) => movedIds.has(t.layerId))
+      .map((t) => [`${t.layerId}\u0000${t.paramName}`, t.keys.map((k) => k.time)]),
   );
 
   function shiftLayerKeyframes(delta: number) {
     if (startKeyTimes.size === 0) return;
     tracks.value = tracks.value.map((track) => {
-      if (track.layerId !== layer.id) return track;
-      const startTimes = startKeyTimes.get(track.paramName);
+      const startTimes = startKeyTimes.get(`${track.layerId}\u0000${track.paramName}`);
       if (!startTimes) return track;
       return {
         ...track,
@@ -1392,15 +1399,18 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
 
     const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
     if (mode === "move") {
-      // The bar may overhang either end as long as a grabbable slice stays inside.
-      const length = startOut - startIn;
-      const nextIn = clampBarMoveIn(
-        snapTime(startIn + deltaTime),
-        length,
+      // Snap against the pressed bar, then clamp one shared delta so every
+      // moved bar keeps a grabbable slice inside the composition.
+      const delta = clampGroupBarMoveDelta(
+        snapTime(startIn + deltaTime) - startIn,
+        [...startWindows.values()],
         settings.duration,
       );
-      writeLayerTiming(layer, nextIn, nextIn + length);
-      shiftLayerKeyframes(nextIn - startIn);
+      for (const moved of movedLayers) {
+        const w = startWindows.get(moved.id)!;
+        writeLayerTiming(moved, w.in + delta, w.out + delta);
+      }
+      shiftLayerKeyframes(delta);
     } else if (mode === "in") {
       // Trim stops at 0 as before, but keeps an existing left overhang reachable.
       const nextIn = Math.max(
