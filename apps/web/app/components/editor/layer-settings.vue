@@ -356,6 +356,8 @@ function getGradient(def: LayerUniformDef, target: Record<string, unknown>): Gra
 
 function setGradient(def: LayerUniformDef, target: Record<string, unknown>, v: GradientStop[]) {
   target[def.name] = v;
+  // No-op while a gesture is active (stop/color drags); records discrete edits.
+  history?.record();
 }
 
 function getMeshPoints(def: LayerUniformDef, target: Record<string, unknown>): MeshPoint[] {
@@ -364,6 +366,7 @@ function getMeshPoints(def: LayerUniformDef, target: Record<string, unknown>): M
 
 function setMeshPoints(def: LayerUniformDef, target: Record<string, unknown>, v: MeshPoint[]) {
   target[def.name] = v;
+  history?.record();
 }
 
 function getSelect(def: LayerUniformDef, target: Record<string, unknown>): string | number {
@@ -400,11 +403,13 @@ function getVec2(def: LayerUniformDef, target: Record<string, unknown>): [number
 function setVec2X(def: LayerUniformDef, target: Record<string, unknown>, x: number) {
   const c = getVec2(def, target);
   target[def.name] = [x, c[1]];
+  history?.record();
 }
 
 function setVec2Y(def: LayerUniformDef, target: Record<string, unknown>, y: number) {
   const c = getVec2(def, target);
   target[def.name] = [c[0], y];
+  history?.record();
 }
 
 function resetUniform(def: LayerUniformDef) {

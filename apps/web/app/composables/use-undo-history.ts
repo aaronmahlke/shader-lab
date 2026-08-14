@@ -47,6 +47,9 @@ export function useUndoHistory(
 
   function beginGesture() {
     if (isApplying.value) return;
+    // Flush edits that never called record() (leaky mutation paths) as their
+    // own step first, so this gesture's commit can't swallow unrelated work.
+    if (gestureDepth === 0) record();
     gestureDepth++;
   }
 
@@ -69,6 +72,10 @@ export function useUndoHistory(
   }
 
   function undo() {
+    // Same flush on undo: if unrecorded edits are pending, they become the
+    // step being undone — instead of the undo jumping past them to an older
+    // checkpoint and reverting more than the user expects.
+    record();
     if (past.value.length === 0) return;
     const prev = past.value.pop()!;
     future.value.push(cloneSnapshot(capture()));
