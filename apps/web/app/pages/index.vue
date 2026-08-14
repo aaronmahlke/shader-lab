@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { PlusIcon } from "@heroicons/vue/16/solid";
 import { SparklesIcon } from "@heroicons/vue/24/outline";
-import { DEFAULT_PRESET_ID } from "#shared/editor/shader-presets";
 useHead({ title: "Shader Lab" });
 
 const { data: shaders, refresh: refreshShaders } = await useFetch("/api/shaders");
@@ -49,7 +48,7 @@ const isEmpty = computed(() => !(shaders.value as any[])?.length);
         <UiButton
           variant="action"
           :icon-left="PlusIcon"
-          @click="navigateTo({ path: '/shader', query: { preset: DEFAULT_PRESET_ID } })"
+          @click="navigateTo({ path: '/shader', query: { preset: 'blank' } })"
         >
           New composition
         </UiButton>
