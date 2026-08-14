@@ -25,7 +25,10 @@ RUN bun install --frozen-lockfile
 # --- Build ---
 FROM base AS build
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# Copy the whole install tree: bun workspaces hoist some packages to the root
+# node_modules but keep workspace-local binaries (tsup, nuxt) in
+# packages/*/node_modules and apps/*/node_modules.
+COPY --from=deps /app /app
 COPY . .
 RUN bun run --cwd packages/core build
 RUN cd apps/web && bunx nuxt build
