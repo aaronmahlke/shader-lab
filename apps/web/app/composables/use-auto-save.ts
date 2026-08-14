@@ -2,6 +2,8 @@ import { useDebounceFn } from "@vueuse/core";
 
 type AutoSaveOptions = {
   getCanvas?: () => HTMLCanvasElement | null;
+  /** Populated from the create response so a brand-new doc learns its project. */
+  projectId?: Ref<string | null>;
 };
 
 export function useAutoSave(
@@ -23,7 +25,11 @@ export function useAutoSave(
           method: "POST",
           body: { name: documentName.value, data: toRaw(data.value) },
         });
-        documentId.value = (result as { id: string }).id;
+        const created = result as { id: string; projectId?: string };
+        documentId.value = created.id;
+        if (options.projectId && created.projectId) {
+          options.projectId.value = created.projectId;
+        }
         history.replaceState(null, "", `${editorPath}/${documentId.value}`);
       } else {
         await $fetch(`${apiBase}/${documentId.value}`, {

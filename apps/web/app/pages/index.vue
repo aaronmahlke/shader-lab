@@ -1,31 +1,50 @@
 <script setup lang="ts">
 import { PlusIcon } from "@heroicons/vue/16/solid";
 import { SparklesIcon } from "@heroicons/vue/24/outline";
+import type { ProjectWithCompositions, ShaderDoc } from "#shared/types/project";
 useHead({ title: "Shader Lab" });
 
-const { data: shaders, refresh: refreshShaders } = await useFetch("/api/shaders");
+const { data: projects, refresh: refreshProjects } =
+  await useFetch<ProjectWithCompositions[]>("/api/projects");
 
-async function deleteShader(id: string) {
-  await $fetch(`/api/shaders/${id}`, { method: "DELETE" });
-  await refreshShaders();
+async function deleteProject(id: string) {
+  await $fetch(`/api/projects/${id}`, { method: "DELETE" });
+  await refreshProjects();
 }
 
-async function renameShader(id: string, name: string) {
-  await $fetch(`/api/shaders/${id}`, { method: "PATCH", body: { name } });
-  await refreshShaders();
+async function renameProject(id: string, name: string) {
+  await $fetch(`/api/projects/${id}`, { method: "PATCH", body: { name } });
+  await refreshProjects();
 }
 
-async function duplicateShader(id: string) {
-  const source = (shaders.value as any[])?.find((s) => s.id === id);
-  if (!source) return;
-  await $fetch("/api/shaders", {
+async function duplicateProject(project: ProjectWithCompositions) {
+  const [first, ...rest] = project.compositions;
+  if (!first) return;
+  // The project list carries no data payloads; pull each comp through the
+  // legacy adapter and rebuild the project (POST /api/shaders creates
+  // project + first comp, the rest are appended).
+  const firstDoc = await $fetch<ShaderDoc>(`/api/shaders/${first.id}`);
+  const created = await $fetch<ShaderDoc>("/api/shaders", {
     method: "POST",
-    body: { name: `${source.name} Copy`, data: source.data },
+    body: { name: `${project.name} Copy`, data: firstDoc.data },
   });
-  await refreshShaders();
+  if (first.name !== "Comp 1") {
+    await $fetch(`/api/projects/${created.projectId}/compositions/${created.id}`, {
+      method: "PATCH",
+      body: { name: first.name },
+    });
+  }
+  for (const comp of rest) {
+    const doc = await $fetch<ShaderDoc>(`/api/shaders/${comp.id}`);
+    await $fetch(`/api/projects/${created.projectId}/compositions`, {
+      method: "POST",
+      body: { name: comp.name, data: doc.data },
+    });
+  }
+  await refreshProjects();
 }
 
-const isEmpty = computed(() => !(shaders.value as any[])?.length);
+const isEmpty = computed(() => !projects.value?.length);
 </script>
 
 <template>
@@ -64,16 +83,16 @@ const isEmpty = computed(() => !(shaders.value as any[])?.length);
         class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3"
       >
         <DashboardShaderCard
-          v-for="item in (shaders as any[])"
-          :key="item.id"
-          :id="item.id"
-          :name="item.name"
-          :thumbnail-url="item.thumbnailUrl"
-          :updated-at="item.updatedAt"
-          :data="item.data"
-          @delete="deleteShader(item.id)"
-          @duplicate="duplicateShader(item.id)"
-          @rename="renameShader(item.id, $event)"
+          v-for="project in projects ?? []"
+          :key="project.id"
+          :id="project.compositions[0]?.id ?? project.id"
+          :name="project.name"
+          :thumbnail-url="project.compositions[0]?.thumbnailUrl ?? null"
+          :updated-at="project.updatedAt"
+          :comp-count="project.compositions.length"
+          @delete="deleteProject(project.id)"
+          @duplicate="duplicateProject(project)"
+          @rename="renameProject(project.id, $event)"
         />
       </div>
     </main>
