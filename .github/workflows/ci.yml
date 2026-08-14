@@ -69,3 +69,6 @@ jobs:
 
       - name: Headless render smoke test
         run: xvfb-run -a node packages/core/scripts/headless-smoke.mjs
+
+      - name: 3D group render smoke test
+        run: xvfb-run -a node packages/core/scripts/threed-smoke.mjs

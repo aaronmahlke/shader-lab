@@ -15,6 +15,7 @@ import bandFillFrag from "./layers/band-fill.frag";
 import resolveFrag from "./layers/resolve.frag";
 import outputFrag from "./layers/output.frag";
 import layerCompositeFrag from "./layers/layer-composite.frag";
+import layerComposite3dFrag from "./layers/layer-composite-3d.frag";
 import textSourceFrag from "./layers/text-source.frag";
 import componentSourceFrag from "./layers/component-source.frag";
 import mediaSourceFrag from "./layers/media-source.frag";
@@ -50,6 +51,7 @@ export const FRAG_SHADERS: Record<Exclude<RenderPassType, "camera">, string> & {
   resolve: resolveFrag,
   blit: outputFrag,
   layerComposite: layerCompositeFrag,
+  layerComposite3d: layerComposite3dFrag,
   cameraStage: cameraStageFrag,
   cameraDof: cameraDofFrag,
   bloomPrefilter: bloomPrefilterFrag,
