@@ -25,7 +25,7 @@ import {
   hexToRGB,
   type GlContext,
 } from "./gl-utils";
-import { assignThreeDSlots, SCENE_FOV_DEG } from "./threed-order";
+import { assignThreeDSlots, resolveSceneView } from "./threed-order";
 
 export type GradientDataFactory = (stops: GradientStop[]) => Uint8Array;
 
@@ -102,11 +102,111 @@ function resolvePassUniformValues(
     : buildLayerUniforms(layer, ctx.getModulatedValue ?? null);
 
   if (pass.layerType === "layerComposite3d") {
-    merged.u_sceneFov = SCENE_FOV_DEG;
+    mergeSceneUniforms(merged, layer, pass, ctx);
+  }
+
+  // A camera that drives 3D groups films the plate flat: the view transform
+  // is applied per 3D layer instead, the lens chain (DOF/bloom/tonemap) stays.
+  if (pass.layerType === "cameraStage" && merged.drive3d === true) {
+    merged.tilt = 0;
+    merged.yaw = 0;
+    merged.roll = 0;
+    merged.zoom = 1;
   }
 
   applyTimingGate(merged, layer, pass, ctx.time);
   return merged;
+}
+
+function getLayerById(ctx: RenderPassContext, id: string): LayerInstance | undefined {
+  return ctx.findLayer?.({
+    layerId: id,
+    layerType: "layerComposite3d",
+    uniforms: {},
+    inputLayerId: null,
+    sourceLayerId: id,
+    isOutput: false,
+  });
+}
+
+function readLayerParam(
+  ctx: RenderPassContext,
+  layer: LayerInstance,
+  name: string,
+  fallback: number,
+): number {
+  const raw = layer.values[name];
+  const base = typeof raw === "number" ? raw : fallback;
+  return ctx.getModulatedValue ? ctx.getModulatedValue(layer.id, name, base) : base;
+}
+
+const MAX_SCENE_LIGHTS = 4;
+
+/** Camera view, object material, and light uniforms for a 3D slot pass. */
+function mergeSceneUniforms(
+  merged: Record<string, unknown>,
+  member: LayerInstance,
+  pass: RenderPass,
+  ctx: RenderPassContext,
+): void {
+  // Scene camera (identity unless a drive-3D camera pilots the group).
+  const view = resolveSceneView(
+    pass.cameraSourceLayerId,
+    (id) => getLayerById(ctx, id),
+    ctx.getModulatedValue,
+  );
+  merged.u_sceneFov = view.fov;
+  merged.u_camTilt = view.tilt;
+  merged.u_camYaw = view.yaw;
+  merged.u_camRoll = view.roll;
+  merged.u_camZoom = view.zoom;
+
+  // Object members ray-trace in the slot pass (no content FBO).
+  if (member.type === "object3d") {
+    Object.assign(merged, buildLayerUniforms(member, ctx.getModulatedValue ?? null));
+    merged.u_isObject = 1;
+  } else {
+    merged.u_isObject = 0;
+  }
+
+  // Lights of this group (in/out-gated; opacity scales intensity).
+  const aspect = ctx.width / Math.max(ctx.height, 1);
+  let count = 0;
+  let ambient = 0;
+  for (const lightId of pass.threeDGroup?.lightIds ?? []) {
+    if (count >= MAX_SCENE_LIGHTS) break;
+    const light = getLayerById(ctx, lightId);
+    if (!light || layerTimingFactor(light, ctx.time) === 0) continue;
+
+    const opacity = readLayerParam(ctx, light, "layerOpacity", 100) / 100;
+    const intensity = readLayerParam(ctx, light, "intensity", 1) * opacity;
+    const type = typeof light.values.lightType === "number" ? light.values.lightType : 0;
+    const color = typeof light.values.lightColor === "string" ? light.values.lightColor : "#ffffff";
+    ambient = Math.max(ambient, readLayerParam(ctx, light, "ambient", 0.15) * opacity);
+
+    let vec: [number, number, number];
+    if (type === 1) {
+      // Point: stack-space position from the universal transform.
+      vec = [
+        2 * readLayerParam(ctx, light, "layerPositionX", 0) * aspect,
+        2 * readLayerParam(ctx, light, "layerPositionY", 0),
+        2 * readLayerParam(ctx, light, "layerPositionZ", 0),
+      ];
+    } else {
+      // Directional: unit vector TOWARD the light from azimuth/elevation.
+      const az = (readLayerParam(ctx, light, "azimuth", -35) * Math.PI) / 180;
+      const el = (readLayerParam(ctx, light, "elevation", 35) * Math.PI) / 180;
+      vec = [Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)];
+    }
+
+    merged[`u_light${count}Type`] = type;
+    merged[`u_light${count}Color`] = color;
+    merged[`u_light${count}Intensity`] = intensity;
+    merged[`u_light${count}Vec`] = vec;
+    count++;
+  }
+  merged.u_lightCount = count;
+  merged.u_ambient = ambient;
 }
 
 /** Upload (or reuse) the rasterized texture for a text layer pass. */
@@ -430,6 +530,8 @@ function setPassUniforms(
     } else if (Array.isArray(value)) {
       if (value.length === 2 && typeof value[0] === "number") {
         gl.uniform2f(loc, value[0], value[1] as number);
+      } else if (value.length === 3 && typeof value[0] === "number") {
+        gl.uniform3f(loc, value[0], value[1] as number, value[2] as number);
       } else if (value.length > 0 && typeof value[0] === "object" && "color" in value[0]) {
         const stops = value as GradientStop[];
         const key = `${pass.layerId}_${name}`;
@@ -679,19 +781,19 @@ export function renderPasses(
   }
 
   // Depth-sort 3D group slots for this frame (keyframed/LFO Z flows through modFn).
-  const execPasses = assignThreeDSlots(passes, ctx.findLayer, ctx.getModulatedValue);
+  const execPasses = assignThreeDSlots(passes, ctx.findLayer, ctx.getModulatedValue, width / Math.max(height, 1));
 
   for (const pass of execPasses) {
     const program = programs.get(pass.layerType);
     if (!program) continue;
 
-    if (
-      pass.layerType === "resolve" ||
-      pass.layerType === "layerComposite" ||
-      pass.layerType === "layerComposite3d"
-    ) {
+    if (pass.layerType === "resolve" || pass.layerType === "layerComposite") {
       const hasColor = pass.colorSourceLayerId && fbos.has(pass.colorSourceLayerId);
       if (!hasColor) continue;
+    } else if (pass.layerType === "layerComposite3d") {
+      // Object slots ray-trace without a content FBO (colorSourceLayerId null);
+      // quad slots need their member's content texture.
+      if (pass.colorSourceLayerId && !fbos.has(pass.colorSourceLayerId)) continue;
     }
 
     gl.useProgram(program);

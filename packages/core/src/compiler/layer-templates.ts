@@ -531,6 +531,62 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
       { name: "exposure", type: "float", label: "Exposure (stops)", default: 0, min: -3, max: 3, step: 0.01 },
       { name: "aces", type: "bool", label: "Filmic tonemap", default: false },
       { name: "background", type: "color", label: "Background", default: "#09090b" },
+      // When on, tilt/yaw/roll/zoom/fov pilot the 3D layer groups below
+      // (per-layer parallax) instead of tilting the flattened plate.
+      { name: "drive3d", type: "bool", label: "Drive 3D layers", default: false, keyframeable: false },
+    ],
+  },
+
+  object3d: {
+    type: "object3d",
+    label: "3D Object",
+    category: "generator",
+    description: "Ray-traced primitive (cube, sphere, plane) lit by light layers",
+    uniforms: [
+      {
+        name: "u_shape",
+        type: "select",
+        label: "Shape",
+        default: 0,
+        options: [
+          { label: "Cube", value: 0 },
+          { label: "Sphere", value: 1 },
+          { label: "Plane", value: 2 },
+        ],
+      },
+      { name: "albedo", type: "color", label: "Color", default: "#e8590c" },
+      // Half-extents in scene units (frame height = 2 units, so 0.25 ≈ a quarter frame).
+      { name: "u_sizeX", type: "float", label: "Size X", default: 0.25, min: 0.01, max: 2, step: 0.001 },
+      { name: "u_sizeY", type: "float", label: "Size Y", default: 0.25, min: 0.01, max: 2, step: 0.001 },
+      { name: "u_sizeZ", type: "float", label: "Size Z", default: 0.25, min: 0.01, max: 2, step: 0.001 },
+      { name: "specular", type: "float", label: "Specular", default: 0.5, min: 0, max: 1, step: 0.01 },
+      { name: "shininess", type: "float", label: "Shininess", default: 32, min: 2, max: 128, step: 1 },
+      { name: "emissive", type: "float", label: "Emissive", default: 0, min: 0, max: 1, step: 0.01 },
+    ],
+  },
+
+  light: {
+    type: "light",
+    label: "Light",
+    category: "generator",
+    description: "Illuminates 3D objects in its group (directional or point)",
+    uniforms: [
+      {
+        name: "lightType",
+        type: "select",
+        label: "Type",
+        default: 0,
+        options: [
+          { label: "Directional", value: 0 },
+          { label: "Point", value: 1 },
+        ],
+      },
+      { name: "lightColor", type: "color", label: "Color", default: "#ffffff" },
+      { name: "intensity", type: "float", label: "Intensity", default: 1, min: 0, max: 3, step: 0.01 },
+      { name: "ambient", type: "float", label: "Ambient", default: 0.15, min: 0, max: 1, step: 0.01 },
+      // Directional only: where the light comes FROM (degrees).
+      { name: "azimuth", type: "float", label: "Azimuth", default: -35, min: -180, max: 180, step: 0.1 },
+      { name: "elevation", type: "float", label: "Elevation", default: 35, min: -90, max: 90, step: 0.1 },
     ],
   },
 

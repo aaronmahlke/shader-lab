@@ -9,6 +9,7 @@ export type LayerCatalogCategory = LayerCategory | "all";
 export type LayerCatalogSection =
   | "content"
   | "generate"
+  | "scene3d"
   | "distort"
   | "stylize"
   | "camera";
@@ -38,6 +39,7 @@ const CATEGORY_LABELS: Record<LayerCategory, string> = {
 const SECTION_LABELS: Record<LayerCatalogSection, string> = {
   content: "Content",
   generate: "Generate",
+  scene3d: "3D",
   distort: "Distort",
   stylize: "Stylize",
   camera: "Camera",
@@ -50,6 +52,7 @@ export const LAYER_CATALOG_SECTIONS: {
 }[] = [
   { key: "content", label: SECTION_LABELS.content },
   { key: "generate", label: SECTION_LABELS.generate },
+  { key: "scene3d", label: SECTION_LABELS.scene3d },
   { key: "distort", label: SECTION_LABELS.distort },
   { key: "stylize", label: SECTION_LABELS.stylize },
   { key: "camera", label: SECTION_LABELS.camera },
@@ -82,6 +85,8 @@ const SECTION_BY_TYPE: Record<string, LayerCatalogSection> = {
   noise: "generate",
   waveFill: "generate",
   bandFill: "generate",
+  object3d: "scene3d",
+  light: "scene3d",
   distortion: "distort",
   dither: "stylize",
   grain: "stylize",
@@ -95,6 +100,8 @@ const SECTION_BY_TYPE: Record<string, LayerCatalogSection> = {
 /** Fallback for unknown/future types: map the core category to a section. */
 const SECTION_BY_CATEGORY: Record<LayerCategory, LayerCatalogSection> = {
   generator: "generate",
+  object3d: "scene3d",
+  light: "scene3d",
   distortion: "distort",
   effect: "stylize",
 };
@@ -122,6 +129,8 @@ const CATALOG_META: Partial<
   image: { tags: ["photo", "picture", "media", "upload"], featured: true },
   video: { tags: ["movie", "clip", "media", "screen recording", "upload"], featured: true },
   camera: { tags: ["3d", "tilt", "lens", "dof", "bokeh", "bloom", "focus", "plate"], featured: true },
+  object3d: { tags: ["3d", "cube", "sphere", "plane", "mesh", "primitive", "scene"], featured: true },
+  light: { tags: ["3d", "sun", "directional", "point", "shading", "scene"], featured: true },
   shape: { tags: ["rectangle", "ellipse", "circle", "box", "sdf"], featured: true },
   waveFill: { tags: ["shape", "wave", "gradient"], featured: true },
   bandFill: { tags: ["shape", "band", "strip"] },

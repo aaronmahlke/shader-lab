@@ -76,13 +76,17 @@ export function isUniversalParamName(name: string): boolean {
   return UNIVERSAL_NAMES.has(name);
 }
 
-/** True when the layer type supports the 3D switch (generators only). */
+/** Layer types that live in 3D space unconditionally (no switch shown). */
+const ALWAYS_3D = new Set<LayerInstance["type"]>(["object3d", "light"]);
+
+/** True when the layer type supports the 3D SWITCH (generators; always-3D types excluded). */
 export function supports3D(layer: Pick<LayerInstance, "type">): boolean {
-  return LAYER_TEMPLATES[layer.type]?.category === "generator";
+  return LAYER_TEMPLATES[layer.type]?.category === "generator" && !ALWAYS_3D.has(layer.type);
 }
 
 /** True when the layer renders as a 3D group member. */
 export function isLayer3D(layer: Pick<LayerInstance, "type" | "is3D">): boolean {
+  if (ALWAYS_3D.has(layer.type)) return true;
   return !!layer.is3D && supports3D(layer);
 }
 

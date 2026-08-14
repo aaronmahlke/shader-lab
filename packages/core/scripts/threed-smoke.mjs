@@ -97,6 +97,71 @@ const H = 128;
   console.log("ok: depth order beats stack order in a 3D group");
 }
 
+// --- scene3d: objects, lights, camera drive --------------------------------
+{
+  const gl = createGl(W, H);
+
+  // 2a. A cube renders with shading (headlight fallback: top-right lighter).
+  const cube = {
+    id: "cube",
+    type: "object3d",
+    enabled: true,
+    values: { ...buildLayerValues("object3d"), albedo: "#ff0000", layerRotationY: 30, layerRotationX: 20 },
+  };
+  const objFrame = render(gl, [cube], W, H);
+  const [cr, cg, cb] = px(objFrame, W, 64, 64);
+  if (!(cr > 60 && cg < 90 && cb < 90)) fail(`cube should render reddish at center, got rgb(${cr},${cg},${cb})`);
+  const [er] = px(objFrame, W, 4, 4);
+  if (er > 30) fail(`cube should not cover the frame corner, got r=${er}`);
+
+  // 2b. A directional light layer changes the shading.
+  const sun = {
+    id: "sun",
+    type: "light",
+    enabled: true,
+    values: { ...buildLayerValues("light"), intensity: 2.5, lightColor: "#ffffff" },
+  };
+  const litFrame = render(gl, [sun, cube], W, H);
+  const [lr] = px(litFrame, W, 64, 64);
+  if (Math.abs(lr - cr) < 8) fail(`light layer should change cube shading (${cr} -> ${lr})`);
+
+  // 2c. drive3d camera: yaw shifts a 3D layer, and the plate is NOT re-tilted.
+  const quad = (id, color, values = {}) => ({
+    id,
+    type: "solid",
+    enabled: true,
+    is3D: true,
+    values: { ...buildLayerValues("solid"), u_color: color, layerScale: 30, ...values },
+  });
+  const cam = (drive, yaw) => ({
+    id: "cam",
+    type: "camera",
+    enabled: true,
+    values: { ...buildLayerValues("camera"), drive3d: drive, yaw, dofSamples: 8, blurRadius: 0 },
+  });
+
+  // Without drive: camera yaw tilts the whole plate. With drive: the 3D layer
+  // gets parallax instead. Compare where the small quad lands.
+  const centerColumn = (pixels) => {
+    let minX = W, maxX = -1;
+    for (let x = 0; x < W; x++) {
+      const [r] = px(pixels, W, x, 64);
+      if (r > 100) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
+    }
+    return (minX + maxX) / 2;
+  };
+
+  const noDrive = render(gl, [cam(false, 0), quad("q", "#ff0000")], W, H);
+  const drive = render(gl, [cam(true, 25), quad("q", "#ff0000", { layerPositionZ: 0.3 })], W, H);
+  const cNo = centerColumn(noDrive);
+  const cDrive = centerColumn(drive);
+  if (!(cNo > 48 && cNo < 80)) fail(`baseline quad should sit near center, got ${cNo}`);
+  if (!(Math.abs(cDrive - cNo) > 4)) fail(`drive3d yaw should shift the 3D layer (center ${cNo} -> ${cDrive})`);
+
+  destroyGlContext(gl);
+  console.log("ok: objects shade, lights matter, drive3d camera moves 3D layers");
+}
+
 // --- 2. identity parity with the 2D path ----------------------------------
 {
   const gl = createGl(160, 120);

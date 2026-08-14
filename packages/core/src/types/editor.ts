@@ -13,6 +13,8 @@ export type LayerType =
   | "shape"
   | "waveFill"
   | "bandFill"
+  | "object3d"
+  | "light"
   | "distortion"
   | "dither"
   | "grain"
@@ -89,10 +91,12 @@ export type RenderPassType =
 export type ThreeDGroupSlot = {
   /** Stable group key (first member's layer id). */
   key: string;
-  /** Member layer ids in stack order (bottom → top); the tie-break order. */
+  /** Visual member layer ids in stack order (bottom → top); the tie-break order. */
   memberIds: string[];
   /** This pass's position in the depth-sorted composite chain. */
   slot: number;
+  /** Light layers that illuminate this group (in-group lights, stack order). */
+  lightIds?: string[];
 };
 
 export type RenderPass = {
@@ -111,6 +115,8 @@ export type RenderPass = {
   floatTarget?: boolean;
   /** Set on layerComposite3d passes: depth-sorted composite slot of a 3D group. */
   threeDGroup?: ThreeDGroupSlot;
+  /** Camera layer piloting this pass's 3D group (nearest drive-3D camera above). */
+  cameraSourceLayerId?: string | null;
   isOutput: boolean;
 };
 

@@ -120,6 +120,38 @@ function generatorStack(type: LayerType): LayerInstance[] {
     case "solid":
       return [previewLayer(type, { u_color: "#6b2cff" })];
 
+    case "object3d":
+      // Lit cube at a readable angle over a dark base.
+      return [
+        previewLayer("light", { azimuth: -45, elevation: 40, intensity: 1.5 }, "preview-obj-light"),
+        previewLayer(type, {
+          u_shape: 0,
+          albedo: "#e8590c",
+          layerRotationY: 32,
+          layerRotationX: 18,
+          u_sizeX: 0.42,
+          u_sizeY: 0.42,
+          u_sizeZ: 0.42,
+        }),
+        previewLayer("solid", { u_color: "#101014" }, "preview-obj-bg"),
+      ];
+
+    case "light":
+      // A light is invisible on its own — show it shading a sphere.
+      return [
+        previewLayer(type, { azimuth: -55, elevation: 35, intensity: 1.8, lightColor: "#ffe9c4" }),
+        previewLayer("object3d", {
+          u_shape: 1,
+          albedo: "#3b82f6",
+          u_sizeX: 0.45,
+          u_sizeY: 0.45,
+          u_sizeZ: 0.45,
+          specular: 0.8,
+          shininess: 64,
+        }, "preview-light-sphere"),
+        previewLayer("solid", { u_color: "#101014" }, "preview-light-bg"),
+      ];
+
     case "noise":
       return [previewLayer(type, { scale: 3, octaves: 5, persistence: 0.55, speed: 0.4 })];
 

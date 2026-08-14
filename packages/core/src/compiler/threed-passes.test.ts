@@ -35,7 +35,7 @@ describe("compilePasses 3D groups", () => {
     expect(slot0.layerType).toBe("layerComposite3d");
     expect(slot0.inputLayerId).toBe(null); // bottom of the stack
     expect(slot0.colorSourceLayerId).toBe("a");
-    expect(slot0.threeDGroup).toEqual({ key: "a", memberIds: ["a", "b"], slot: 0 });
+    expect(slot0.threeDGroup).toEqual({ key: "a", memberIds: ["a", "b"], slot: 0, lightIds: [] });
     expect(slot1.inputLayerId).toBe(threeDSlotPassId("a", 0));
     expect(slot1.threeDGroup?.slot).toBe(1);
 

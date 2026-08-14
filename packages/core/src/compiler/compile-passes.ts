@@ -51,6 +51,19 @@ export function threeDSlotPassId(groupKey: string, slot: number): string {
   return `3dslot-${groupKey}-${slot}`;
 }
 
+/**
+ * The nearest camera ABOVE a 3D group (index >= fromIndex in the bottom→top
+ * array) with the drive-3D switch on. That camera's view pilots the group.
+ */
+function findDrivingCameraId(enabled: LayerInstance[], fromIndex: number): string | null {
+  for (let i = fromIndex; i < enabled.length; i++) {
+    const layer = enabled[i]!;
+    if (layer.type !== "camera") continue;
+    return layer.values.drive3d === true ? layer.id : null;
+  }
+  return null;
+}
+
 /** Composite pass: blends a generator's content FBO onto the stack below with transform + opacity. */
 function makeCompositePass(
   layer: LayerInstance,
@@ -239,17 +252,30 @@ export function compilePasses(
     }
 
     if (isLayer3D(layer)) {
-      // Contiguous 3D generators form one depth-sorted group (AE model):
-      // content passes render each member, then a chain of composite SLOTS
-      // blends them onto the stack. Slot ids/topology are stable; the renderer
-      // assigns members to slots per frame (painter's sort by Z).
+      // Contiguous 3D layers form one depth-sorted group (AE model):
+      // content passes render each visual member, then a chain of composite
+      // SLOTS blends them onto the stack. Slot ids/topology are stable; the
+      // renderer assigns members to slots per frame (painter's sort by Z).
+      // Lights are non-rendering members; 3D objects ray-trace in their slot
+      // (no content FBO). The nearest drive-3D camera above pilots the group.
       let runEnd = i;
       while (runEnd < enabled.length && isLayer3D(enabled[runEnd]!)) runEnd++;
-      const members = enabled.slice(i, runEnd);
+      const run = enabled.slice(i, runEnd);
+      const lights = run.filter((m) => m.type === "light");
+      const members = run.filter((m) => m.type !== "light");
+
+      if (members.length === 0) {
+        i = runEnd;
+        continue;
+      }
+
       const memberIds = members.map((m) => m.id);
+      const lightIds = lights.map((m) => m.id);
       const groupKey = memberIds[0]!;
+      const cameraSourceLayerId = findDrivingCameraId(enabled, runEnd);
 
       for (const member of members) {
+        if (member.type === "object3d") continue; // ray-traced in the slot pass
         result.push({
           layerId: member.id,
           layerType: member.type,
@@ -268,9 +294,10 @@ export function compilePasses(
           layerType: "layerComposite3d",
           uniforms: buildUniversalUniforms(member, modFn),
           inputLayerId: slot === 0 ? previousLayerId : threeDSlotPassId(groupKey, slot - 1),
-          colorSourceLayerId: member.id,
+          colorSourceLayerId: member.type === "object3d" ? null : member.id,
           sourceLayerId: member.id,
-          threeDGroup: { key: groupKey, memberIds, slot },
+          threeDGroup: { key: groupKey, memberIds, slot, lightIds },
+          cameraSourceLayerId,
           isOutput: false,
         });
       }
