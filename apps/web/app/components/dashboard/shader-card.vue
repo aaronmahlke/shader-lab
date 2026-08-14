@@ -29,17 +29,26 @@ const emit = defineEmits<Emits>();
 const renaming = ref(false);
 const renameValue = ref("");
 const renameInputRef = ref<HTMLInputElement | null>(null);
+let renameQueued = false;
 
 function startRename() {
+  // Editing starts in onMenuCloseAutoFocus, after the menu has fully closed.
+  // Starting earlier lets the menu's focus restore blur the input immediately.
+  renameQueued = true;
+}
+
+function onMenuCloseAutoFocus(event: Event) {
+  // Never restore focus to the card link; it draws a focus ring around the
+  // whole card and would steal focus from the rename input.
+  event.preventDefault();
+  if (!renameQueued) return;
+  renameQueued = false;
   renameValue.value = name;
-  // Wait for the context menu to close and release focus before grabbing it.
-  setTimeout(() => {
-    renaming.value = true;
-    nextTick(() => {
-      renameInputRef.value?.focus();
-      renameInputRef.value?.select();
-    });
-  }, 50);
+  renaming.value = true;
+  nextTick(() => {
+    renameInputRef.value?.focus();
+    renameInputRef.value?.select();
+  });
 }
 
 function commitRename() {
@@ -245,7 +254,7 @@ const specularNarrow = computed(() => {
 </script>
 
 <template>
-  <UiContextMenu>
+  <UiContextMenu @close-auto-focus="onMenuCloseAutoFocus">
     <NuxtLink :to="`/shader/${id}`" class="block">
       <div class="flex flex-col gap-2.5">
         <!-- Outer hover wrapper (stable hover zone + scale) -->
