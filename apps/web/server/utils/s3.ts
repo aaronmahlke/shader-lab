@@ -15,6 +15,10 @@ function getClient(): S3Client {
       },
       endpoint: config.aws?.s3Endpoint || undefined,
       forcePathStyle: true,
+      // SDK >= 3.729 attaches CRC checksums to every PutObject by default;
+      // S3-compatible providers (Hetzner, SeaweedFS, …) reject them.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return s3Client;
