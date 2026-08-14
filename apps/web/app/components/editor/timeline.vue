@@ -1351,11 +1351,17 @@ function writeLayerTiming(layer: LayerInstance, inPoint: number, outPoint: numbe
 
 function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: PointerEvent) {
   if (e.button !== 0) return;
-  if (!selectedLayerIds.value.has(layer.id)) {
-    selectedLayerId.value = layer.id;
-    selectedLayerIds.value = new Set([layer.id]);
-    selectionAnchorId.value = layer.id;
+
+  // Bars take the same modifier clicks as layer names: shift extends, cmd/ctrl
+  // toggles, plain click on an unselected bar selects it. A plain press on an
+  // already selected bar keeps the selection so the group can be dragged.
+  // selectLayer returns the fresh set; the models still hold last tick's value.
+  let selection = selectedLayerIds.value;
+  if (e.shiftKey || e.metaKey || e.ctrlKey || !selection.has(layer.id)) {
+    selection = selectLayer(layer.id, e) ?? selection;
   }
+  // A cmd/ctrl press can deselect the pressed bar; nothing to drag then.
+  if (!selection.has(layer.id)) return;
 
   const startX = e.clientX;
   const startIn = layerInPoint(layer);
@@ -1364,8 +1370,7 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
   let dragging = false;
 
   // Moving a bar moves every selected bar together; trims stay on the pressed layer.
-  const movedLayers =
-    mode === "move" ? layers.value.filter((l) => selectedLayerIds.value.has(l.id)) : [layer];
+  const movedLayers = mode === "move" ? layers.value.filter((l) => selection.has(l.id)) : [layer];
   const movedIds = new Set(movedLayers.map((l) => l.id));
   const startWindows = new Map(
     movedLayers.map((l) => [l.id, { in: layerInPoint(l), out: layerOutPoint(l) }]),
@@ -1466,18 +1471,24 @@ function layerRowBlockRole(index: number) {
   return layerHeaderBlockRole(index, selectedLayerIndices(), [...draggingIndices.value]);
 }
 
-function selectLayer(id: string, e?: MouseEvent) {
+/**
+ * Returns the resulting selection so pointerdown handlers can use it right
+ * away: the selection models are defineModel and only sync back next tick.
+ */
+function selectLayer(id: string, e?: MouseEvent): Set<string> | null {
   const index = layerIndex(id);
-  if (index === -1) return;
+  if (index === -1) return null;
 
+  let next: Set<string>;
   if (e?.shiftKey) {
     const anchorId = selectionAnchorId.value ?? selectedLayerId.value;
     const anchorIndex = anchorId ? layerIndex(anchorId) : index;
     const lo = Math.min(anchorIndex, index);
     const hi = Math.max(anchorIndex, index);
-    selectedLayerIds.value = new Set(layers.value.slice(lo, hi + 1).map((l) => l.id));
+    next = new Set(layers.value.slice(lo, hi + 1).map((l) => l.id));
+    selectedLayerIds.value = next;
   } else if (e?.metaKey || e?.ctrlKey) {
-    const next = new Set(selectedLayerIds.value);
+    next = new Set(selectedLayerIds.value);
     const adding = !next.has(id);
     if (adding) next.add(id);
     else next.delete(id);
@@ -1487,7 +1498,7 @@ function selectLayer(id: string, e?: MouseEvent) {
     if (next.size === 0) {
       selectedLayerId.value = null;
       history?.record();
-      return;
+      return next;
     }
     if (adding) {
       selectedLayerId.value = id;
@@ -1498,15 +1509,17 @@ function selectLayer(id: string, e?: MouseEvent) {
           : [...next][0]!;
     }
     history?.record();
-    return;
+    return next;
   } else {
-    selectedLayerIds.value = new Set([id]);
+    next = new Set([id]);
+    selectedLayerIds.value = next;
     selectionAnchorId.value = id;
   }
 
   selectedLayerId.value = id;
   selectedKeyframes.value = [];
   history?.record();
+  return next;
 }
 
 function selectAllLayers() {
