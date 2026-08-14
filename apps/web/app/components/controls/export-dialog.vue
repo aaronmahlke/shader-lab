@@ -124,15 +124,23 @@ const selectedFormat = ref<ExportFormatPreference>("auto");
 
 const resolvedFormat = ref<string | null>(null);
 const formatUnsupported = ref(false);
+const compatWarning = ref<string | null>(null);
 watchEffect(async () => {
   const { width, height } = exportSize.value;
   const fps = fpsOptions[selectedFps.value]!.value;
   resolvedFormat.value = null;
   formatUnsupported.value = false;
+  compatWarning.value = null;
   try {
     const enc = await negotiateCanvasEncoding(width, height, fps, selectedFormat.value);
     const codecLabel = enc.codec === "avc" ? "h.264" : enc.codec;
     resolvedFormat.value = `${enc.extension} · ${codecLabel}`;
+    // Exports too large for H.264 fall back to VP9/AV1. Those files only play
+    // on recent hardware — chat apps (Telegram, WhatsApp, …) show a blurry
+    // thumbnail instead of video. Warn before the user renders for minutes.
+    if (enc.codec !== "avc") {
+      compatWarning.value = `${codecLabel} only plays on recent devices — chat apps and older players will fail. Use a smaller scale for h.264.`;
+    }
   } catch {
     resolvedFormat.value = "not supported at this size";
     formatUnsupported.value = true;
@@ -335,6 +343,10 @@ async function handleVideoExport() {
                   </UiButton>
                 </div>
               </div>
+
+              <p v-if="compatWarning" class="text-copy-sm text-amber-400">
+                {{ compatWarning }}
+              </p>
 
               <UiButton variant="action" :icon-left="ArrowDownTrayIcon" :disabled="formatUnsupported" @click="handleVideoExport">
                 Render video
