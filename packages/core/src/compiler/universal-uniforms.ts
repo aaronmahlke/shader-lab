@@ -18,6 +18,17 @@ export const TRANSFORM_UNIFORMS: LayerUniformDef[] = [
   { name: "layerAnchorY", type: "float", label: "Anchor Y", default: 0.5, min: 0, max: 1, step: 0.001 },
 ];
 
+/**
+ * Extra transform properties a layer gains when its 3D switch is on.
+ * Z is in canvas-height fractions (matches the scene's world scale where the
+ * frame is 2 units tall); positive Z moves the layer toward the camera.
+ */
+export const THREED_TRANSFORM_UNIFORMS: LayerUniformDef[] = [
+  { name: "layerPositionZ", type: "float", label: "Position Z", default: 0, min: -2, max: 2, step: 0.001 },
+  { name: "layerRotationX", type: "float", label: "Rotation X", default: 0, min: -360, max: 360, step: 0.1 },
+  { name: "layerRotationY", type: "float", label: "Rotation Y", default: 0, min: -360, max: 360, step: 0.1 },
+];
+
 /** Opacity applies to every layer (generators composite; effects crossfade; distortion scales displacement). */
 export const OPACITY_UNIFORM: LayerUniformDef = {
   name: "layerOpacity", type: "float", label: "Opacity", default: 100, min: 0, max: 100, step: 0.1,
@@ -54,6 +65,7 @@ export const BLEND_MODE_UNIFORM: LayerUniformDef = {
 
 export const UNIVERSAL_LAYER_UNIFORMS: LayerUniformDef[] = [
   ...TRANSFORM_UNIFORMS,
+  ...THREED_TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
   BLEND_MODE_UNIFORM,
 ];
@@ -64,11 +76,45 @@ export function isUniversalParamName(name: string): boolean {
   return UNIVERSAL_NAMES.has(name);
 }
 
-/** Universal uniform defs applicable to a layer: generators get transform + opacity, others opacity only. */
-export function universalUniformsFor(layer: Pick<LayerInstance, "type">): LayerUniformDef[] {
+/** True when the layer type supports the 3D switch (generators only). */
+export function supports3D(layer: Pick<LayerInstance, "type">): boolean {
+  return LAYER_TEMPLATES[layer.type]?.category === "generator";
+}
+
+/** True when the layer renders as a 3D group member. */
+export function isLayer3D(layer: Pick<LayerInstance, "type" | "is3D">): boolean {
+  return !!layer.is3D && supports3D(layer);
+}
+
+const findUniform = (name: string): LayerUniformDef =>
+  UNIVERSAL_LAYER_UNIFORMS.find((def) => def.name === name)!;
+
+/** AE-style display order when the 3D switch is on (Z position after X/Y, rotations grouped). */
+const THREED_DISPLAY_ORDER: LayerUniformDef[] = [
+  findUniform("layerPositionX"),
+  findUniform("layerPositionY"),
+  findUniform("layerPositionZ"),
+  findUniform("layerScale"),
+  { ...findUniform("layerRotation"), label: "Rotation Z" },
+  findUniform("layerRotationX"),
+  findUniform("layerRotationY"),
+  findUniform("layerAnchorX"),
+  findUniform("layerAnchorY"),
+  OPACITY_UNIFORM,
+  BLEND_MODE_UNIFORM,
+];
+
+/**
+ * Universal uniform defs applicable to a layer: generators get transform + opacity
+ * (plus Z/X/Y rotation when the 3D switch is on), others opacity only.
+ */
+export function universalUniformsFor(
+  layer: Pick<LayerInstance, "type"> & Partial<Pick<LayerInstance, "is3D">>,
+): LayerUniformDef[] {
   const template = LAYER_TEMPLATES[layer.type];
-  if (template?.category === "generator") return UNIVERSAL_LAYER_UNIFORMS;
-  return [OPACITY_UNIFORM];
+  if (template?.category !== "generator") return [OPACITY_UNIFORM];
+  if (isLayer3D(layer)) return THREED_DISPLAY_ORDER;
+  return [...TRANSFORM_UNIFORMS, OPACITY_UNIFORM, BLEND_MODE_UNIFORM];
 }
 
 /** Find a param def by name across the layer's template uniforms and the universal set. */
