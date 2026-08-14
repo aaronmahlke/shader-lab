@@ -49,6 +49,40 @@ describe("snapBarMoveDelta", () => {
   });
 });
 
+describe("snap hysteresis", () => {
+  const windows = [{ in: 0, out: 1 }];
+
+  it("holds a locked target beyond the lock threshold, within release", () => {
+    // 0.08 from target 1: outside the 0.05 lock radius, inside 0.1 release.
+    const snap = snapBarMoveDelta(0.08, windows, [1], 0.05, 1, 0.1);
+    expect(snap.delta).toBeCloseTo(0);
+    expect(snap.guide).toBe(1);
+  });
+
+  it("releases the lock outside the release radius", () => {
+    const snap = snapBarMoveDelta(0.15, windows, [1], 0.05, 1, 0.1);
+    expect(snap.guide).toBeNull();
+    expect(snap.delta).toBeCloseTo(0.15);
+  });
+
+  it("does not let a nearer target steal an active lock", () => {
+    // Bar's out at 1.095: target 1.1 is 0.005 away and would win without the
+    // lock, but the lock on 1 holds within its release radius.
+    const snap = snapBarMoveDelta(0.095, windows, [1, 1.1], 0.05, 1, 0.1);
+    expect(snap.guide).toBe(1);
+    expect(snap.delta).toBeCloseTo(0);
+  });
+
+  it("applies the same hold to trimmed edges", () => {
+    const held = snapEdgeTime(2.08, [2], 0.05, 2, 0.1);
+    expect(held.time).toBe(2);
+    expect(held.guide).toBe(2);
+    const released = snapEdgeTime(2.15, [2], 0.05, 2, 0.1);
+    expect(released.guide).toBeNull();
+    expect(released.time).toBeCloseTo(2.15);
+  });
+});
+
 describe("snapEdgeTime", () => {
   it("locks the edge onto the nearest target in range", () => {
     const snap = snapEdgeTime(1.94, [2, 1.8], 0.1);

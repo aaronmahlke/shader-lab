@@ -47,12 +47,17 @@ import {
   snapBarMoveDelta,
   snapEdgeTime,
   TIMELINE_GUIDE_COLOR,
+  TIMELINE_SNAP_RELEASE_PX,
   TIMELINE_SNAP_THRESHOLD_PX,
 } from "#shared/editor/timeline-snapping";
+import UIcon from "../UIcon.vue";
 import {
   isKeyframeInSelection,
   toggleKeyframeInSelection,
 } from "#shared/editor/keyframe-selection";
+
+/** Lucide magnet as a component so UiButton can take it as icon-left. */
+const MagnetIcon = () => h(UIcon, { name: "i-lucide-magnet" });
 
 type Emits = {
   "toggle-stopwatch": [layerId: string, paramName: string];
@@ -92,6 +97,7 @@ const selectedKeyframes = defineModel<KeyframeSelection[]>("selectedKeyframes", 
 const currentTime = defineModel<number>("currentTime", { required: true });
 const playing = defineModel<boolean>("playing", { required: true });
 const pxPerSecond = defineModel<number>("pxPerSecond", { default: DEFAULT_PX_PER_SECOND });
+const snapping = defineModel<boolean>("snapping", { default: true });
 
 const { settings } = defineProps<{
   settings: CompositionSettings;
@@ -1395,6 +1401,9 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
     currentTime.value,
   );
   const snapThreshold = () => TIMELINE_SNAP_THRESHOLD_PX / pxPerSecond.value;
+  const snapRelease = () => TIMELINE_SNAP_RELEASE_PX / pxPerSecond.value;
+  // The currently held target (hysteresis), kept across pointermoves.
+  let snapLock: number | null = null;
 
   // Moving a bar shifts the layer in time: keyframes travel with it.
   const startKeyTimes = new Map(
@@ -1423,16 +1432,29 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
     }
 
     const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
-    // Frames quantize the drag; an edge snap in range takes over. When the
-    // clamp then moves the result, the guide would lie, so it is dropped.
+    // Frames quantize the drag; an edge snap in range takes over. Holding
+    // ⌥/Alt bypasses snapping for this move. When the clamp then moves the
+    // result, the guide would lie, so it is dropped.
+    const snapActive = snapping.value && !ev.altKey;
+    if (!snapActive) snapLock = null;
     let guide: number | null = null;
     if (mode === "move") {
       let delta = snapTime(startIn + deltaTime) - startIn;
-      const snapped = snapBarMoveDelta(deltaTime, startWindowList, snapTargets, snapThreshold());
-      if (snapped.guide !== null) {
-        delta = snapped.delta;
-        guide = snapped.guide;
+      if (snapActive) {
+        const snapped = snapBarMoveDelta(
+          deltaTime,
+          startWindowList,
+          snapTargets,
+          snapThreshold(),
+          snapLock,
+          snapRelease(),
+        );
+        if (snapped.guide !== null) {
+          delta = snapped.delta;
+          guide = snapped.guide;
+        }
       }
+      snapLock = guide;
       // Clamp one shared delta so every moved bar keeps a grabbable slice
       // inside the composition.
       const clamped = clampGroupBarMoveDelta(delta, startWindowList, settings.duration);
@@ -1444,11 +1466,20 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
       shiftLayerKeyframes(clamped);
     } else if (mode === "in") {
       let nextIn = snapTime(startIn + deltaTime);
-      const snapped = snapEdgeTime(startIn + deltaTime, snapTargets, snapThreshold());
-      if (snapped.guide !== null) {
-        nextIn = snapped.time;
-        guide = snapped.guide;
+      if (snapActive) {
+        const snapped = snapEdgeTime(
+          startIn + deltaTime,
+          snapTargets,
+          snapThreshold(),
+          snapLock,
+          snapRelease(),
+        );
+        if (snapped.guide !== null) {
+          nextIn = snapped.time;
+          guide = snapped.guide;
+        }
       }
+      snapLock = guide;
       // Trim stops at 0 as before, but keeps an existing left overhang reachable.
       const clamped = Math.max(
         Math.min(0, startIn),
@@ -1458,11 +1489,20 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
       writeLayerTiming(layer, clamped, startOut);
     } else {
       let nextOut = snapTime(startOut + deltaTime);
-      const snapped = snapEdgeTime(startOut + deltaTime, snapTargets, snapThreshold());
-      if (snapped.guide !== null) {
-        nextOut = snapped.time;
-        guide = snapped.guide;
+      if (snapActive) {
+        const snapped = snapEdgeTime(
+          startOut + deltaTime,
+          snapTargets,
+          snapThreshold(),
+          snapLock,
+          snapRelease(),
+        );
+        if (snapped.guide !== null) {
+          nextOut = snapped.time;
+          guide = snapped.guide;
+        }
       }
+      snapLock = guide;
       // The out point may pass the composition end; that tail never plays.
       const clamped = Math.max(nextOut, startIn + frame, frame);
       if (clamped !== nextOut) guide = null;
@@ -1602,6 +1642,14 @@ function selectAllLayers() {
         @click="openDurationEditor"
       >/ {{ formatTime(settings.duration) }}</span>
       <div class="ml-auto flex items-center gap-0.5">
+        <UiButton
+          variant="option"
+          size="sm"
+          :active="snapping"
+          :icon-left="MagnetIcon"
+          :title="snapping ? 'Snapping on (hold ⌥ to bypass)' : 'Snapping off'"
+          @click="snapping = !snapping"
+        />
         <UiButton variant="ghost" size="sm" title="Fit composition to view (⇧Z)" @click="fitTimeline">Fit</UiButton>
         <UiButton variant="ghost" size="sm" :icon-left="MinusIcon" title="Zoom out (⌥ scroll)" @click="zoomOut" />
         <span class="min-w-10 text-center font-mono text-copy-xs text-neutral-subtle">{{ zoomPercent }}%</span>
