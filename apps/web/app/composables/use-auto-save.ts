@@ -14,6 +14,7 @@ export function useAutoSave(
   const editorPath = "/shader";
 
   let hasCapturedThumbnail = false;
+  let thumbnailInFlight = false;
 
   async function save() {
     try {
@@ -32,7 +33,6 @@ export function useAutoSave(
       }
 
       if (!hasCapturedThumbnail && options.getCanvas) {
-        hasCapturedThumbnail = true;
         setTimeout(() => captureThumbnail(), 500);
       }
     } catch (e) {
@@ -41,9 +41,11 @@ export function useAutoSave(
   }
 
   async function captureThumbnail() {
+    if (thumbnailInFlight || hasCapturedThumbnail) return;
     if (!documentId.value || !options.getCanvas) return;
     const canvas = options.getCanvas();
     if (!canvas) return;
+    thumbnailInFlight = true;
 
     try {
       const thumbCanvas = document.createElement("canvas");
@@ -66,8 +68,12 @@ export function useAutoSave(
         method: "POST",
         body: formData,
       });
-    } catch {
-      // Best-effort
+      // Only mark done on success so the next save retries a failed capture.
+      hasCapturedThumbnail = true;
+    } catch (e) {
+      console.warn("Thumbnail capture failed (will retry on next save):", e);
+    } finally {
+      thumbnailInFlight = false;
     }
   }
 

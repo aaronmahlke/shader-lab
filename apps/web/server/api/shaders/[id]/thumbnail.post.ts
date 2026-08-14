@@ -27,14 +27,18 @@ export default defineEventHandler(async (event) => {
   // Upload to S3
   const s3 = useS3();
   const key = `thumbnails/${id}.png`;
-  const thumbnailUrl = await s3.putObject(key, file.data, "image/png");
+  await s3.putObject(key, file.data, "image/png");
 
-  // Update the shader record
+  // Store an app-served URL: the S3 endpoint is not necessarily reachable
+  // from the browser (internal-only in prod). ?v= busts the immutable cache.
+  const thumbnailUpdatedAt = new Date();
+  const thumbnailUrl = `/api/shaders/${id}/thumbnail?v=${thumbnailUpdatedAt.getTime()}`;
+
   await db
     .update(shaders)
     .set({
       thumbnailUrl,
-      thumbnailUpdatedAt: new Date(),
+      thumbnailUpdatedAt,
     })
     .where(eq(shaders.id, id));
 
