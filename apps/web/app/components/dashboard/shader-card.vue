@@ -18,10 +18,40 @@ type Props = {
 type Emits = {
   delete: [];
   duplicate: [];
+  rename: [name: string];
 };
 
 const { id, name, thumbnailUrl, updatedAt, data } = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+// --- Inline rename ---
+
+const renaming = ref(false);
+const renameValue = ref("");
+const renameInputRef = ref<HTMLInputElement | null>(null);
+
+function startRename() {
+  renameValue.value = name;
+  // Wait for the context menu to close and release focus before grabbing it.
+  setTimeout(() => {
+    renaming.value = true;
+    nextTick(() => {
+      renameInputRef.value?.focus();
+      renameInputRef.value?.select();
+    });
+  }, 50);
+}
+
+function commitRename() {
+  if (!renaming.value) return;
+  renaming.value = false;
+  const trimmed = renameValue.value.trim();
+  if (trimmed && trimmed !== name) emit("rename", trimmed);
+}
+
+function cancelRename() {
+  renaming.value = false;
+}
 
 const cardRef = ref<HTMLElement | null>(null);
 const displayCanvasRef = ref<HTMLCanvasElement | null>(null);
@@ -280,13 +310,26 @@ const specularNarrow = computed(() => {
 
         <!-- Title + timestamp (static, below the card) -->
         <div class="flex min-w-0 flex-col gap-0.5 px-3">
-          <span class="truncate text-copy-sm text-primary">{{ name }}</span>
+          <input
+            v-if="renaming"
+            ref="renameInputRef"
+            v-model="renameValue"
+            type="text"
+            class="min-w-0 bg-transparent text-copy-sm text-primary outline-none"
+            @click.prevent.stop
+            @pointerdown.stop
+            @keydown.enter.prevent="commitRename"
+            @keydown.escape="cancelRename"
+            @blur="commitRename"
+          />
+          <span v-else class="truncate text-copy-sm text-primary">{{ name }}</span>
           <span class="text-copy-sm text-tertiary">{{ relativeTime }}</span>
         </div>
       </div>
     </NuxtLink>
 
     <template #menu>
+      <UiContextMenuItem @click="startRename">Rename</UiContextMenuItem>
       <UiContextMenuItem @click="emit('duplicate')">Duplicate</UiContextMenuItem>
       <UiContextMenuSeparator />
       <UiContextMenuItem @click="emit('delete')">Delete</UiContextMenuItem>

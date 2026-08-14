@@ -10,6 +10,11 @@ async function deleteShader(id: string) {
   await refreshShaders();
 }
 
+async function renameShader(id: string, name: string) {
+  await $fetch(`/api/shaders/${id}`, { method: "PATCH", body: { name } });
+  await refreshShaders();
+}
+
 async function duplicateShader(id: string) {
   const source = (shaders.value as any[])?.find((s) => s.id === id);
   if (!source) return;
@@ -68,6 +73,7 @@ const isEmpty = computed(() => !(shaders.value as any[])?.length);
           :data="item.data"
           @delete="deleteShader(item.id)"
           @duplicate="duplicateShader(item.id)"
+          @rename="renameShader(item.id, $event)"
         />
       </div>
     </main>
