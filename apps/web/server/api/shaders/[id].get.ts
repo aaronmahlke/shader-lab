@@ -28,5 +28,6 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: "Composition not found" });
   }
 
-  return shader;
+  // Old rows store the internal S3 URL; serve the app-proxied one instead.
+  return withAppThumbnailUrl(shader);
 });

@@ -9,5 +9,6 @@ export default defineEventHandler(async (event) => {
     .where(eq(shaders.userId, userId))
     .orderBy(desc(shaders.updatedAt));
 
-  return result;
+  // Old rows store the internal S3 URL; serve the app-proxied one instead.
+  return result.map(withAppThumbnailUrl);
 });
