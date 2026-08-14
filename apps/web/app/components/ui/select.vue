@@ -22,6 +22,24 @@ type Props = {
 const { options, placeholder = "Select...", disabled = false } = defineProps<Props>();
 const model = defineModel<string | number | null>();
 const open = ref(false);
+
+// Highlight events let parents live-preview an option before it is committed
+// (e.g. blend modes). `highlight` fires when an option is hovered or keyboard-
+// focused; `highlight-end` fires when the pointer leaves the list or the
+// dropdown closes. `select` always fires on selection, unlike
+// `update:model-value` which reka-ui skips when the value is unchanged - and
+// with a live preview the document value already equals the clicked option.
+// `select` is emitted before `highlight-end`, so a committed value is never
+// reverted by the preview.
+const emit = defineEmits<{
+  highlight: [value: string | number];
+  "highlight-end": [];
+  select: [value: string | number];
+}>();
+
+watch(open, (isOpen) => {
+  if (!isOpen) emit("highlight-end");
+});
 </script>
 
 <template>
@@ -46,6 +64,7 @@ const open = ref(false);
           :side-offset="4"
           :collision-padding="12"
           class="floating-content-enter z-[9999] w-[var(--reka-select-trigger-width)] origin-[var(--reka-select-content-transform-origin)] rounded-xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl"
+          @pointerleave="emit('highlight-end')"
         >
           <SelectViewport class="max-h-48 overflow-auto p-1">
             <SelectItem
@@ -53,6 +72,9 @@ const open = ref(false);
               :key="String(option.value)"
               :value="option.value as string | number"
               class="flex cursor-default items-center justify-between rounded-md px-2.5 py-1.5 text-copy-sm text-primary transition-colors duration-150 select-none hover:bg-surface-1 focus:bg-surface-1 focus:outline-0"
+              @pointerenter="emit('highlight', option.value)"
+              @focus="emit('highlight', option.value)"
+              @select="emit('select', option.value)"
             >
               <SelectItemText>
                 {{ option.label }}

@@ -377,8 +377,26 @@ function getSelect(def: LayerUniformDef, target: Record<string, unknown>): strin
 }
 
 function setSelect(def: LayerUniformDef, target: Record<string, unknown>, v: string | number) {
+  selectPreview = null; // committed value wins; a trailing highlight-end must not revert it
   target[def.name] = v;
   history?.record();
+}
+
+// Transient hover preview for select dropdowns (e.g. blend modes): mutate the
+// value without recording history, and restore the original if the dropdown
+// closes without a selection. Rendering picks up the mutation immediately.
+let selectPreview: { def: LayerUniformDef; target: Record<string, unknown>; original: unknown } | null = null;
+
+function previewSelect(def: LayerUniformDef, target: Record<string, unknown>, v: string | number) {
+  if (selectPreview?.def !== def) selectPreview = { def, target, original: target[def.name] };
+  target[def.name] = v;
+}
+
+function endSelectPreview(def: LayerUniformDef) {
+  if (selectPreview?.def !== def) return;
+  if (selectPreview.original === undefined) delete selectPreview.target[def.name];
+  else selectPreview.target[def.name] = selectPreview.original;
+  selectPreview = null;
 }
 
 function getVec2(def: LayerUniformDef, target: Record<string, unknown>): [number, number] {
@@ -546,6 +564,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           :options="def.options ?? []"
           :label="def.label"
           @update:model-value="setSelect(def, layer.values, $event as string | number)"
+          @select="setSelect(def, layer.values, $event)"
+          @highlight="previewSelect(def, layer.values, $event)"
+          @highlight-end="endSelectPreview(def)"
         />
         <UiContextMenu v-else>
           <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
@@ -729,6 +750,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             :options="def.options ?? []"
             :label="def.label"
             @update:model-value="setSelect(def, layer.values, $event as string | number)"
+            @select="setSelect(def, layer.values, $event)"
+            @highlight="previewSelect(def, layer.values, $event)"
+            @highlight-end="endSelectPreview(def)"
           />
           <div v-else-if="def.type === 'vec2'" class="flex flex-col gap-2.5">
             <UiSliderField
