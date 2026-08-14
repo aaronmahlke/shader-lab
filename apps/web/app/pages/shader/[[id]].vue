@@ -776,6 +776,27 @@ function onWindowPaste(event: ClipboardEvent) {
   void importMediaFiles(files);
 }
 
+// --- Pasteboard deselect ---
+
+/**
+ * Clicking the empty pasteboard around the artboard clears the selection.
+ * Guarded by pointer travel so a drag that starts and ends on the background
+ * doesn't deselect; .self on the handlers keeps artboard/gizmo/UI clicks out.
+ */
+let pasteboardDownAt: { x: number; y: number } | null = null;
+
+function onPasteboardPointerDown(event: PointerEvent) {
+  pasteboardDownAt = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+}
+
+function onPasteboardClick(event: MouseEvent) {
+  const down = pasteboardDownAt;
+  pasteboardDownAt = null;
+  if (!down) return;
+  if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return;
+  onCanvasSelect(null);
+}
+
 onMounted(() => {
   window.addEventListener("paste", onWindowPaste);
 });
@@ -1483,6 +1504,8 @@ registerKeyboard({
               :class="viewport.panning.value && 'cursor-grabbing'"
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
+              @pointerdown.self="onPasteboardPointerDown"
+              @click.self="onPasteboardClick"
               @dragenter.prevent="onViewportDragEnter"
               @dragover.prevent="onViewportDragOver"
               @dragleave="onViewportDragLeave"
