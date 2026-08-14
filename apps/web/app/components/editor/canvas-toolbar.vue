@@ -51,6 +51,7 @@ register({
         : 'text-neutral-subtle hover:bg-control hover:text-neutral-strong'"
       :title="`${t.label} (${t.shortcut})`"
       :aria-pressed="tool === t.id"
+      @pointerdown.prevent
       @click="tool = t.id"
     >
       <UIcon :name="t.icon" class="size-4" />
