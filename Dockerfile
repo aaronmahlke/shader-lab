@@ -49,4 +49,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=build /app/apps/web/.output ./.output
 EXPOSE 3000
-CMD ["xvfb-run", "-a", "node", ".output/server/index.mjs"]
+# Xvfb runs as a background child; `exec` makes node PID 1 so SIGTERM reaches
+# it directly (atlasflow's deploy contract requires graceful SIGTERM stops —
+# an xvfb-run bash wrapper as PID 1 would swallow the signal).
+ENV DISPLAY=:99
+CMD ["/bin/sh", "-c", "Xvfb :99 -screen 0 1280x720x24 -nolisten tcp & exec node .output/server/index.mjs"]
