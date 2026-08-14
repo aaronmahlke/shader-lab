@@ -49,7 +49,9 @@ const SVG_TEXT_RE = /^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!DOCTYPE[\s\S]*?>\s*)?<svg
  */
 export function svgFileFromText(text: string): File | null {
   if (!SVG_TEXT_RE.test(text)) return null;
-  return new File([text], "pasted.svg", { type: "image/svg+xml" });
+  // Empty base name on purpose: markup has no real file name, so the created
+  // layer stays unnamed and displays the template label ("Image") instead.
+  return new File([text], ".svg", { type: "image/svg+xml" });
 }
 
 /** Last path segment of a src URL (query stripped) for compact display. */
