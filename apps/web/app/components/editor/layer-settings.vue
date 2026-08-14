@@ -14,7 +14,7 @@ import {
   layerBoundsInCompUv,
   type LayerTransformValues,
 } from "#shared/editor/layer-transform";
-import { XMarkIcon } from "@heroicons/vue/16/solid";
+import { EyeIcon, EyeSlashIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import { stageComponentOptions } from "~/utils/stage-components";
 import { mediaSrcFileName, uploadMediaFile, type MediaUploadKind } from "~/utils/media-upload";
 
@@ -59,6 +59,13 @@ const {
 const emit = defineEmits<Emits>();
 
 const history = useEditorHistory();
+
+/** Same mutation + history path the timeline eye button uses (`enabled` is a
+ * top-level layer field the inspector may mutate directly, like `values`). */
+function toggleLayerEnabled() {
+  layer.enabled = !layer.enabled;
+  history?.record();
+}
 
 /** Options for the component layer's picker (static per session: glob-derived). */
 const componentPickerOptions = stageComponentOptions();
@@ -491,7 +498,17 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       />
     </div>
 
-    <div class="flex flex-col gap-2.5 border-b border-neutral p-3">
+    <EditorInspectorSection title="Transform">
+      <template #actions>
+        <UiButton
+          variant="ghost"
+          size="sm"
+          class="!size-6"
+          :icon-left="layer.enabled ? EyeIcon : EyeSlashIcon"
+          :title="layer.enabled ? 'Hide layer' : 'Show layer'"
+          @click="toggleLayerEnabled"
+        />
+      </template>
       <div
         v-if="isGenerator && compositionAspect"
         class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
@@ -582,9 +599,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           </div>
         </div>
       </template>
-    </div>
+    </EditorInspectorSection>
 
-    <div class="flex flex-col gap-2.5 p-3">
+    <EditorInspectorSection :title="template.label">
       <template v-for="def in template.uniforms" :key="def.name">
         <template v-if="isUniformVisible(def)">
           <UiSelect
@@ -756,6 +773,6 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           </div>
         </template>
       </template>
-    </div>
+    </EditorInspectorSection>
   </div>
 </template>

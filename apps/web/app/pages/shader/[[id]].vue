@@ -1850,10 +1850,10 @@ registerKeyboard({
             </p>
           </div>
 
-          <EditorLfoList
+          <EditorLfoRack
             v-model:lfos="lfos"
             v-model:selected-lfo-id="selectedLfoId"
-            class="max-h-48 shrink-0 border-t border-neutral"
+            class="max-h-48 shrink-0"
             @drag-start="onDragStart"
             @duplicate-lfo="duplicateLfo"
             @clear-assignments="clearLfoAssignments"
