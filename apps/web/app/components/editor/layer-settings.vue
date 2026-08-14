@@ -7,7 +7,9 @@ import {
   findPropertyTrack,
   hasKeyframeAt,
   isKeyframeableUniform,
+  isLayer3D,
   isPropertyTrackActive,
+  supports3D,
   universalUniformsFor,
 } from "@shader-lab/core";
 import {
@@ -121,10 +123,17 @@ function onDepthUpdate(def: LayerUniformDef, depth: number) {
   emit("update-depth", assignment.sourceId, def.name, depth);
 }
 
-/** Universal transform/opacity params shown for every layer (generators get the full set). */
-const universalDefs = universalUniformsFor(layer);
+/** Universal transform/opacity params shown for every layer (generators get the full set).
+ * Computed: the def list changes when the layer's 3D switch flips. */
+const universalDefs = computed(() => universalUniformsFor(layer));
 
-// --- Universal rows (Figma-style: X/Y pairs share one labeled row) ---
+/** Same direct-mutation + history path as toggleLayerEnabled (`is3D` is a top-level layer field). */
+function setLayer3D(value: boolean) {
+  layer.is3D = value;
+  history?.record();
+}
+
+// --- Universal rows (Figma-style: X/Y[/Z] groups share one labeled row) ---
 
 type UniversalField = { def: LayerUniformDef; label: string };
 type UniversalRow = {
@@ -136,32 +145,77 @@ type UniversalRow = {
   fields: UniversalField[];
 };
 
-const PAIRED_UNIVERSALS = [
-  { label: "Position", x: "layerPositionX", y: "layerPositionY" },
-  { label: "Anchor", x: "layerAnchorX", y: "layerAnchorY" },
+/** Members render in listed order once every member def exists on the layer. */
+type UniversalGroup = { key: string; label: string; members: Array<{ name: string; label: string }> };
+
+const UNIVERSAL_GROUPS_2D: UniversalGroup[] = [
+  {
+    key: "position",
+    label: "Position",
+    members: [
+      { name: "layerPositionX", label: "X" },
+      { name: "layerPositionY", label: "Y" },
+    ],
+  },
+  {
+    key: "anchor",
+    label: "Anchor",
+    members: [
+      { name: "layerAnchorX", label: "X" },
+      { name: "layerAnchorY", label: "Y" },
+    ],
+  },
+];
+
+/**
+ * 3D layout: X/Y pairs with a full-width Z row underneath (three narrow
+ * columns collide with the in-track value display at inspector width).
+ */
+const UNIVERSAL_GROUPS_3D: UniversalGroup[] = [
+  UNIVERSAL_GROUPS_2D[0]!,
+  {
+    key: "positionZ",
+    label: "",
+    members: [{ name: "layerPositionZ", label: "Z" }],
+  },
+  {
+    key: "rotation",
+    label: "Rotation",
+    members: [
+      { name: "layerRotationX", label: "X" },
+      { name: "layerRotationY", label: "Y" },
+    ],
+  },
+  {
+    key: "rotationZ",
+    label: "",
+    members: [{ name: "layerRotation", label: "Z" }],
+  },
+  UNIVERSAL_GROUPS_2D[1]!,
 ];
 
 const APPEARANCE_UNIVERSALS = new Set(["layerOpacity", "layerBlendMode"]);
 
-/** Position X/Y and Anchor X/Y collapse into one two-column row each. */
-const universalRows: UniversalRow[] = (() => {
+/** Position X/Y(/Z), Rotation X/Y/Z (3D) and Anchor X/Y collapse into one multi-column row each. */
+const universalRows = computed<UniversalRow[]>(() => {
+  const defs = universalDefs.value;
+  const groups = isLayer3D(layer) ? UNIVERSAL_GROUPS_3D : UNIVERSAL_GROUPS_2D;
   const rows: UniversalRow[] = [];
   const grouped = new Set<string>();
-  for (const def of universalDefs) {
+  for (const def of defs) {
     if (grouped.has(def.name)) continue;
-    const pair = PAIRED_UNIVERSALS.find((p) => p.x === def.name);
-    const yDef = pair ? universalDefs.find((d) => d.name === pair.y) : undefined;
-    if (pair && yDef) {
-      grouped.add(pair.y);
-      rows.push({
-        key: pair.label,
-        label: pair.label,
-        fields: [
-          { def, label: "X" },
-          { def: yDef, label: "Y" },
-        ],
-      });
-      continue;
+    const group = groups.find((g) => g.members.some((m) => m.name === def.name));
+    if (group) {
+      const fields: UniversalField[] = [];
+      for (const member of group.members) {
+        const memberDef = defs.find((d) => d.name === member.name);
+        if (memberDef) fields.push({ def: memberDef, label: member.label });
+      }
+      if (fields.length === group.members.length) {
+        for (const member of group.members) grouped.add(member.name);
+        rows.push({ key: group.key, label: group.label, fields });
+        continue;
+      }
     }
     if (def.type === "select") {
       rows.push({ key: def.name, select: def, fields: [] });
@@ -170,13 +224,17 @@ const universalRows: UniversalRow[] = (() => {
     rows.push({ key: def.name, fields: [{ def, label: def.label }] });
   }
   return rows;
-})();
+});
 
-const transformRows = universalRows.filter(
-  (row) => !APPEARANCE_UNIVERSALS.has(row.select?.name ?? row.fields[0]?.def.name ?? ""),
+const transformRows = computed(() =>
+  universalRows.value.filter(
+    (row) => !APPEARANCE_UNIVERSALS.has(row.select?.name ?? row.fields[0]?.def.name ?? ""),
+  ),
 );
-const appearanceRows = universalRows.filter(
-  (row) => APPEARANCE_UNIVERSALS.has(row.select?.name ?? row.fields[0]?.def.name ?? ""),
+const appearanceRows = computed(() =>
+  universalRows.value.filter(
+    (row) => APPEARANCE_UNIVERSALS.has(row.select?.name ?? row.fields[0]?.def.name ?? ""),
+  ),
 );
 
 // --- Alignment (Figma-style, relative to the composition frame) ---
@@ -184,7 +242,7 @@ const appearanceRows = universalRows.filter(
 const isGenerator = computed(() => template.category === "generator");
 
 function universalDef(name: string): LayerUniformDef {
-  return universalDefs.find((def) => def.name === name)!;
+  return universalDefs.value.find((def) => def.name === name)!;
 }
 
 function currentTransform(): LayerTransformValues {
@@ -513,6 +571,14 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     </div>
 
     <EditorInspectorSection title="Transform">
+      <template v-if="supports3D(layer)" #actions>
+        <UiToggle
+          label="3D"
+          :model-value="!!layer.is3D"
+          title="3D layer"
+          @update:model-value="setLayer3D"
+        />
+      </template>
       <div
         v-if="isGenerator && compositionAspect"
         class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
@@ -568,7 +634,16 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           <span v-if="row.label" class="text-copy-sm text-secondary select-none">
             {{ row.label }}
           </span>
-          <div class="grid gap-1.5" :class="row.fields.length > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+          <div
+            class="grid gap-1.5"
+            :class="
+              row.fields.length === 3
+                ? 'grid-cols-3'
+                : row.fields.length > 1
+                  ? 'grid-cols-2'
+                  : 'grid-cols-1'
+            "
+          >
             <UiContextMenu v-for="field in row.fields" :key="field.def.name">
               <div @pointerup="draggingLfoId && emit('assign-lfo', field.def.name)">
                 <UiSliderField
