@@ -25,6 +25,8 @@ type Props = {
   ampMax: number;
   widthMin: number;
   widthMax: number;
+  /** Viewport zoom of the scaled artboard; keeps gizmo chrome constant on screen. */
+  zoom?: number;
 };
 
 type Emits = {
@@ -47,8 +49,27 @@ const {
   ampMax,
   widthMin,
   widthMax,
+  zoom = 1,
 } = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+/** Inverse zoom: the artboard is CSS-scaled, so chrome divides by zoom to stay constant. */
+const gz = computed(() => 1 / Math.max(zoom, 0.0001));
+
+const ringBorderStyle = computed(() => ({ borderWidth: `${gz.value}px` }));
+const handleSizeStyle = computed(() => ({
+  width: `${10 * gz.value}px`,
+  height: `${10 * gz.value}px`,
+}));
+const handleInnerStyle = computed(() => ({ inset: `${2 * gz.value}px` }));
+const centerSizeStyle = computed(() => ({
+  width: `${40 * gz.value}px`,
+  height: `${40 * gz.value}px`,
+}));
+const centerDotStyle = computed(() => ({
+  width: `${12 * gz.value}px`,
+  height: `${12 * gz.value}px`,
+}));
 
 const history = useEditorHistory();
 const stageRef = ref<HTMLElement | null>(null);
@@ -210,7 +231,7 @@ function onPointerUp(e: PointerEvent) {
   >
     <div
       class="pointer-events-none absolute rounded-[50%] border border-gizmo-ring"
-      :style="ellipseStyle"
+      :style="[ellipseStyle, ringBorderStyle]"
       style="transform: translate(-50%, -50%)"
       aria-hidden="true"
     />
@@ -218,22 +239,22 @@ function onPointerUp(e: PointerEvent) {
     <div
       v-for="cardinal in CARDINAL_HANDLES"
       :key="cardinal"
-      class="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2"
-      :style="handleStyles[cardinal]"
+      class="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2"
+      :style="[handleStyles[cardinal], handleSizeStyle]"
       aria-hidden="true"
     >
       <div class="absolute inset-0 rounded-full bg-gizmo-handle-outer shadow-sm" />
-      <div class="absolute inset-[2px] rounded-full bg-gizmo-handle shadow-sm" />
+      <div class="absolute rounded-full bg-gizmo-handle shadow-sm" :style="handleInnerStyle" />
     </div>
 
     <div
-      class="pointer-events-none absolute flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+      class="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
       :class="dragMode === 'move' && 'scale-110'"
-      :style="centerStyle"
+      :style="[centerStyle, centerSizeStyle]"
       aria-hidden="true"
     >
       <div class="absolute inset-0 rounded-full bg-gizmo-handle-outer" />
-      <div class="relative size-3 rounded-full bg-gizmo-handle shadow-sm" />
+      <div class="relative rounded-full bg-gizmo-handle shadow-sm" :style="centerDotStyle" />
     </div>
   </div>
 </template>

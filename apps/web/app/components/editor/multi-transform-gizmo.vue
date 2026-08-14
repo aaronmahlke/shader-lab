@@ -32,6 +32,8 @@ type Props = {
   pickAt?: (uv: Vec2, aspect: number) => string | null;
   /** Per-layer content rect (component/text draw less than the full frame). */
   getExtent?: (layer: LayerInstance) => ContentExtent;
+  /** Viewport zoom of the scaled artboard; keeps gizmo chrome constant on screen. */
+  zoom?: number;
 };
 
 type Emits = {
@@ -91,14 +93,17 @@ const centerPoint = computed(() => {
 const ROTATION_ZONE_OFFSET = 11;
 const ROTATION_ZONE_RADIUS = 14;
 
+/** Inverse zoom: the artboard is CSS-scaled, so chrome divides by zoom to stay constant. */
+const gz = computed(() => 1 / Math.max(props.zoom ?? 1, 0.0001));
+
 const rotationZones = computed(() =>
   cornerPoints.value.map((corner) => {
     const dx = corner.x - centerPoint.value.x;
     const dy = corner.y - centerPoint.value.y;
     const len = Math.hypot(dx, dy) || 1;
     return {
-      x: corner.x + (dx / len) * ROTATION_ZONE_OFFSET,
-      y: corner.y + (dy / len) * ROTATION_ZONE_OFFSET,
+      x: corner.x + (dx / len) * ROTATION_ZONE_OFFSET * gz.value,
+      y: corner.y + (dy / len) * ROTATION_ZONE_OFFSET * gz.value,
     };
   }),
 );
@@ -347,6 +352,7 @@ onUnmounted(() => {
           :y2="height"
           :stroke="GUIDE_COLOR"
           stroke-width="1"
+          vector-effect="non-scaling-stroke"
         />
         <line
           v-if="activeGuides.y !== null"
@@ -356,6 +362,7 @@ onUnmounted(() => {
           :y2="(1 - activeGuides.y) * height"
           :stroke="GUIDE_COLOR"
           stroke-width="1"
+          vector-effect="non-scaling-stroke"
         />
       </g>
 
@@ -365,7 +372,7 @@ onUnmounted(() => {
         :key="`r-${i}`"
         :cx="zone.x"
         :cy="zone.y"
-        :r="ROTATION_ZONE_RADIUS"
+        :r="ROTATION_ZONE_RADIUS * gz"
         class="pointer-events-auto fill-transparent"
         :style="{ cursor: rotateCursorFor(zone) }"
         @pointerdown="onHandlePointerDown('rotate', $event)"
@@ -376,7 +383,8 @@ onUnmounted(() => {
         :points="polygonPoints"
         class="pointer-events-auto fill-transparent stroke-accent"
         stroke-width="2"
-        stroke-dasharray="6 4"
+        vector-effect="non-scaling-stroke"
+        :stroke-dasharray="`${6 * gz} ${4 * gz}`"
         @pointerdown="onHandlePointerDown('move', $event)"
       />
 
@@ -384,14 +392,15 @@ onUnmounted(() => {
       <rect
         v-for="(corner, i) in cornerPoints"
         :key="`c-${i}`"
-        :x="corner.x - 4.5"
-        :y="corner.y - 4.5"
-        width="9"
-        height="9"
-        rx="1"
+        :x="corner.x - 4.5 * gz"
+        :y="corner.y - 4.5 * gz"
+        :width="9 * gz"
+        :height="9 * gz"
+        :rx="1 * gz"
         class="pointer-events-auto fill-white stroke-accent"
         :style="{ cursor: resizeCursorFor(corner) }"
         stroke-width="1.5"
+        vector-effect="non-scaling-stroke"
         @pointerdown="onHandlePointerDown('scale', $event)"
       />
     </svg>
