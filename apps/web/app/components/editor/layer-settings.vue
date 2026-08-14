@@ -623,6 +623,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           :options="row.select.options ?? []"
           :label="row.select.label"
           @update:model-value="setSelect(row.select, layer.values, $event as string | number)"
+          @select="setSelect(row.select, layer.values, $event)"
+          @highlight="previewSelect(row.select, layer.values, $event)"
+          @highlight-end="endSelectPreview(row.select)"
         />
         <div v-else class="flex flex-col gap-1">
           <div class="grid gap-1.5 grid-cols-1">
