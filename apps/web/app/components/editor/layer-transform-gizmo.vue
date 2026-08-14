@@ -42,6 +42,8 @@ type Props = {
    * still write the same universal transform values.
    */
   contentExtent?: ContentExtent;
+  /** Viewport zoom of the scaled artboard; keeps gizmo chrome constant on screen. */
+  zoom?: number;
 };
 
 type Emits = {
@@ -92,14 +94,17 @@ const centerPoint = computed(() =>
 const ROTATION_ZONE_OFFSET = 11;
 const ROTATION_ZONE_RADIUS = 14;
 
+/** Inverse zoom: the artboard is CSS-scaled, so chrome divides by zoom to stay constant. */
+const gz = computed(() => 1 / Math.max(props.zoom ?? 1, 0.0001));
+
 const rotationZones = computed(() =>
   cornerPoints.value.map((corner) => {
     const dx = corner.x - centerPoint.value.x;
     const dy = corner.y - centerPoint.value.y;
     const len = Math.hypot(dx, dy) || 1;
     return {
-      x: corner.x + (dx / len) * ROTATION_ZONE_OFFSET,
-      y: corner.y + (dy / len) * ROTATION_ZONE_OFFSET,
+      x: corner.x + (dx / len) * ROTATION_ZONE_OFFSET * gz.value,
+      y: corner.y + (dy / len) * ROTATION_ZONE_OFFSET * gz.value,
     };
   }),
 );
@@ -348,7 +353,7 @@ onUnmounted(() => {
         :key="`r-${i}`"
         :cx="zone.x"
         :cy="zone.y"
-        :r="ROTATION_ZONE_RADIUS"
+        :r="ROTATION_ZONE_RADIUS * gz"
         class="pointer-events-auto fill-transparent"
         :style="{ cursor: rotateCursorFor(zone) }"
         @pointerdown="onHandlePointerDown('rotate', $event)"
@@ -359,6 +364,7 @@ onUnmounted(() => {
         :points="polygonPoints"
         class="pointer-events-auto fill-transparent stroke-accent"
         stroke-width="2"
+        vector-effect="non-scaling-stroke"
         @pointerdown="onHandlePointerDown('move', $event)"
       />
 
@@ -371,7 +377,7 @@ onUnmounted(() => {
         :x2="edge.b.x"
         :y2="edge.b.y"
         stroke="transparent"
-        stroke-width="10"
+        :stroke-width="10 * gz"
         class="pointer-events-auto"
         :style="{ cursor: resizeCursorFor(edge.mid), pointerEvents: 'stroke' }"
         @pointerdown="onHandlePointerDown('scale', $event)"
@@ -381,23 +387,24 @@ onUnmounted(() => {
       <rect
         v-for="(corner, i) in cornerPoints"
         :key="`c-${i}`"
-        :x="corner.x - 4.5"
-        :y="corner.y - 4.5"
-        width="9"
-        height="9"
-        rx="1"
+        :x="corner.x - 4.5 * gz"
+        :y="corner.y - 4.5 * gz"
+        :width="9 * gz"
+        :height="9 * gz"
+        :rx="1 * gz"
         class="pointer-events-auto fill-white stroke-accent"
         :style="{ cursor: resizeCursorFor(corner) }"
         :transform="`rotate(${rotation} ${corner.x} ${corner.y})`"
         stroke-width="1.5"
+        vector-effect="non-scaling-stroke"
         @pointerdown="onHandlePointerDown('scale', $event)"
       />
 
       <!-- Anchor / pivot marker -->
       <g v-if="dragMode" class="pointer-events-none" aria-hidden="true">
-        <circle :cx="centerPoint.x" :cy="centerPoint.y" r="3" class="fill-transparent stroke-accent" stroke-width="1.5" />
-        <line :x1="centerPoint.x - 7" :y1="centerPoint.y" :x2="centerPoint.x + 7" :y2="centerPoint.y" class="stroke-accent" stroke-width="1" />
-        <line :x1="centerPoint.x" :y1="centerPoint.y - 7" :x2="centerPoint.x" :y2="centerPoint.y + 7" class="stroke-accent" stroke-width="1" />
+        <circle :cx="centerPoint.x" :cy="centerPoint.y" :r="3 * gz" class="fill-transparent stroke-accent" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <line :x1="centerPoint.x - 7 * gz" :y1="centerPoint.y" :x2="centerPoint.x + 7 * gz" :y2="centerPoint.y" class="stroke-accent" stroke-width="1" vector-effect="non-scaling-stroke" />
+        <line :x1="centerPoint.x" :y1="centerPoint.y - 7 * gz" :x2="centerPoint.x" :y2="centerPoint.y + 7 * gz" class="stroke-accent" stroke-width="1" vector-effect="non-scaling-stroke" />
       </g>
     </svg>
   </div>

@@ -101,7 +101,7 @@ const hoverOutline = computed(() => {
       :viewBox="`0 0 ${width} ${height}`"
       aria-hidden="true"
     >
-      <polygon :points="hoverOutline" class="fill-transparent stroke-accent/60" stroke-width="1.5" />
+      <polygon :points="hoverOutline" class="fill-transparent stroke-accent/60" stroke-width="1.5" vector-effect="non-scaling-stroke" />
     </svg>
   </div>
 </template>

@@ -17,6 +17,8 @@ type Props = {
   selectedIndex: number;
   radiusMin: number;
   radiusMax: number;
+  /** Viewport zoom of the scaled artboard; keeps gizmo chrome constant on screen. */
+  zoom?: number;
 };
 
 type Emits = {
@@ -24,8 +26,21 @@ type Emits = {
   "update:selectedIndex": [index: number];
 };
 
-const { points, selectedIndex, radiusMin, radiusMax } = defineProps<Props>();
+const { points, selectedIndex, radiusMin, radiusMax, zoom = 1 } = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+/** Inverse zoom: the artboard is CSS-scaled, so chrome divides by zoom to stay constant. */
+const gz = computed(() => 1 / Math.max(zoom, 0.0001));
+
+const centerSizeStyle = computed(() => ({
+  width: `${32 * gz.value}px`,
+  height: `${32 * gz.value}px`,
+}));
+const centerDotStyle = computed(() => ({
+  width: `${12 * gz.value}px`,
+  height: `${12 * gz.value}px`,
+  borderWidth: `${gz.value}px`,
+}));
 
 const history = useEditorHistory();
 const stageRef = ref<HTMLElement | null>(null);
@@ -66,6 +81,7 @@ function pointRingStyle(point: MeshPoint, index: number) {
     width: `${size.widthPct}%`,
     height: `${size.heightPct}%`,
     borderColor: point.color,
+    borderWidth: `${gz.value}px`,
     opacity: index === selectedIndex ? 0.7 : 0.35,
   };
 }
@@ -166,9 +182,9 @@ function onPointerUp(e: PointerEvent) {
       />
 
       <div
-        class="pointer-events-none absolute flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+        class="pointer-events-none absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
         :class="index === selectedIndex && dragTarget?.index === index && dragTarget?.kind === 'move' && 'scale-110'"
-        :style="pointCenterStyle(point)"
+        :style="[pointCenterStyle(point), centerSizeStyle]"
         aria-hidden="true"
       >
         <div
@@ -176,8 +192,8 @@ function onPointerUp(e: PointerEvent) {
           :style="{ backgroundColor: point.color, opacity: index === selectedIndex ? 0.35 : 0.2 }"
         />
         <div
-          class="relative size-3 rounded-full border border-white/60 shadow-sm"
-          :style="{ backgroundColor: point.color }"
+          class="relative rounded-full border border-white/60 shadow-sm"
+          :style="[{ backgroundColor: point.color }, centerDotStyle]"
         />
       </div>
     </template>

@@ -1256,6 +1256,7 @@ registerKeyboard({
               />
               <EditorWavePositionGizmo
                 v-if="showWavePositionGizmo && selectedLayer && selectedLayerIds.size <= 1"
+                :zoom="viewport.zoom.value"
                 :cycle-x="getWaveFloat(selectedLayer, WAVE_POS_X, wavePosXDef.default as number)"
                 :center-y="getWaveFloat(selectedLayer, WAVE_POS_Y, wavePosYDef.default as number)"
                 :amplitude="getWaveFloat(selectedLayer, WAVE_AMPLITUDE, waveAmpDef.default as number)"
@@ -1275,6 +1276,7 @@ registerKeyboard({
               />
               <EditorMeshPointsGizmo
                 v-if="showMeshPointsGizmo && selectedLayer && selectedLayerIds.size <= 1"
+                :zoom="viewport.zoom.value"
                 :points="getMeshPoints(selectedLayer)"
                 :selected-index="meshSelectedPointIndex"
                 :radius-min="0.15"
@@ -1284,6 +1286,7 @@ registerKeyboard({
               />
               <EditorBandPositionGizmo
                 v-if="showBandPositionGizmo && selectedLayer && selectedLayerIds.size <= 1"
+                :zoom="viewport.zoom.value"
                 :band-y="getBandFloat(selectedLayer, BAND_Y, bandYDef.default as number)"
                 :edge="getBandFloat(selectedLayer, BAND_EDGE, bandEdgeDef.default as number)"
                 :y-min="bandYDef.min ?? 0"
@@ -1295,6 +1298,7 @@ registerKeyboard({
               />
               <EditorLayerTransformGizmo
                 v-if="showTransformGizmo && selectedLayer && selectedLayerIds.size <= 1"
+                :zoom="viewport.zoom.value"
                 :layer-id="selectedLayer.id"
                 :pick-at="canvasLayerAt"
                 :snap-targets="snapTargets"
@@ -1319,6 +1323,7 @@ registerKeyboard({
               />
               <EditorMultiTransformGizmo
                 v-if="showMultiGizmo"
+                :zoom="viewport.zoom.value"
                 :layers="multiSelectedLayers"
                 :get-transform="layerTransformValues"
                 :get-extent="layerContentExtent"
