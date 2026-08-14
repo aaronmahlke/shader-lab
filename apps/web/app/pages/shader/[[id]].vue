@@ -45,8 +45,16 @@ import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-his
 import {
   EditorKeyboardPriority,
   isDeleteKey,
+  isTypingTarget,
   useEditorKeyboard,
 } from "~/composables/use-editor-keyboard";
+import {
+  dataTransferHasFiles,
+  mediaFilesFromDataTransfer,
+  mediaUploadKindForFile,
+  svgFileFromText,
+  uploadMediaFile,
+} from "~/utils/media-upload";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
 import { normalizeLfo } from "@shader-lab/core";
@@ -663,6 +671,140 @@ function addLayer(type: LayerType) {
   selectionAnchorId.value = id;
   history.record();
 }
+
+// --- Media import (drop or paste anywhere on the canvas) ---
+
+/** Files currently uploading via drop/paste; drives the "Uploading…" pill. */
+const mediaImportCount = ref(0);
+const mediaImportError = ref("");
+let mediaImportErrorTimer: ReturnType<typeof setTimeout> | null = null;
+/** dragenter/dragleave nesting depth over the viewport (leave fires per child). */
+const mediaDropDepth = ref(0);
+const mediaDropActive = computed(() => mediaDropDepth.value > 0);
+
+function flashMediaImportError(message: string) {
+  mediaImportError.value = message;
+  if (mediaImportErrorTimer) clearTimeout(mediaImportErrorTimer);
+  mediaImportErrorTimer = setTimeout(() => {
+    mediaImportError.value = "";
+  }, 4000);
+}
+
+/** Upload dropped/pasted files and add one image/video layer per file. */
+async function importMediaFiles(files: File[]) {
+  const supported = files.filter((file) => mediaUploadKindForFile(file) !== null);
+  if (supported.length === 0) return;
+  mediaImportCount.value += supported.length;
+  const results = await Promise.allSettled(
+    supported.map(async (file) => {
+      const kind = mediaUploadKindForFile(file)!;
+      const url = await uploadMediaFile(kind, file);
+      return { kind, url, name: file.name };
+    }),
+  );
+  mediaImportCount.value -= supported.length;
+
+  const addedIds: string[] = [];
+  for (const result of results) {
+    if (result.status !== "fulfilled") continue;
+    const { kind, url, name } = result.value;
+    const id = createUniqueLayerId(kind, layers.value, layerCounter);
+    const values = buildLayerValues(kind);
+    values.src = url;
+    const baseName = name.replace(/\.[^.]+$/, "").trim();
+    layers.value.unshift({
+      id,
+      type: kind,
+      enabled: true,
+      values,
+      ...(baseName ? { name: baseName } : {}),
+    });
+    addedIds.push(id);
+  }
+  if (addedIds.length > 0) {
+    selectedLayerId.value = addedIds[0]!;
+    selectedLayerIds.value = new Set(addedIds);
+    selectionAnchorId.value = addedIds[0]!;
+    history.record();
+  }
+  if (results.some((result) => result.status === "rejected")) {
+    flashMediaImportError(
+      addedIds.length > 0 ? "Some media failed to upload." : "Upload failed. Try again.",
+    );
+  }
+}
+
+function onViewportDragEnter(event: DragEvent) {
+  if (!dataTransferHasFiles(event.dataTransfer)) return;
+  mediaDropDepth.value++;
+}
+
+function onViewportDragOver(event: DragEvent) {
+  if (!dataTransferHasFiles(event.dataTransfer)) return;
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+}
+
+function onViewportDragLeave(event: DragEvent) {
+  if (!dataTransferHasFiles(event.dataTransfer)) return;
+  mediaDropDepth.value = Math.max(0, mediaDropDepth.value - 1);
+}
+
+/** Media files in a payload, falling back to SVG markup carried as text. */
+function mediaFilesFromPayload(data: DataTransfer | null): File[] {
+  const files = mediaFilesFromDataTransfer(data);
+  if (files.length > 0) return files;
+  const svgFile = svgFileFromText(data?.getData("text/plain") ?? "");
+  return svgFile ? [svgFile] : [];
+}
+
+function onViewportDrop(event: DragEvent) {
+  mediaDropDepth.value = 0;
+  void importMediaFiles(mediaFilesFromPayload(event.dataTransfer));
+}
+
+/**
+ * System-clipboard media paste. Keyframe paste wins when its internal
+ * clipboard is set (its keydown handler cancels the paste event); otherwise
+ * ⌘V with an image/video — or raw SVG markup ("Copy as SVG") — lands here.
+ */
+function onWindowPaste(event: ClipboardEvent) {
+  // Paste targets the focused element, but guard: window itself has no closest().
+  if (event.target instanceof Element && isTypingTarget(event.target)) return;
+  const files = mediaFilesFromPayload(event.clipboardData);
+  if (files.length === 0) return;
+  event.preventDefault();
+  void importMediaFiles(files);
+}
+
+// --- Pasteboard deselect ---
+
+/**
+ * Clicking the empty pasteboard around the artboard clears the selection.
+ * Guarded by pointer travel so a drag that starts and ends on the background
+ * doesn't deselect; .self on the handlers keeps artboard/gizmo/UI clicks out.
+ */
+let pasteboardDownAt: { x: number; y: number } | null = null;
+
+function onPasteboardPointerDown(event: PointerEvent) {
+  pasteboardDownAt = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+}
+
+function onPasteboardClick(event: MouseEvent) {
+  const down = pasteboardDownAt;
+  pasteboardDownAt = null;
+  if (!down) return;
+  if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return;
+  onCanvasSelect(null);
+}
+
+onMounted(() => {
+  window.addEventListener("paste", onWindowPaste);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("paste", onWindowPaste);
+  if (mediaImportErrorTimer) clearTimeout(mediaImportErrorTimer);
+});
 
 function removeLayer(id: string) {
   const idx = layers.value.findIndex((l) => l.id === id);
@@ -1362,7 +1504,33 @@ registerKeyboard({
               :class="viewport.panning.value && 'cursor-grabbing'"
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
+              @pointerdown.self="onPasteboardPointerDown"
+              @click.self="onPasteboardClick"
+              @dragenter.prevent="onViewportDragEnter"
+              @dragover.prevent="onViewportDragOver"
+              @dragleave="onViewportDragLeave"
+              @drop.prevent="onViewportDrop"
             >
+              <!-- Media drop target / upload status -->
+              <div
+                v-if="mediaDropActive"
+                class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-accent/60 bg-accent/10"
+              >
+                <span class="rounded-lg border border-neutral bg-layer-1/90 px-3 py-1.5 text-copy-sm text-neutral-strong backdrop-blur">
+                  Drop images or videos to add layers
+                </span>
+              </div>
+              <div
+                v-else-if="mediaImportCount > 0 || mediaImportError"
+                class="pointer-events-none absolute top-3 left-1/2 z-30 -translate-x-1/2"
+              >
+                <span
+                  class="rounded-lg border border-neutral bg-layer-1/90 px-3 py-1.5 text-copy-xs backdrop-blur"
+                  :class="mediaImportError ? 'text-red-400' : 'text-neutral-subtle'"
+                >
+                  {{ mediaImportError || "Uploading media…" }}
+                </span>
+              </div>
               <div
                 ref="artboardRef"
                 class="absolute top-0 left-0"
