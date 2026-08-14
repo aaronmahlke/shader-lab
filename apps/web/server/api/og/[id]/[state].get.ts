@@ -1,7 +1,7 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { eq } from "drizzle-orm";
 import { renderCompositionToBuffer, type CompositionConfig } from "@shader-lab/core/server";
-import { shaders } from "../../../database/schema";
+
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -54,17 +54,13 @@ export default defineEventHandler(async (event) => {
   }
 
   const db = useDrizzle();
-  const [row] = await db
-    .select({ data: shaders.data })
-    .from(shaders)
-    .where(eq(shaders.id, id))
-    .limit(1);
+  const found = await findCompositionByAnyId(db, id);
 
-  if (!row?.data) {
+  if (!found?.comp.data) {
     return sendRedirect(event, "/og-image.png", 302);
   }
 
-  const doc = row.data as Omit<CompositionConfig, "version">;
+  const doc = found.comp.data as Omit<CompositionConfig, "version">;
   const rendered = await renderCompositionToBuffer(
     { version: 1, ...doc },
     { width: OG_WIDTH, height: OG_HEIGHT, time: 2 },

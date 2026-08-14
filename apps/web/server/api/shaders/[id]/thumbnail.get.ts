@@ -6,20 +6,15 @@ export default defineEventHandler(async (event) => {
   if (!id) throw createError({ statusCode: 400, statusMessage: "Missing ID" });
 
   const db = useDrizzle();
-  const [shader] = await db
-    .select({ id: shaders.id, thumbnailUpdatedAt: shaders.thumbnailUpdatedAt })
-    .from(shaders)
-    .where(and(eq(shaders.id, id), eq(shaders.userId, userId)))
-    .limit(1);
-
-  if (!shader?.thumbnailUpdatedAt) {
+  const found = await findOwnedComposition(db, userId, id);
+  if (!found?.comp.thumbnailUpdatedAt) {
     throw createError({ statusCode: 404, statusMessage: "Thumbnail not found" });
   }
 
   const s3 = useS3();
   let data: Buffer;
   try {
-    data = await s3.getObject(`thumbnails/${id}.png`);
+    data = await s3.getObject(`thumbnails/${found.comp.id}.png`);
   } catch {
     throw createError({ statusCode: 404, statusMessage: "Thumbnail not found" });
   }

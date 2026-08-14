@@ -1,33 +1,24 @@
-
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, "id");
   if (!id) throw createError({ statusCode: 400, statusMessage: "Missing ID" });
 
   const db = useDrizzle();
 
-  // Try to get authenticated user (optional for public shaders)
+  // Try to get authenticated user (optional for public compositions)
   let userId: string | null = null;
   try {
     const session = await getUserSession(event);
     userId = session.secure?.userId ?? null;
   } catch {
-    // Not authenticated — only public shaders accessible
+    // Not authenticated — only public compositions accessible
   }
 
-  const [shader] = await db
-    .select()
-    .from(shaders)
-    .where(
-      userId
-        ? and(eq(shaders.id, id), or(eq(shaders.userId, userId), eq(shaders.isPublic, true)))
-        : and(eq(shaders.id, id), eq(shaders.isPublic, true)),
-    )
-    .limit(1);
-
-  if (!shader) {
+  const found = await findCompositionByAnyId(db, id);
+  const accessible =
+    found && (found.project.isPublic || (userId && found.project.userId === userId));
+  if (!found || !accessible) {
     throw createError({ statusCode: 404, statusMessage: "Composition not found" });
   }
 
-  // Old rows store the internal S3 URL; serve the app-proxied one instead.
-  return withAppThumbnailUrl(shader);
+  return withAppThumbnailUrl(toShaderShape(found));
 });
