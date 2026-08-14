@@ -57,6 +57,17 @@ type MediaEntry = {
   dispose: () => void;
 };
 
+/**
+ * Layers uploaded before the app-served media route store putObject's return
+ * value: the raw S3 endpoint URL, which is internal-only in prod and
+ * unreachable from the browser. Rewrite any absolute URL carrying an
+ * /uploads/ path to /api/media/... so old layers keep rendering.
+ */
+function normalizeMediaSrc(src: string): string {
+  const match = src.match(/^https?:\/\/[^?#]*?\/(uploads\/[^?#]+)/);
+  return match ? `/api/media/${match[1]}` : src;
+}
+
 /** Whether an image src points at an SVG document (query/hash stripped). */
 function isSvgSrc(src: string): boolean {
   const path = src.split(/[?#]/, 1)[0] ?? src;
@@ -304,8 +315,9 @@ export function useMediaSources(options: MediaSourcesOptions) {
 
   function loadLayer(layer: LayerInstance): void {
     if (import.meta.server) return;
-    const src = mediaSrcFromValues(layer.values);
-    if (!src) return; // no source picked yet — the layer renders transparent
+    const rawSrc = mediaSrcFromValues(layer.values);
+    if (!rawSrc) return; // no source picked yet — the layer renders transparent
+    const src = normalizeMediaSrc(rawSrc);
 
     const entry: MediaEntry = {
       kind: layer.type as "image" | "video",

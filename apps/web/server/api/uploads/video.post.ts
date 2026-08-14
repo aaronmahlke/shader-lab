@@ -20,7 +20,14 @@ export default defineEventHandler(async (event) => {
   const ext = extByMime[mime] ?? "mp4";
   const key = `uploads/${userId}/${Date.now()}.${ext}`;
   const s3 = useS3();
-  const url = await s3.putObject(key, file.data, mime);
+  try {
+    await s3.putObject(key, file.data, mime);
+  } catch (err) {
+    console.error(`[uploads] putObject failed for ${key}:`, err);
+    throw createError({ statusCode: 502, statusMessage: "Media storage is unavailable" });
+  }
 
-  return { url };
+  // App-served URL: the S3 endpoint is internal-only in prod, so its raw URL
+  // would be unreachable from the browser.
+  return { url: `/api/media/${key}` };
 });

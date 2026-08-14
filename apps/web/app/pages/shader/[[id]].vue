@@ -725,10 +725,16 @@ async function importMediaFiles(files: File[]) {
     selectionAnchorId.value = addedIds[0]!;
     history.record();
   }
-  if (results.some((result) => result.status === "rejected")) {
-    flashMediaImportError(
-      addedIds.length > 0 ? "Some media failed to upload." : "Upload failed. Try again.",
-    );
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (rejected) {
+    // Surface the server's statusMessage ("Media storage is unavailable",
+    // "File must be an image", …) instead of a generic line.
+    const reason = rejected.reason as { data?: { statusMessage?: string }; message?: string } | undefined;
+    const detail = reason?.data?.statusMessage ?? "";
+    const prefix = addedIds.length > 0 ? "Some media failed to upload" : "Upload failed";
+    flashMediaImportError(detail ? `${prefix}: ${detail}` : `${prefix}. Try again.`);
   }
 }
 
@@ -1519,9 +1525,10 @@ registerKeyboard({
                   Drop images or videos to add layers
                 </span>
               </div>
+              <!-- top-16: the floating toolbar owns top-3 at z-50 and would cover this. -->
               <div
                 v-else-if="mediaImportCount > 0 || mediaImportError"
-                class="pointer-events-none absolute top-3 left-1/2 z-30 -translate-x-1/2"
+                class="pointer-events-none absolute top-16 left-1/2 z-40 -translate-x-1/2"
               >
                 <span
                   class="rounded-lg border border-neutral bg-layer-1/90 px-3 py-1.5 text-copy-xs backdrop-blur"
