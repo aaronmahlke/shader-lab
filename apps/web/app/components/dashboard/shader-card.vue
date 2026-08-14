@@ -101,9 +101,14 @@ function startBlit() {
     }
 
     const dpr = window.devicePixelRatio || 1;
-    const rect = display.getBoundingClientRect();
-    const w = rect.width * dpr;
-    const h = rect.height * dpr;
+    // Layout size, not getBoundingClientRect: the card is scaled/tilted on
+    // hover and the transformed bbox would skew the buffer aspect ratio.
+    const w = Math.round(display.clientWidth * dpr);
+    const h = Math.round(display.clientHeight * dpr);
+    if (w === 0 || h === 0) {
+      blitId = requestAnimationFrame(blit);
+      return;
+    }
 
     if (display.width !== w || display.height !== h) {
       display.width = w;
@@ -228,11 +233,10 @@ const specularNarrow = computed(() => {
             :class="isHovered ? 'border-white/[0.08]' : 'border-edge'"
             :style="{ transform: cardTransform }"
           >
-            <!-- Content wrapper (scales up on hover for parallax depth) -->
-            <div
-              class="absolute inset-0 transition-transform duration-1000 ease-out-expo"
-              :class="isHovered && 'scale-110'"
-            >
+            <!-- Content wrapper: no hover zoom so the live render stays
+                 framed exactly like the static thumbnail (card lift + tilt
+                 still move the whole card). -->
+            <div class="absolute inset-0">
               <!-- Static thumbnail -->
               <img
                 v-if="thumbnailUrl"
