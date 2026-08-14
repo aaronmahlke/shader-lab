@@ -29,14 +29,26 @@ export const BLEND_MODE_UNIFORM: LayerUniformDef = {
   type: "select",
   label: "Blend",
   default: 0,
+  // Values are stable persisted ids (shader switch cases); the array order is the
+  // dropdown order, grouped Photoshop-style: darken, lighten, contrast, inversion, component.
   options: [
     { label: "Normal", value: 0 },
-    { label: "Multiply", value: 1 },
-    { label: "Screen", value: 2 },
-    { label: "Overlay", value: 3 },
-    { label: "Add", value: 4 },
     { label: "Darken", value: 5 },
+    { label: "Multiply", value: 1 },
+    { label: "Color Burn", value: 8 },
     { label: "Lighten", value: 6 },
+    { label: "Screen", value: 2 },
+    { label: "Color Dodge", value: 7 },
+    { label: "Add", value: 4 },
+    { label: "Overlay", value: 3 },
+    { label: "Soft Light", value: 10 },
+    { label: "Hard Light", value: 9 },
+    { label: "Difference", value: 11 },
+    { label: "Exclusion", value: 12 },
+    { label: "Hue", value: 13 },
+    { label: "Saturation", value: 14 },
+    { label: "Color", value: 15 },
+    { label: "Luminosity", value: 16 },
   ],
 };
 

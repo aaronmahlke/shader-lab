@@ -8,6 +8,7 @@ import {
   universalUniformsFor,
   findLayerParamDef,
   isUniversalParamName,
+  BLEND_MODE_UNIFORM,
   UNIVERSAL_LAYER_UNIFORMS,
 } from "./universal-uniforms";
 import type { LayerInstance } from "../types/editor";
@@ -170,6 +171,22 @@ describe("blend mode uniform", () => {
     const names = universalUniformsFor({ type: "solid" }).map((d) => d.name);
     expect(names).toContain("layerBlendMode");
     expect(universalUniformsFor({ type: "vignette" }).map((d) => d.name)).not.toContain("layerBlendMode");
+  });
+
+  it("exposes the full mode set with unique, stable shader ids 0-16", () => {
+    const options = BLEND_MODE_UNIFORM.options ?? [];
+    const values = options.map((o) => o.value as number);
+    expect(new Set(values).size).toBe(options.length);
+    expect([...values].sort((a, b) => a - b)).toEqual(Array.from({ length: 17 }, (_, i) => i));
+    // Legacy ids stay stable so persisted documents keep their meaning.
+    const byLabel = Object.fromEntries(options.map((o) => [o.label, o.value]));
+    expect(byLabel.Normal).toBe(0);
+    expect(byLabel.Multiply).toBe(1);
+    expect(byLabel.Screen).toBe(2);
+    expect(byLabel.Overlay).toBe(3);
+    expect(byLabel.Add).toBe(4);
+    expect(byLabel.Darken).toBe(5);
+    expect(byLabel.Lighten).toBe(6);
   });
 
   it("flows into composite pass uniforms as a number", () => {
