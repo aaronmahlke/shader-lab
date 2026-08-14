@@ -4,6 +4,15 @@ let s3Client: S3Client | null = null;
 /** Bucket creation is attempted at most once per process. */
 let bucketEnsured: Promise<void> | null = null;
 
+/**
+ * The SDK throws ERR_INVALID_URL on a scheme-less endpoint, which is an easy
+ * env typo ("nbg1.your-objectstorage.com"). Assume https for bare hosts.
+ */
+function normalizeEndpoint(endpoint: string | undefined): string | undefined {
+  if (!endpoint) return undefined;
+  return /^https?:\/\//i.test(endpoint) ? endpoint : `https://${endpoint}`;
+}
+
 function getClient(): S3Client {
   if (!s3Client) {
     const config = useRuntimeConfig();
@@ -13,7 +22,7 @@ function getClient(): S3Client {
         accessKeyId: config.aws?.accessKeyId || "any",
         secretAccessKey: config.aws?.secretAccessKey || "any",
       },
-      endpoint: config.aws?.s3Endpoint || undefined,
+      endpoint: normalizeEndpoint(config.aws?.s3Endpoint),
       forcePathStyle: true,
       // SDK >= 3.729 attaches CRC checksums to every PutObject by default;
       // S3-compatible providers (Hetzner, SeaweedFS, …) reject them.
@@ -68,7 +77,8 @@ export function useS3() {
     }
 
     // Return the public URL
-    const endpoint = config.aws?.s3Endpoint || `https://s3.${config.aws?.region || "us-east-1"}.amazonaws.com`;
+    const endpoint = normalizeEndpoint(config.aws?.s3Endpoint)
+      || `https://s3.${config.aws?.region || "us-east-1"}.amazonaws.com`;
     return `${endpoint}/${bucket}/${key}`;
   }
 
