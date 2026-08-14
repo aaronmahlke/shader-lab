@@ -492,9 +492,6 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     </div>
 
     <div class="flex flex-col gap-2.5 border-b border-neutral p-3">
-      <span class="text-copy-sm text-secondary select-none">
-        Transform
-      </span>
       <div
         v-if="isGenerator && compositionAspect"
         class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
