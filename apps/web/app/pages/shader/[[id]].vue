@@ -81,7 +81,6 @@ import {
 } from "#shared/editor/wave-position";
 import { BAND_EDGE, BAND_Y } from "#shared/editor/band-position";
 import { cloneMeshPoints } from "@shader-lab/core";
-import { CubeIcon, ArrowPathIcon } from "@heroicons/vue/16/solid";
 import type { MeshPoint } from "@shader-lab/core";
 import { MESH_MAX_POINTS } from "@shader-lab/core";
 
@@ -89,7 +88,6 @@ useHead({ title: "Shader — Shader Lab" });
 
 const route = useRoute();
 const exportOpen = ref(false);
-const layerSettingsRef = ref<{ randomize: () => void; reset: () => void } | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const editorSplitRef = ref<HTMLElement | null>(null);
 const { prefs: layoutPrefs, updatePrefs: updateLayoutPrefs } = useEditorLayoutPreferences();
@@ -1042,6 +1040,7 @@ function transformDef(name: string) {
 const transformPosDef = transformDef("layerPositionX");
 const transformScaleDef = transformDef("layerScale");
 const transformRotationDef = transformDef("layerRotation");
+const transformAnchorDef = transformDef("layerAnchorX");
 
 function getTransformFloat(layer: LayerInstance, name: string): number {
   return paramValue(layer.id, name, transformDef(name).default as number);
@@ -1611,10 +1610,14 @@ registerKeyboard({
                 :scale-max="transformScaleDef.max ?? 400"
                 :rotation-min="transformRotationDef.min ?? -360"
                 :rotation-max="transformRotationDef.max ?? 360"
+                :anchor-min="transformAnchorDef.min ?? 0"
+                :anchor-max="transformAnchorDef.max ?? 1"
                 @update:position-x="setTransformFloat(selectedLayer, 'layerPositionX', $event)"
                 @update:position-y="setTransformFloat(selectedLayer, 'layerPositionY', $event)"
                 @update:scale="setTransformFloat(selectedLayer, 'layerScale', $event)"
                 @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
+                @update:anchor-x="setTransformFloat(selectedLayer, 'layerAnchorX', $event)"
+                @update:anchor-y="setTransformFloat(selectedLayer, 'layerAnchorY', $event)"
                 @pick="(id, additive) => onCanvasSelect(id, additive)"
               />
               <EditorMultiTransformGizmo
@@ -1710,7 +1713,7 @@ registerKeyboard({
               </button>
             </template>
             <div class="flex w-56 flex-col gap-2 p-1">
-              <span class="px-1 text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
+              <span class="px-1 text-copy-sm text-secondary select-none">
                 Composition size
               </span>
               <div class="flex items-center gap-1.5 px-1">
@@ -1810,25 +1813,6 @@ registerKeyboard({
           </UiButton>
         </div>
 
-        <div class="flex shrink-0 items-center gap-0.5 border-b border-neutral px-3 py-2">
-          <UiButton
-            v-if="selectedLayer && selectedTemplate"
-            variant="ghost"
-            size="sm"
-            :icon-left="CubeIcon"
-            title="Randomize"
-            @click="layerSettingsRef?.randomize(); history.record()"
-          />
-          <UiButton
-            v-if="selectedLayer && selectedTemplate"
-            variant="ghost"
-            size="sm"
-            :icon-left="ArrowPathIcon"
-            title="Reset to defaults"
-            @click="layerSettingsRef?.reset(); history.record()"
-          />
-        </div>
-
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <EditorEasingPanel
             v-if="selectedKeyframes.length > 0"
@@ -1838,7 +1822,6 @@ registerKeyboard({
           />
           <EditorLayerSettings
             v-if="selectedLayer && selectedTemplate"
-            ref="layerSettingsRef"
             :key="selectedLayer.id"
             class="min-h-0 flex-1"
             :layer="selectedLayer"
@@ -1867,10 +1850,10 @@ registerKeyboard({
             </p>
           </div>
 
-          <EditorLfoList
+          <EditorLfoRack
             v-model:lfos="lfos"
             v-model:selected-lfo-id="selectedLfoId"
-            class="max-h-48 shrink-0 border-t border-neutral"
+            class="max-h-48 shrink-0"
             @drag-start="onDragStart"
             @duplicate-lfo="duplicateLfo"
             @clear-assignments="clearLfoAssignments"

@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { useElementSize } from "@vueuse/core";
 import {
+  anchorPointInCompUv,
   angleAroundCenter,
   clampValue,
+  compToLayerUv,
   compUvToScreen,
   distanceFromCenter,
   layerBoundsInCompUv,
   layerCornersInCompUv,
+  positionForAnchorMove,
   screenToCompUv,
   shortestAngleDelta,
   snapValue,
-  transformCenter,
   type ContentExtent,
   type LayerTransformValues,
   type Vec2,
@@ -32,6 +34,8 @@ type Props = {
   scaleMax: number;
   rotationMin: number;
   rotationMax: number;
+  anchorMin?: number;
+  anchorMax?: number;
   /** Topmost pickable layer at a comp UV point — lets clicks fall through to layers above. */
   pickAt?: (uv: Vec2, aspect: number) => string | null;
   /** Snap lines (frame + other layers) for smart-guide snapping while moving. */
@@ -51,6 +55,8 @@ type Emits = {
   "update:positionY": [value: number];
   "update:scale": [value: number];
   "update:rotation": [value: number];
+  "update:anchorX": [value: number];
+  "update:anchorY": [value: number];
   /** A different layer sits on top at the clicked point — select it instead (additive = shift). */
   pick: [layerId: string, additive: boolean];
 };
@@ -83,8 +89,9 @@ const polygonPoints = computed(() =>
   cornerPoints.value.map((p) => `${p.x},${p.y}`).join(" "),
 );
 
+/** The anchor/pivot on screen — also where the anchor handle renders. */
 const centerPoint = computed(() =>
-  compUvToScreen(transformCenter(values.value), width.value, height.value),
+  compUvToScreen(anchorPointInCompUv(values.value, aspect.value), width.value, height.value),
 );
 
 /**
@@ -149,7 +156,7 @@ const edgeSegments = computed(() => {
 
 // --- Dragging ---
 
-type DragMode = "move" | "scale" | "rotate";
+type DragMode = "move" | "scale" | "rotate" | "anchor";
 
 const dragMode = ref<DragMode | null>(null);
 let dragStartValues: LayerTransformValues | null = null;
@@ -161,8 +168,18 @@ const POSITION_STEP = 0.001;
 const SCALE_STEP = 0.1;
 const ROTATION_STEP = 0.1;
 const ROTATION_SNAP = 15;
+const ANCHOR_STEP = 0.001;
+const ANCHOR_SNAP_TARGETS = [0, 0.5, 1];
 const SNAP_THRESHOLD_PX = 6;
 const GUIDE_COLOR = "#FF5D8F";
+
+/** Snap an anchor axis to 0 / 0.5 / 1 within a threshold (layer UV units). */
+function snapAnchorAxis(value: number, threshold: number): number {
+  for (const target of ANCHOR_SNAP_TARGETS) {
+    if (Math.abs(value - target) <= threshold) return target;
+  }
+  return value;
+}
 
 /** Smart-guide lines shown while a move drag is snapped, in comp UV. */
 const activeGuides = ref<{ x: number | null; y: number | null }>({ x: null, y: null });
@@ -270,6 +287,38 @@ function onWindowPointerMove(e: PointerEvent) {
     activeGuides.value = { x: guideX, y: guideY };
     emit("update:positionX", clampValue(nextX, props.positionMin, props.positionMax));
     emit("update:positionY", clampValue(nextY, props.positionMin, props.positionMax));
+    return;
+  }
+
+  if (mode === "anchor") {
+    // New anchor = pointer in layer UV under the START transform: the content
+    // stays fixed, so the start map keeps describing where its pixels render.
+    const luv = compToLayerUv(uv, start, aspect.value);
+    const rect = stageRef.value?.getBoundingClientRect();
+    const s = Math.max(start.scale / 100, 1e-4);
+    // Same pixel threshold as move snapping, converted to layer UV per axis
+    // (one layer unit spans scale × stage size on screen, rotation aside).
+    const tx = rect ? SNAP_THRESHOLD_PX / (rect.width * s) : 0.01;
+    const ty = rect ? SNAP_THRESHOLD_PX / (rect.height * s) : 0.01;
+    const anchorMin = props.anchorMin ?? 0;
+    const anchorMax = props.anchorMax ?? 1;
+    const nextAnchor = {
+      x: clampValue(snapValue(snapAnchorAxis(luv.x, tx), ANCHOR_STEP), anchorMin, anchorMax),
+      y: clampValue(snapValue(snapAnchorAxis(luv.y, ty), ANCHOR_STEP), anchorMin, anchorMax),
+    };
+    // AE "pan behind": shift position by the transformed anchor delta so the
+    // rendered rect does not move.
+    const pos = positionForAnchorMove(start, nextAnchor, aspect.value);
+    emit("update:anchorX", nextAnchor.x);
+    emit("update:anchorY", nextAnchor.y);
+    emit(
+      "update:positionX",
+      clampValue(snapValue(pos.x, POSITION_STEP), props.positionMin, props.positionMax),
+    );
+    emit(
+      "update:positionY",
+      clampValue(snapValue(pos.y, POSITION_STEP), props.positionMin, props.positionMax),
+    );
     return;
   }
 
@@ -400,11 +449,17 @@ onUnmounted(() => {
         @pointerdown="onHandlePointerDown('scale', $event)"
       />
 
-      <!-- Anchor / pivot marker -->
-      <g v-if="dragMode" class="pointer-events-none" aria-hidden="true">
-        <circle :cx="centerPoint.x" :cy="centerPoint.y" :r="3 * gz" class="fill-transparent stroke-accent" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-        <line :x1="centerPoint.x - 7 * gz" :y1="centerPoint.y" :x2="centerPoint.x + 7 * gz" :y2="centerPoint.y" class="stroke-accent" stroke-width="1" vector-effect="non-scaling-stroke" />
-        <line :x1="centerPoint.x" :y1="centerPoint.y - 7 * gz" :x2="centerPoint.x" :y2="centerPoint.y + 7 * gz" class="stroke-accent" stroke-width="1" vector-effect="non-scaling-stroke" />
+      <!-- Anchor handle: crosshair-in-circle at the pivot; dragging moves the
+           anchor and pans position behind so the content stays put -->
+      <g
+        class="pointer-events-auto cursor-crosshair"
+        aria-label="Anchor handle"
+        @pointerdown="onHandlePointerDown('anchor', $event)"
+      >
+        <circle :cx="centerPoint.x" :cy="centerPoint.y" :r="9 * gz" class="fill-transparent" />
+        <line :x1="centerPoint.x - 8 * gz" :y1="centerPoint.y" :x2="centerPoint.x + 8 * gz" :y2="centerPoint.y" class="stroke-accent" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <line :x1="centerPoint.x" :y1="centerPoint.y - 8 * gz" :x2="centerPoint.x" :y2="centerPoint.y + 8 * gz" class="stroke-accent" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <circle :cx="centerPoint.x" :cy="centerPoint.y" :r="4.5 * gz" class="fill-white stroke-accent" stroke-width="1.5" vector-effect="non-scaling-stroke" />
       </g>
     </svg>
   </div>

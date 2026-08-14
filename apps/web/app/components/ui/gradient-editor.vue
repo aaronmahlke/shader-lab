@@ -107,6 +107,17 @@ function onStopPointerDown(e: PointerEvent, index: number) {
   window.addEventListener("pointerup", onUp);
 }
 
+function onColorPointerDown() {
+  history?.beginGesture();
+  window.addEventListener(
+    "pointerup",
+    () => {
+      history?.commitGesture();
+    },
+    { once: true },
+  );
+}
+
 function deleteSelected() {
   if (model.value.length <= 2) return false;
   const idx = selectedIndex.value;
@@ -176,9 +187,12 @@ useFocusedKeyboardScope(rootRef, {
       </div>
     </div>
 
-    <!-- Color picker for selected stop -->
+    <!-- Color picker for selected stop. The picker emits continuously while
+         dragging; the gesture makes one drag = one undo step. -->
     <div class="h-px bg-edge" />
-    <UiColorPicker v-model="selectedColor" />
+    <div @pointerdown="onColorPointerDown">
+      <UiColorPicker v-model="selectedColor" />
+    </div>
 
     <!-- Hint -->
     <p class="text-copy-sm text-tertiary text-center select-none">

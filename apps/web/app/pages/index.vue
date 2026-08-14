@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { PlusIcon } from "@heroicons/vue/16/solid";
+import { SparklesIcon } from "@heroicons/vue/24/outline";
 useHead({ title: "Shader Lab" });
 
 const { data: shaders, refresh: refreshShaders } = await useFetch("/api/shaders");
@@ -36,7 +38,20 @@ const isEmpty = computed(() => !(shaders.value as any[])?.length);
         v-if="isEmpty"
         class="flex flex-col items-center justify-center gap-4 py-24"
       >
-        <p class="text-copy-sm text-tertiary">No shaders yet.</p>
+        <div class="flex size-12 items-center justify-center rounded-2xl border border-edge bg-base-1">
+          <SparklesIcon class="size-5 text-tertiary" aria-hidden="true" />
+        </div>
+        <div class="flex flex-col items-center gap-1">
+          <p class="text-copy-sm text-primary">No compositions yet</p>
+          <p class="text-copy-sm text-tertiary">Create your first one to get started.</p>
+        </div>
+        <UiButton
+          variant="action"
+          :icon-left="PlusIcon"
+          @click="navigateTo({ path: '/shader', query: { preset: 'blank' } })"
+        >
+          New composition
+        </UiButton>
       </div>
 
       <div
