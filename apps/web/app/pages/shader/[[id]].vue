@@ -26,7 +26,7 @@ import {
 import { refDebounced } from "@vueuse/core";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
-import type { LayerTransformValues } from "#shared/editor/layer-transform";
+import { clampValue, type LayerTransformValues } from "#shared/editor/layer-transform";
 import {
   FULL_CONTENT_EXTENT,
   componentContentExtent,
@@ -40,6 +40,7 @@ import { PICKABLE_LAYER_TYPES, topLayerAt } from "#shared/editor/canvas-picking"
 import { collectSnapTargets } from "#shared/editor/snapping";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
+import type { CanvasTool, TextEditIntent } from "#shared/editor/canvas-tool";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
 import {
   EditorKeyboardPriority,
@@ -195,6 +196,19 @@ const selectedTemplate = computed(() => {
   return LAYER_TEMPLATES[selectedLayer.value.type] ?? null;
 });
 
+// --- Canvas tool + inline text editing ---
+
+const activeTool = ref<CanvasTool>("select");
+const textEditingLayerId = ref<string | null>(null);
+const textEditIntent = ref<TextEditIntent>({ type: "end" });
+
+const textEditingLayer = computed(() => {
+  const id = textEditingLayerId.value;
+  if (!id) return null;
+  const layer = layers.value.find((l) => l.id === id);
+  return layer?.type === "text" ? layer : null;
+});
+
 // --- LFO state ---
 
 const selectedLfoId = ref<string | null>(null);
@@ -293,7 +307,18 @@ function setCompositionSize(width: number, height: number) {
 
 // --- Layer Compiler + Renderer ---
 
-const { passes } = useLayerCompiler(layers, modFn, lfos, assignments);
+/**
+ * Layers as the renderer sees them: identical object references (uniforms are
+ * read live from them), except the text layer being inline-edited renders
+ * disabled — the DOM overlay is the source of truth while editing.
+ */
+const renderLayers = computed<LayerInstance[]>(() => {
+  const id = textEditingLayerId.value;
+  if (!id) return layers.value;
+  return layers.value.map((l) => (l.id === id ? { ...l, enabled: false } : l));
+});
+
+const { passes } = useLayerCompiler(renderLayers, modFn, lfos, assignments);
 const {
   getCanvas,
   capture,
@@ -998,6 +1023,91 @@ function onCanvasSelect(layerId: string | null, additive = false) {
   selectionAnchorId.value = layerId;
 }
 
+// --- Inline text editing (Figma-style text tool) ---
+
+const artboardRef = ref<HTMLElement | null>(null);
+
+/** Client point → comp UV via the artboard's on-screen rect. */
+function compUvFromClient(clientX: number, clientY: number): { x: number; y: number } | null {
+  const rect = artboardRef.value?.getBoundingClientRect();
+  if (!rect || rect.width < 1 || rect.height < 1) return null;
+  return {
+    x: (clientX - rect.left) / rect.width,
+    y: 1 - (clientY - rect.top) / rect.height,
+  };
+}
+
+function startTextEditing(layerId: string, intent: TextEditIntent = { type: "end" }) {
+  if (textEditingLayerId.value === layerId) return;
+  // One undo entry for the whole editing session (creation + typing).
+  history.beginGesture();
+  textEditIntent.value = intent;
+  textEditingLayerId.value = layerId;
+  onCanvasSelect(layerId);
+  // The hidden-while-editing pass graph swap does not touch layer state,
+  // so the renderer needs an explicit frame.
+  nextTick(() => requestRender());
+}
+
+function commitTextEditing() {
+  const layer = textEditingLayer.value;
+  if (!layer) return;
+  textEditingLayerId.value = null;
+  // Figma-style: text left empty is removed, the tool snaps back to select.
+  if (!String(layer.values.content ?? "").trim()) {
+    removeLayer(layer.id);
+  }
+  history.commitGesture();
+  if (activeTool.value === "text") activeTool.value = "select";
+  nextTick(() => requestRender());
+}
+
+/** Text tool click on empty canvas: create an empty layer at the point and edit it. */
+function addTextLayerAt(uv: { x: number; y: number }) {
+  const id = createUniqueLayerId("text", layers.value, layerCounter);
+  const values = buildLayerValues("text");
+  values.content = "";
+  const posMin = (transformPosDef.min as number | undefined) ?? -1;
+  const posMax = (transformPosDef.max as number | undefined) ?? 1;
+  values.layerPositionX = clampValue(Number((uv.x - 0.5).toFixed(4)), posMin, posMax);
+  values.layerPositionY = clampValue(Number((uv.y - 0.5).toFixed(4)), posMin, posMax);
+  layers.value.unshift({ id, type: "text", enabled: true, values });
+  startTextEditing(id, { type: "end" });
+}
+
+function onTextToolPointerDown(e: PointerEvent) {
+  if (e.button !== 0 || textEditingLayerId.value) return;
+  const uv = compUvFromClient(e.clientX, e.clientY);
+  if (!uv) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const id = canvasLayerAt(uv, compositionAspect.value);
+  const layer = id ? layers.value.find((l) => l.id === id) : null;
+  if (layer?.type === "text") {
+    startTextEditing(layer.id, {
+      type: "point",
+      clientX: e.clientX,
+      clientY: e.clientY,
+      drag: true,
+    });
+  } else {
+    addTextLayerAt(uv);
+  }
+}
+
+/** Double-click a text layer (any tool): edit with everything selected. */
+function onArtboardDblClick(e: MouseEvent) {
+  if (textEditingLayerId.value) return;
+  const uv = compUvFromClient(e.clientX, e.clientY);
+  if (!uv) return;
+  const id = canvasLayerAt(uv, compositionAspect.value);
+  const layer = id ? layers.value.find((l) => l.id === id) : null;
+  if (layer?.type === "text") {
+    startTextEditing(layer.id, { type: "all" });
+  }
+}
+
 /** Selected layers that carry a transform (generators), in stack order. */
 const multiSelectedLayers = computed(() =>
   layers.value.filter(
@@ -1225,6 +1335,19 @@ registerKeyboard({
     return true;
   },
 });
+
+registerKeyboard({
+  id: "text:edit-selected",
+  priority: EditorKeyboardPriority.layer,
+  handle(e) {
+    if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
+    if (textEditingLayerId.value) return false;
+    const layer = selectedLayer.value;
+    if (!layer || layer.type !== "text" || selectedLayerIds.value.size > 1) return false;
+    startTextEditing(layer.id, { type: "all" });
+    return true;
+  },
+});
 </script>
 
 <template>
@@ -1240,7 +1363,12 @@ registerKeyboard({
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
             >
-              <div class="absolute top-0 left-0" :style="viewport.artboardStyle.value">
+              <div
+                ref="artboardRef"
+                class="absolute top-0 left-0"
+                :style="viewport.artboardStyle.value"
+                @dblclick="onArtboardDblClick"
+              >
                 <div class="absolute inset-0 overflow-hidden bg-black shadow-2xl ring-1 ring-white/10">
                   <canvas
                     ref="canvasRef"
@@ -1329,7 +1457,28 @@ registerKeyboard({
                 @gesture-start="history.beginGesture()"
                 @gesture-end="history.commitGesture()"
               />
+
+              <!-- Text tool: click into text layers or empty canvas to edit/create -->
+              <div
+                v-if="activeTool === 'text' && !textEditingLayerId"
+                class="absolute inset-0 z-30 cursor-text"
+                @pointerdown="onTextToolPointerDown"
+              />
+              <EditorTextEditOverlay
+                v-if="textEditingLayer"
+                :layer="textEditingLayer"
+                :comp="{ width: settings.width, height: settings.height }"
+                :transform="layerTransformValues(textEditingLayer)"
+                :intent="textEditIntent"
+                @commit="commitTextEditing"
+              />
               </div>
+
+              <!-- Canvas tools -->
+              <EditorCanvasToolbar
+                v-model:tool="activeTool"
+                class="absolute bottom-3 left-1/2 z-20 -translate-x-1/2"
+              />
 
               <!-- Zoom controls -->
               <div class="absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-lg border border-neutral bg-layer-1/90 p-0.5 backdrop-blur">
