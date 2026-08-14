@@ -21,8 +21,12 @@ const handlers = new Map<string, EditorKeyboardHandler>();
 let listening = false;
 
 export function isTypingTarget(target: EventTarget | null): boolean {
-  return !!(target as HTMLElement | null)?.closest(
-    "input, textarea, select, [contenteditable='true']",
+  const el = target as HTMLElement | null;
+  if (!el) return false;
+  // Covers contenteditable="plaintext-only" (canvas text editing) too.
+  if (el.isContentEditable) return true;
+  return !!el.closest?.(
+    "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
   );
 }
 
