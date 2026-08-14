@@ -39,6 +39,19 @@ export function dataTransferHasFiles(data: DataTransfer | null): boolean {
   return !!data && [...data.types].includes("Files");
 }
 
+/** SVG markup at the start of pasted text (optional XML prolog / doctype). */
+const SVG_TEXT_RE = /^\s*(?:<\?xml[\s\S]*?\?>\s*)?(?:<!DOCTYPE[\s\S]*?>\s*)?<svg[\s>]/i;
+
+/**
+ * "Copy as SVG" in vector tools (and copying markup in a code editor) puts
+ * SVG source on the clipboard as plain text, not a file. Wrap it into a File
+ * so it can ride the normal upload path.
+ */
+export function svgFileFromText(text: string): File | null {
+  if (!SVG_TEXT_RE.test(text)) return null;
+  return new File([text], "pasted.svg", { type: "image/svg+xml" });
+}
+
 /** Last path segment of a src URL (query stripped) for compact display. */
 export function mediaSrcFileName(src: string): string {
   if (!src) return "";

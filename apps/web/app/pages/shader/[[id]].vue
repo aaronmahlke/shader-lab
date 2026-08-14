@@ -52,6 +52,7 @@ import {
   dataTransferHasFiles,
   mediaFilesFromDataTransfer,
   mediaUploadKindForFile,
+  svgFileFromText,
   uploadMediaFile,
 } from "~/utils/media-upload";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
@@ -748,20 +749,28 @@ function onViewportDragLeave(event: DragEvent) {
   mediaDropDepth.value = Math.max(0, mediaDropDepth.value - 1);
 }
 
+/** Media files in a payload, falling back to SVG markup carried as text. */
+function mediaFilesFromPayload(data: DataTransfer | null): File[] {
+  const files = mediaFilesFromDataTransfer(data);
+  if (files.length > 0) return files;
+  const svgFile = svgFileFromText(data?.getData("text/plain") ?? "");
+  return svgFile ? [svgFile] : [];
+}
+
 function onViewportDrop(event: DragEvent) {
   mediaDropDepth.value = 0;
-  void importMediaFiles(mediaFilesFromDataTransfer(event.dataTransfer));
+  void importMediaFiles(mediaFilesFromPayload(event.dataTransfer));
 }
 
 /**
  * System-clipboard media paste. Keyframe paste wins when its internal
  * clipboard is set (its keydown handler cancels the paste event); otherwise
- * ⌘V with an image/video on the clipboard lands here.
+ * ⌘V with an image/video — or raw SVG markup ("Copy as SVG") — lands here.
  */
 function onWindowPaste(event: ClipboardEvent) {
   // Paste targets the focused element, but guard: window itself has no closest().
   if (event.target instanceof Element && isTypingTarget(event.target)) return;
-  const files = mediaFilesFromDataTransfer(event.clipboardData);
+  const files = mediaFilesFromPayload(event.clipboardData);
   if (files.length === 0) return;
   event.preventDefault();
   void importMediaFiles(files);
