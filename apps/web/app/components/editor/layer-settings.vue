@@ -2,7 +2,6 @@
 import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource, PropertyTrack } from "@shader-lab/core";
 import type { GradientStop, MeshPoint } from "@shader-lab/core";
 import {
-  cloneMeshPoints,
   applyModulation,
   evaluatePropertyTrack,
   findPropertyTrack,
@@ -115,53 +114,54 @@ function onDepthUpdate(def: LayerUniformDef, depth: number) {
   emit("update-depth", assignment.sourceId, def.name, depth);
 }
 
-function hslToHex(h: number, s: number, l: number): string {
-  h = ((h % 360) + 360) % 360;
-  s = Math.max(0, Math.min(100, s)) / 100;
-  l = Math.max(0, Math.min(100, l)) / 100;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number) => {
-    const k = (n + h / 30) % 12;
-    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
-    return Math.round(255 * color).toString(16).padStart(2, "0");
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-
-function randomizeUniforms(defs: LayerUniformDef[], target: Record<string, unknown>) {
-  for (const def of defs) {
-    if (def.type === "float" || def.type === "int") {
-      const min = def.min ?? 0;
-      const max = def.max ?? 1;
-      const step = def.step ?? 0.01;
-      const padding = (max - min) * 0.2;
-      const raw = (min + padding) + Math.random() * (max - min - padding * 2);
-      target[def.name] = Math.min(max, Math.max(min, Math.round(raw / step) * step));
-    } else if (def.type === "color") {
-      target[def.name] = hslToHex(Math.random() * 360, 40 + Math.random() * 50, 30 + Math.random() * 40);
-    } else if (def.type === "bool") {
-      target[def.name] = Math.random() > 0.5;
-    } else if (def.type === "select" && def.options?.length) {
-      target[def.name] = def.options[Math.floor(Math.random() * def.options.length)]!.value;
-    } else if (def.type === "vec2") {
-      const min = def.min ?? 0;
-      const max = def.max ?? 1;
-      const step = def.step ?? 0.01;
-      const snap = (v: number) => Math.min(max, Math.max(min, Math.round(v / step) * step));
-      target[def.name] = [snap(min + Math.random() * (max - min)), snap(min + Math.random() * (max - min))];
-    } else if (def.type === "meshPoints" && Array.isArray(def.default)) {
-      target[def.name] = (def.default as MeshPoint[]).map((p) => ({
-        x: Math.random(),
-        y: Math.random(),
-        color: hslToHex(Math.random() * 360, 45 + Math.random() * 35, 35 + Math.random() * 30),
-        radius: 0.4 + Math.random() * 0.7,
-      }));
-    }
-  }
-}
-
 /** Universal transform/opacity params shown for every layer (generators get the full set). */
 const universalDefs = universalUniformsFor(layer);
+
+// --- Universal rows (Figma-style: X/Y pairs share one labeled row) ---
+
+type UniversalField = { def: LayerUniformDef; label: string };
+type UniversalRow = {
+  key: string;
+  /** Rendered as a select instead of slider fields. */
+  select?: LayerUniformDef;
+  /** Group label above paired fields (e.g. "Position"). */
+  label?: string;
+  fields: UniversalField[];
+};
+
+const PAIRED_UNIVERSALS = [
+  { label: "Position", x: "layerPositionX", y: "layerPositionY" },
+  { label: "Anchor", x: "layerAnchorX", y: "layerAnchorY" },
+];
+
+/** Position X/Y and Anchor X/Y collapse into one two-column row each. */
+const universalRows: UniversalRow[] = (() => {
+  const rows: UniversalRow[] = [];
+  const grouped = new Set<string>();
+  for (const def of universalDefs) {
+    if (grouped.has(def.name)) continue;
+    const pair = PAIRED_UNIVERSALS.find((p) => p.x === def.name);
+    const yDef = pair ? universalDefs.find((d) => d.name === pair.y) : undefined;
+    if (pair && yDef) {
+      grouped.add(pair.y);
+      rows.push({
+        key: pair.label,
+        label: pair.label,
+        fields: [
+          { def, label: "X" },
+          { def: yDef, label: "Y" },
+        ],
+      });
+      continue;
+    }
+    if (def.type === "select") {
+      rows.push({ key: def.name, select: def, fields: [] });
+      continue;
+    }
+    rows.push({ key: def.name, fields: [{ def, label: def.label }] });
+  }
+  return rows;
+})();
 
 // --- Alignment (Figma-style, relative to the composition frame) ---
 
@@ -291,28 +291,6 @@ const ALIGNMENTS: {
     ],
   },
 ];
-
-function resetToDefaults() {
-  for (const def of universalDefs) {
-    layer.values[def.name] = def.default;
-  }
-  layer.timing = undefined;
-  for (const def of template.uniforms) {
-    if (def.type === "gradient" && Array.isArray(def.default)) {
-      layer.values[def.name] = (def.default as GradientStop[]).map((s) => ({ ...s }));
-    } else if (def.type === "meshPoints" && Array.isArray(def.default)) {
-      layer.values[def.name] = cloneMeshPoints(def.default as MeshPoint[]);
-    } else {
-      layer.values[def.name] = def.default;
-    }
-  }
-}
-
-function randomize() {
-  randomizeUniforms(template.uniforms, layer.values);
-}
-
-defineExpose({ randomize, reset: resetToDefaults });
 
 function getFloat(def: LayerUniformDef, target: Record<string, unknown>): number {
   if (isTrackEnabled(def.name)) {
@@ -514,7 +492,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     </div>
 
     <div class="flex flex-col gap-2.5 border-b border-neutral p-3">
-      <span class="text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
+      <span class="text-copy-sm text-secondary select-none">
         Transform
       </span>
       <div
@@ -557,48 +535,55 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           </button>
         </UiTooltip>
       </div>
-      <template v-for="def in universalDefs" :key="`universal-${def.name}`">
+      <template v-for="row in universalRows" :key="`universal-${row.key}`">
         <UiSelect
-          v-if="def.type === 'select'"
-          :model-value="getSelect(def, layer.values) as string | number"
-          :options="def.options ?? []"
-          :label="def.label"
-          @update:model-value="setSelect(def, layer.values, $event as string | number)"
-          @select="setSelect(def, layer.values, $event)"
-          @highlight="previewSelect(def, layer.values, $event)"
-          @highlight-end="endSelectPreview(def)"
+          v-if="row.select"
+          :model-value="getSelect(row.select, layer.values) as string | number"
+          :options="row.select.options ?? []"
+          :label="row.select.label"
+          @update:model-value="setSelect(row.select, layer.values, $event as string | number)"
+          @select="setSelect(row.select, layer.values, $event)"
+          @highlight="previewSelect(row.select, layer.values, $event)"
+          @highlight-end="endSelectPreview(row.select)"
         />
-        <UiContextMenu v-else>
-          <div @pointerup="draggingLfoId && emit('assign-lfo', def.name)">
-            <UiSliderField
-              :model-value="getFloat(def, layer.values)"
-              :label="def.label"
-              :min="def.min"
-              :max="def.max"
-              :step="def.step ?? 0.01"
-              :mod-color="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.color"
-              :mod-depth="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.depth"
-              :mod-live-value="isTrackEnabled(def.name) ? undefined : getLiveValue(def)"
-              :is-drop-target="draggingLfoId !== null && !isTrackEnabled(def.name)"
-              :animatable="isKeyframeableUniform(def)"
-              :track-enabled="isTrackEnabled(def.name)"
-              :keyed-at-playhead="isKeyedAtPlayhead(def.name)"
-              @update:model-value="setFloat(def, layer.values, $event)"
-              @update:mod-depth="onDepthUpdate(def, $event)"
-              @toggle-track="emit('toggle-stopwatch', def.name)"
-              @toggle-keyframe="emit('toggle-keyframe', def.name)"
-            />
+        <div v-else class="flex flex-col gap-1">
+          <span v-if="row.label" class="text-copy-sm text-secondary select-none">
+            {{ row.label }}
+          </span>
+          <div class="grid gap-1.5" :class="row.fields.length > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+            <UiContextMenu v-for="field in row.fields" :key="field.def.name">
+              <div @pointerup="draggingLfoId && emit('assign-lfo', field.def.name)">
+                <UiSliderField
+                  :model-value="getFloat(field.def, layer.values)"
+                  :label="field.label"
+                  :min="field.def.min"
+                  :max="field.def.max"
+                  :step="field.def.step ?? 0.01"
+                  :mod-color="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.color"
+                  :mod-depth="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.depth"
+                  :mod-live-value="isTrackEnabled(field.def.name) ? undefined : getLiveValue(field.def)"
+                  :is-drop-target="draggingLfoId !== null && !isTrackEnabled(field.def.name)"
+                  :animatable="isKeyframeableUniform(field.def)"
+                  :track-enabled="isTrackEnabled(field.def.name)"
+                  :keyed-at-playhead="isKeyedAtPlayhead(field.def.name)"
+                  @update:model-value="setFloat(field.def, layer.values, $event)"
+                  @update:mod-depth="onDepthUpdate(field.def, $event)"
+                  @toggle-track="emit('toggle-stopwatch', field.def.name)"
+                  @toggle-keyframe="emit('toggle-keyframe', field.def.name)"
+                />
+              </div>
+              <template #menu>
+                <UiContextMenuItem @click="resetUniform(field.def)">Reset to default</UiContextMenuItem>
+                <template v-if="getAssignment(field.def.name)">
+                  <UiContextMenuSeparator />
+                  <UiContextMenuItem @click="emit('remove-assignment', getAssignment(field.def.name)!.sourceId, field.def.name)">
+                    Remove {{ lfos.find(l => l.id === getAssignment(field.def.name)!.sourceId)?.label }}
+                  </UiContextMenuItem>
+                </template>
+              </template>
+            </UiContextMenu>
           </div>
-          <template #menu>
-            <UiContextMenuItem @click="resetUniform(def)">Reset to default</UiContextMenuItem>
-            <template v-if="getAssignment(def.name)">
-              <UiContextMenuSeparator />
-              <UiContextMenuItem @click="emit('remove-assignment', getAssignment(def.name)!.sourceId, def.name)">
-                Remove {{ lfos.find(l => l.id === getAssignment(def.name)!.sourceId)?.label }}
-              </UiContextMenuItem>
-            </template>
-          </template>
-        </UiContextMenu>
+        </div>
       </template>
     </div>
 

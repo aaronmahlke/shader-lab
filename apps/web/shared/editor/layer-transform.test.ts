@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  anchorPointInCompUv,
   angleAroundCenter,
   compToLayerUv,
   compUvToScreen,
@@ -7,6 +8,7 @@ import {
   layerBoundsInCompUv,
   layerCornersInCompUv,
   layerToCompUv,
+  positionForAnchorMove,
   screenToCompUv,
   shortestAngleDelta,
   transformCenter,
@@ -136,6 +138,64 @@ describe("content extent (inset unit square)", () => {
     const corners = layerCornersInCompUv(IDENTITY, 1);
     expect(corners[0]!.x).toBeCloseTo(0);
     expect(corners[2]!.x).toBeCloseTo(1);
+  });
+});
+
+describe("anchorPointInCompUv", () => {
+  it("sits at anchor + position (the pivot) regardless of scale/rotation", () => {
+    const values = v({ positionX: 0.2, positionY: -0.15, scale: 55, rotation: 71, anchorX: 0.3, anchorY: 0.8 });
+    const p = anchorPointInCompUv(values, 16 / 9);
+    expect(p.x).toBeCloseTo(0.5);
+    expect(p.y).toBeCloseTo(0.65);
+  });
+
+  it("matches the transform center helper", () => {
+    const values = v({ positionX: -0.4, scale: 130, rotation: -22, anchorX: 0.1, anchorY: 0.9 });
+    const center = transformCenter(values);
+    const p = anchorPointInCompUv(values, 2.35);
+    expect(p.x).toBeCloseTo(center.x);
+    expect(p.y).toBeCloseTo(center.y);
+  });
+});
+
+describe("positionForAnchorMove", () => {
+  it("keeps position unchanged at identity scale/rotation", () => {
+    const values = v({ positionX: 0.12, positionY: -0.07 });
+    const pos = positionForAnchorMove(values, { x: 1, y: 0 }, 16 / 9);
+    expect(pos.x).toBeCloseTo(values.positionX);
+    expect(pos.y).toBeCloseTo(values.positionY);
+  });
+
+  it("keeps the rendered corners fixed under rotation + scale (pan behind)", () => {
+    const values = v({ positionX: 0.15, positionY: -0.2, scale: 70, rotation: 33, anchorX: 0.4, anchorY: 0.6 });
+    const aspect = 16 / 9;
+    const nextAnchor = { x: 0.9, y: 0.1 };
+    const pos = positionForAnchorMove(values, nextAnchor, aspect);
+    const moved = {
+      ...values,
+      anchorX: nextAnchor.x,
+      anchorY: nextAnchor.y,
+      positionX: pos.x,
+      positionY: pos.y,
+    };
+    const before = layerCornersInCompUv(values, aspect);
+    const after = layerCornersInCompUv(moved, aspect);
+    for (let i = 0; i < 4; i++) {
+      expect(after[i]!.x).toBeCloseTo(before[i]!.x);
+      expect(after[i]!.y).toBeCloseTo(before[i]!.y);
+    }
+  });
+
+  it("places the new pivot where the new anchor point rendered before the move", () => {
+    const values = v({ positionX: -0.1, scale: 140, rotation: -58, anchorY: 0.25 });
+    const aspect = 1.5;
+    const nextAnchor = { x: 0, y: 1 };
+    const target = layerToCompUv(nextAnchor, values, aspect);
+    const pos = positionForAnchorMove(values, nextAnchor, aspect);
+    const moved = { ...values, anchorX: nextAnchor.x, anchorY: nextAnchor.y, positionX: pos.x, positionY: pos.y };
+    const pivot = anchorPointInCompUv(moved, aspect);
+    expect(pivot.x).toBeCloseTo(target.x);
+    expect(pivot.y).toBeCloseTo(target.y);
   });
 });
 

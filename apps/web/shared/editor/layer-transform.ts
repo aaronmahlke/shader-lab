@@ -71,6 +71,34 @@ export function layerToCompUv(luv: Vec2, v: LayerTransformValues, aspect: number
 }
 
 /**
+ * The layer's anchor point mapped through its transform, in comp UV — where
+ * the pivot handle renders on canvas. Derived through the same forward map as
+ * the corners (the anchor is the fixed point, so this equals the transform
+ * center regardless of scale/rotation or content extent).
+ */
+export function anchorPointInCompUv(v: LayerTransformValues, aspect: number): Vec2 {
+  return layerToCompUv({ x: v.anchorX, y: v.anchorY }, v, aspect);
+}
+
+/**
+ * The position that keeps the rendered content visually fixed when the
+ * anchor moves to `nextAnchor` (layer UV) — AE's "pan behind" behavior.
+ *
+ * The new pivot (anchor + position) must land where the layer point
+ * `nextAnchor` currently renders, i.e. its forward map under the old values;
+ * position is that comp UV point minus the new anchor. Equivalent to shifting
+ * position by rotation+scale of the anchor delta minus the raw delta.
+ */
+export function positionForAnchorMove(
+  v: LayerTransformValues,
+  nextAnchor: Vec2,
+  aspect: number,
+): Vec2 {
+  const pivot = layerToCompUv(nextAnchor, v, aspect);
+  return { x: pivot.x - nextAnchor.x, y: pivot.y - nextAnchor.y };
+}
+
+/**
  * The transformed corners of the layer's content rect, in comp UV
  * (bl, br, tr, tl). Defaults to the full unit square; pass a content
  * extent to wrap only the pixels the layer actually draws.
