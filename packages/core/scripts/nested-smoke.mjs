@@ -81,38 +81,29 @@ const W = 128, H = 128;
   // parent t≈1 → local t≈0 → x=-0.3 (left of center)
   const early = await pixels(await render(1.017), W, H);
 
-  const [rMidCenter] = at(mid, W, 64, 64);
-  const [rEarlyCenter] = at(early, W, 64, 64);
-  const [rEarlyLeft] = at(early, W, 26, 64);
-  const profile = (d) => {
-    let out = "";
-    for (let x = 0; x < W; x += 4) out += at(d, W, x, 64)[0] > 40 ? "#" : ".";
-    return out;
+  // Locate the red blob's horizontal centroid in each frame, thresholded
+  // against that frame's own max red (CI drivers render integer-aligned
+  // quads dimmer than local mesa; relative thresholds are stable).
+  const centroid = (d) => {
+    let max = 0;
+    for (let y = 40; y < 88; y += 2) for (let x = 0; x < W; x += 2) max = Math.max(max, at(d, W, x, y)[0]);
+    if (max < 25) return null;
+    let sum = 0, n = 0;
+    for (let y = 40; y < 88; y += 2) {
+      for (let x = 0; x < W; x += 2) {
+        if (at(d, W, x, y)[0] > max * 0.5) { sum += x; n++; }
+      }
+    }
+    return n ? sum / n : null;
   };
-  if (!(rMidCenter - rEarlyCenter > 40)) {
-    // JS-level check: what does the nested modFn actually evaluate to?
-    for (const t of [2, 1.017]) {
-      const { modFn } = createNestedResolvers({
-        layers: parent.layers,
-        parentModFn: null,
-        resolveComposition: (id) => (id === "c" ? nested : null),
-        time: t,
-      });
-      console.error(
-        `t=${t}: js positionX=${modFn("host::inner", "layerPositionX", -0.3).toFixed(3)}`,
-      );
-    }
-    for (let y = 8; y < H; y += 8) {
-      let row = "";
-      for (let x = 0; x < W; x += 4) row += at(mid, W, x, y)[0] > 40 ? "#" : ".";
-      console.error(`mid y${String(y).padStart(3)}: ${row}`);
-    }
-    console.error(`mid   row64: ${profile(mid)}`);
-    console.error(`early row64: ${profile(early)}`);
-    fail(`solid should be centered at local t=1 only (center r ${rMidCenter} vs ${rEarlyCenter})`);
-  }
-  if (!(rEarlyLeft - rEarlyCenter > 40)) {
-    fail(`solid should sit left at local t≈0 (left r ${rEarlyLeft} vs center ${rEarlyCenter})`);
+
+  const cMid = centroid(mid);
+  const cEarly = centroid(early);
+  if (cMid == null || cEarly == null) fail(`nested solid missing (centroids ${cMid} / ${cEarly})`);
+  // local t≈0 → x=-0.3 (left third); local t=1 → x=0 (center-ish).
+  if (!(cEarly < 48)) fail(`solid should sit left at local t≈0, centroid ${cEarly.toFixed(1)}`);
+  if (!(cMid - cEarly > 20)) {
+    fail(`solid should move right between local t≈0 and t=1 (${cEarly.toFixed(1)} → ${cMid.toFixed(1)})`);
   }
   console.log("ok: nested keyframes run on the host-offset local clock");
 }
