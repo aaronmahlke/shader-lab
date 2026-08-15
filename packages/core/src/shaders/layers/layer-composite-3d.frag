@@ -26,6 +26,7 @@ uniform float layerAnchorX;   // pivot in layer UV space (0..1)
 uniform float layerAnchorY;
 uniform float layerOpacity;   // percent, 0..100 (pre-gated by in/out points)
 uniform int layerBlendMode;
+uniform float layerAcceptsLight; // 3D quads: shade content with group lights
 
 // Scene camera (identity when no camera layer drives the group).
 uniform float u_sceneFov;     // vertical FOV in degrees
@@ -175,7 +176,7 @@ float intersectObject(vec3 ro, vec3 rd, vec3 h, out vec3 nLocal) {
 }
 
 vec3 lightContribution(
-  int type, vec3 color, float intensity, vec3 lvec,
+  vec3 base, int type, vec3 color, float intensity, vec3 lvec,
   vec3 hitPos, vec3 N, vec3 V, mat3 rcam
 ) {
   if (intensity <= 0.0) return vec3(0.0);
@@ -194,7 +195,7 @@ vec3 lightContribution(
   float diff = max(dot(N, L), 0.0);
   vec3 H = normalize(L + V);
   float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * specular;
-  return color * intensity * att * (albedo * diff + vec3(spec));
+  return color * intensity * att * (base * diff + vec3(spec));
 }
 
 vec3 shadeObject(vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
@@ -208,10 +209,21 @@ vec3 shadeObject(vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
     float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * specular;
     return albedo * (0.18 + diff) + vec3(spec) + albedo * emissive;
   }
-  if (u_lightCount > 0) col += lightContribution(u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 1) col += lightContribution(u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 2) col += lightContribution(u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 3) col += lightContribution(u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 0) col += lightContribution(albedo, u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 1) col += lightContribution(albedo, u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 2) col += lightContribution(albedo, u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 3) col += lightContribution(albedo, u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam);
+  return col;
+}
+
+/** AE-style "Accepts Lights" for layer quads: diffuse + ambient, no specular. */
+vec3 shadeQuad(vec3 base, vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
+  vec3 V = -dir;
+  vec3 col = base * u_ambient;
+  if (u_lightCount > 0) col += lightContribution(base, u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 1) col += lightContribution(base, u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 2) col += lightContribution(base, u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam);
+  if (u_lightCount > 3) col += lightContribution(base, u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam);
   return col;
 }
 
@@ -298,6 +310,13 @@ void main() {
         vec4 content = texture2D(u_color, clamp(luv, 0.0, 1.0));
         alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
         src = content.rgb;
+
+        // Shade the quad with the group's lights when the layer accepts them
+        // (flip the normal toward the viewer — both faces are lit).
+        if (layerAcceptsLight > 0.5 && u_lightCount > 0) {
+          vec3 N = denom > 0.0 ? -n : n;
+          src = shadeQuad(content.rgb, hit, N, dir, rcam);
+        }
       }
     }
   }

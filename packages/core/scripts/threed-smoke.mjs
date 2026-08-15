@@ -164,8 +164,36 @@ const H = 128;
   if (!(cNo > 48 && cNo < 80)) fail(`baseline quad should sit near center, got ${cNo}`);
   if (!(Math.abs(cDrive - cNo) > 4)) fail(`drive3d yaw should shift the 3D layer (center ${cNo} -> ${cDrive})`);
 
+  // 2d. Accepts light: a lit 3D quad shades differently from an unlit one.
+  const litQuad = (accepts) => [
+    {
+      id: "sun2",
+      type: "light",
+      enabled: true,
+      values: { ...buildLayerValues("light"), intensity: 2.0, elevation: 60, azimuth: -40 },
+    },
+    {
+      id: "q",
+      type: "solid",
+      enabled: true,
+      is3D: true,
+      values: {
+        ...buildLayerValues("solid"),
+        u_color: "#888888",
+        layerScale: 60,
+        layerRotationX: 45,
+        layerAcceptsLight: accepts ? 1 : 0,
+      },
+    },
+  ];
+  const unlit = render(gl, litQuad(false), W, H);
+  const lit = render(gl, litQuad(true), W, H);
+  const [ur] = px(unlit, W, 64, 40);
+  const [lr2] = px(lit, W, 64, 40);
+  if (Math.abs(lr2 - ur) < 8) fail(`Accepts light should change quad shading (${ur} -> ${lr2})`);
+
   destroyGlContext(gl);
-  console.log("ok: objects shade, lights matter, drive3d camera moves 3D layers");
+  console.log("ok: objects shade, lights matter, drive3d camera moves 3D layers, quads accept light");
 }
 
 // --- 2. identity parity with the 2D path ----------------------------------
