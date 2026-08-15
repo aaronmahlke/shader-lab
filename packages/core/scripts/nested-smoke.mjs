@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 // Nested composition smoke test (real WebGL2 via gl@9).
-//   1. a composition layer renders its referenced comp's content
+//
+// All assertions are RELATIVE (enabled vs disabled / time A vs time B):
+// CI's ANGLE backend blends and quantizes the default framebuffer readback
+// differently from a local mesa stack, so absolute color checks are flaky.
+//
+//   1. a composition layer changes the frame exactly where it composites
 //   2. nested keyframes run on the local clock (host in-point offset)
-//   3. a 3D composition layer gets perspective like any quad
+//   3. a 3D composition layer renders with perspective (asymmetry under yaw)
+//
 // Requires a display: xvfb-run -a node scripts/nested-smoke.mjs
 // Requires a build first: bun run build
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,8 +16,6 @@ import { dirname, join } from "node:path";
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { renderCompositionToBuffer } = await import(pathToFileURL(join(pkgRoot, "dist", "server.js")).href);
-const { PNG } = await import("pngjs").catch(() => ({ PNG: null }));
-
 const stbnPath = join(pkgRoot, "..", "..", "apps", "web", "public", "textures", "stbn-scalar-128x64.png");
 
 const solid = (id, color, values = {}, extra = {}) => ({
@@ -21,81 +25,89 @@ const solid = (id, color, values = {}, extra = {}) => ({
   ...extra,
 });
 const comp = (layers, extra = {}) => ({ version: 1, layers, lfos: [], assignments: [], ...extra });
+const hostLayer = (values = {}, extra = {}) => ({
+  id: "host", type: "composition", enabled: true,
+  values: { compRefId: "c", layerScale: 50, layerOpacity: 100, layerBlendMode: 0,
+    layerPositionX: 0, layerPositionY: 0, layerAnchorX: 0.5, layerAnchorY: 0.5, layerRotation: 0, ...values },
+  ...extra,
+});
 
 function fail(msg) { console.error(`FAIL: ${msg}`); process.exit(1); }
-// CI's ANGLE backend reads the framebuffer darker than local mesa — assert
-// channel dominance instead of absolute values.
-const dominant = (a, b) => a > 96 && a > b * 2.5;
 
-// decode PNG buffer via @napi-rs/canvas (available as core dependency)
 const { createCanvas, loadImage } = await import("@napi-rs/canvas");
-async function centerPixel(buf, w, h, x, y) {
+async function pixels(buf, w, h) {
   const img = await loadImage(buf);
   const canvas = createCanvas(w, h);
   const ctx = canvas.getContext("2d");
   ctx.drawImage(img, 0, 0);
-  const d = ctx.getImageData(x, y, 1, 1).data;
-  return [d[0], d[1], d[2]];
+  return ctx.getImageData(0, 0, w, h).data;
 }
+const at = (d, w, x, y) => [d[(y * w + x) * 4], d[(y * w + x) * 4 + 1], d[(y * w + x) * 4 + 2]];
 
 const W = 128, H = 128;
 
-// 1. Basic nesting: red nested comp scaled 50% over a blue base.
+// --- 1. the composition layer composites its referenced comp ---------------
 {
   const nested = comp([solid("inner", "#ff0000")]);
-  const parent = comp([
-    { id: "host", type: "composition", enabled: true, values: { compRefId: "compB", layerScale: 50, layerOpacity: 100, layerBlendMode: 0, layerPositionX: 0, layerPositionY: 0, layerAnchorX: 0.5, layerAnchorY: 0.5, layerRotation: 0 } },
+  const make = (enabled) => comp([
+    { ...hostLayer(), enabled },
     solid("bg", "#0000ff"),
   ]);
-  const buf = await renderCompositionToBuffer(parent, { width: W, height: H, time: 0, stbnPath, compositions: { compB: nested } });
-  if (!buf) fail("nested render returned null");
-  const [r, , b] = await centerPixel(buf, W, H, 64, 64);
-  if (!dominant(r, b)) fail(`center should be nested red, got rgb(${r},_,${b})`);
-  const [er, , eb] = await centerPixel(buf, W, H, 4, 64);
-  if (!dominant(eb, er)) fail(`edge should be base blue, got rgb(${er},_,${eb})`);
+  const on = await pixels(await renderCompositionToBuffer(make(true), { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } }), W, H);
+  const off = await pixels(await renderCompositionToBuffer(make(false), { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } }), W, H);
+
+  const [ro] = at(on, W, 64, 64);
+  const [rf] = at(off, W, 64, 64);
+  if (!(ro - rf > 40)) fail(`nested red should appear at center (enabled r=${ro} vs disabled r=${rf})`);
+  const [, , bo] = at(on, W, 4, 64);
+  const [, , bf] = at(off, W, 4, 64);
+  if (Math.abs(bo - bf) > 30) fail(`the scaled comp must not cover the edge (b ${bo} vs ${bf})`);
   console.log("ok: composition layer renders its referenced comp");
 }
 
-// 2. Local clock: nested keyframe moves inner solid; host in-point 1s.
+// --- 2. nested keyframes run on the host-offset local clock ----------------
 {
   const nested = comp([solid("inner", "#ff0000", { layerScale: 25 })], {
     tracks: [{ layerId: "inner", paramName: "layerPositionX", enabled: true, keys: [
       { time: 0, value: -0.3 }, { time: 2, value: 0.3 },
     ]}],
   });
-  const parent = comp([
-    { id: "host", type: "composition", enabled: true, timing: { in: 1 },
-      values: { compRefId: "c", layerScale: 100, layerOpacity: 100, layerBlendMode: 0, layerPositionX: 0, layerPositionY: 0, layerAnchorX: 0.5, layerAnchorY: 0.5, layerRotation: 0 } },
-  ]);
+  const parent = comp([hostLayer({ layerScale: 100 }, { timing: { in: 1 } })]);
+  const render = (time) => renderCompositionToBuffer(parent, { width: W, height: H, time, stbnPath, compositions: { c: nested } });
+
   // parent t=2 → local t=1 → keyframe midpoint (x=0, centered)
-  const buf = await renderCompositionToBuffer(parent, { width: W, height: H, time: 2, stbnPath, compositions: { c: nested } });
-  const [r] = await centerPixel(buf, W, H, 64, 64);
-  if (!(r > 96)) fail(`nested keyframe should center the solid at local t=1, got r=${r}`);
-  // parent t=1 → local t=0 → x=-0.3 (left), center empty
-  const buf2 = await renderCompositionToBuffer(parent, { width: W, height: H, time: 1.017, stbnPath, compositions: { c: nested } });
-  const [r2] = await centerPixel(buf2, W, H, 64, 64);
-  const [rl] = await centerPixel(buf2, W, H, 26, 64);
-  if (!(rl > 96 && rl > r2 * 2.5)) fail(`at local t≈0 the solid should sit left, got center=${r2} left=${rl}`);
+  const mid = await pixels(await render(2), W, H);
+  // parent t≈1 → local t≈0 → x=-0.3 (left of center)
+  const early = await pixels(await render(1.017), W, H);
+
+  const [rMidCenter] = at(mid, W, 64, 64);
+  const [rEarlyCenter] = at(early, W, 64, 64);
+  const [rEarlyLeft] = at(early, W, 26, 64);
+  if (!(rMidCenter - rEarlyCenter > 40)) {
+    fail(`solid should be centered at local t=1 only (center r ${rMidCenter} vs ${rEarlyCenter})`);
+  }
+  if (!(rEarlyLeft - rEarlyCenter > 40)) {
+    fail(`solid should sit left at local t≈0 (left r ${rEarlyLeft} vs center ${rEarlyCenter})`);
+  }
   console.log("ok: nested keyframes run on the host-offset local clock");
 }
 
-// 3. 3D precomp: rotationY on the composition layer produces perspective.
+// --- 3. a 3D composition layer renders with perspective --------------------
 {
   const nested = comp([solid("inner", "#ff0000")]);
   const parent = comp([
-    { id: "host", type: "composition", enabled: true, is3D: true,
-      values: { compRefId: "c", layerScale: 60, layerRotationY: 55, layerRotationX: 0, layerPositionZ: 0,
-        layerOpacity: 100, layerBlendMode: 0, layerPositionX: 0, layerPositionY: 0, layerAnchorX: 0.5, layerAnchorY: 0.5, layerRotation: 0 } },
+    hostLayer({ layerScale: 60, layerRotationY: 55, layerRotationX: 0, layerPositionZ: 0 }, { is3D: true }),
   ]);
-  const buf = await renderCompositionToBuffer(parent, { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } });
-  const [rc] = await centerPixel(buf, W, H, 64, 64);
-  // top-left vs top-right rows differ under yaw (perspective foreshortening)
+  const buf = await pixels(await renderCompositionToBuffer(parent, { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } }), W, H);
+  const [rc] = at(buf, W, 64, 64);
+  if (!(rc > 40)) fail(`3D precomp center should show the nested comp, got r=${rc}`);
+  // Perspective foreshortening: red column heights differ left vs right.
+  const threshold = Math.max(40, rc * 0.5);
   let left = 0, right = 0;
   for (let y = 20; y < 108; y += 4) {
-    const [rl] = await centerPixel(buf, W, H, 50, y); if (rl > 80) left++;
-    const [rr] = await centerPixel(buf, W, H, 78, y); if (rr > 80) right++;
+    if (at(buf, W, 50, y)[0] > threshold) left++;
+    if (at(buf, W, 78, y)[0] > threshold) right++;
   }
-  if (!(rc > 80)) fail(`3D precomp center should be red, got ${rc}`);
   if (left === right) fail(`yawed precomp should be asymmetric (left ${left} vs right ${right})`);
   console.log("ok: a 3D composition layer renders with perspective");
 }
