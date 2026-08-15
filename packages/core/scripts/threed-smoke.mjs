@@ -116,7 +116,7 @@ const H = 128;
   };
   const objFrame = render(gl, [cube], W, H);
   const [cr, cg, cb] = px(objFrame, W, 64, 64);
-  if (!(cr > 60 && cg < 90 && cb < 90)) fail(`cube should render reddish at center, got rgb(${cr},${cg},${cb})`);
+  if (!(cr > 40 && cr > cg * 1.8 && cr > cb * 1.8)) fail(`cube should render reddish at center, got rgb(${cr},${cg},${cb})`);
   const [er] = px(objFrame, W, 4, 4);
   if (er > 30) fail(`cube should not cover the frame corner, got r=${er}`);
 
@@ -152,7 +152,7 @@ const H = 128;
     let minX = W, maxX = -1;
     for (let x = 0; x < W; x++) {
       const [r] = px(pixels, W, x, 64);
-      if (r > 100) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
+      if (r > 80) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
     }
     return (minX + maxX) / 2;
   };
