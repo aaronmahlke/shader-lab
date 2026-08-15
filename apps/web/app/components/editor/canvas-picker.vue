@@ -9,7 +9,7 @@ import {
   type LayerTransformValues,
   type Vec2,
 } from "#shared/editor/layer-transform";
-import { topLayerAt } from "#shared/editor/canvas-picking";
+import { topLayerAt, type LayerProjection } from "#shared/editor/canvas-picking";
 
 /**
  * Canvas selection surface: hover a layer for a light outline, click to
@@ -23,6 +23,8 @@ type Props = {
   getTransform: (layer: LayerInstance) => LayerTransformValues;
   /** Per-layer content rect (component/text draw less than the full frame). */
   getExtent?: (layer: LayerInstance) => ContentExtent;
+  /** 3D layers: projected screen quad (null quad = behind camera). */
+  getProjection?: (layer: LayerInstance) => LayerProjection | null;
 };
 
 type Emits = {
@@ -50,7 +52,14 @@ function pointerCompUv(e: PointerEvent | MouseEvent): Vec2 | null {
 }
 
 function layerAt(uv: Vec2): LayerInstance | null {
-  return topLayerAt(props.layers, uv, aspect.value, props.getTransform, props.getExtent);
+  return topLayerAt(
+    props.layers,
+    uv,
+    aspect.value,
+    props.getTransform,
+    props.getExtent,
+    props.getProjection,
+  );
 }
 
 function onPointerMove(e: PointerEvent) {
@@ -77,7 +86,13 @@ const hoverOutline = computed(() => {
   if (!hoveredLayerId.value) return null;
   const layer = props.layers.find((l) => l.id === hoveredLayerId.value);
   if (!layer) return null;
-  return layerCornersInCompUv(props.getTransform(layer), aspect.value, props.getExtent?.(layer))
+  // 3D layers: outline the projected quad so hover matches the render.
+  const projection = props.getProjection?.(layer);
+  const corners = projection
+    ? projection.quad
+    : layerCornersInCompUv(props.getTransform(layer), aspect.value, props.getExtent?.(layer));
+  if (!corners) return null;
+  return corners
     .map((uv) => {
       const p = compUvToScreen(uv, width.value, height.value);
       return `${p.x},${p.y}`;

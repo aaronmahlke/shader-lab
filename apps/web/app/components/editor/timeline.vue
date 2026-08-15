@@ -9,6 +9,14 @@ import {
   EyeSlashIcon,
   CubeIcon,
   CubeTransparentIcon,
+  Square2StackIcon,
+  PhotoIcon,
+  FilmIcon,
+  LanguageIcon,
+  PuzzlePieceIcon,
+  VideoCameraIcon,
+  SunIcon,
+  StopIcon,
 } from "@heroicons/vue/16/solid";
 import { useEventListener } from "@vueuse/core";
 import {
@@ -28,6 +36,7 @@ import {
   matchEasingPreset,
   offsetKeyframes,
   setKeyframesEasing,
+  isLayer3D,
   supports3D,
   universalUniformsFor,
   upsertKeyframe,
@@ -449,6 +458,22 @@ function pointInTracksContent(ev: PointerEvent): { x: number; y: number } {
 
 function layerLabel(layer: LayerInstance): string {
   return layer.name ?? LAYER_TEMPLATES[layer.type]?.label ?? layer.type;
+}
+
+/** Small type badge before the name — comps, media, and scene citizens only. */
+const LAYER_TYPE_ICONS: Partial<Record<LayerInstance["type"], unknown>> = {
+  composition: Square2StackIcon,
+  image: PhotoIcon,
+  video: FilmIcon,
+  text: LanguageIcon,
+  component: PuzzlePieceIcon,
+  camera: VideoCameraIcon,
+  light: SunIcon,
+  shape: StopIcon,
+};
+
+function layerTypeIcon(layer: LayerInstance) {
+  return LAYER_TYPE_ICONS[layer.type] ?? null;
 }
 
 type LayerNameEditor = { startEditing: () => void; editing: boolean };
@@ -1655,16 +1680,6 @@ function selectAllLayers() {
                 draggingIndices.has(i) && 'z-50 scale-[1.01] shadow-lg',
               ]"
             >
-              <!-- 3D group bracket: contiguous 3D layers sort together in one depth space.
-                   Inset from the pane border so it can't blend into the playhead at t=0. -->
-              <div
-                v-if="threeDBracket(i)"
-                class="pointer-events-none absolute inset-y-0 right-[3px] z-10 w-0.5 bg-accent/50"
-                :class="[
-                  threeDBracket(i)!.first && 'rounded-t-full',
-                  threeDBracket(i)!.last && 'rounded-b-full',
-                ]"
-              />
               <UiHover
                 solid
                 :active="isLayerSelected(layer.id) || draggingIndices.has(i)"
@@ -1691,6 +1706,12 @@ function selectAllLayers() {
                       :class="isLayerChevronOpen(layer.id) && 'rotate-90'"
                     />
                   </button>
+                  <component
+                    :is="layerTypeIcon(layer)"
+                    v-if="layerTypeIcon(layer)"
+                    class="size-3 shrink-0 text-neutral-subtle"
+                    aria-hidden="true"
+                  />
                   <UiEditableText
                     :ref="(el) => bindLayerNameRef(layer.id, el)"
                     :model-value="layerLabel(layer)"
@@ -1713,25 +1734,50 @@ function selectAllLayers() {
                   >
                     {{ enabledTracksForLayer(layer.id).length }}
                   </span>
-                  <button
-                    v-if="supports3D(layer)"
-                    type="button"
+                  <!-- 3D switch. Members of a contiguous 3D run share a connected
+                       accent chip behind their cubes (one depth-sorted space). -->
+                  <span
+                    v-if="supports3D(layer) || isLayer3D(layer)"
                     data-drag-exclude
-                    title="3D layer"
-                    class="flex size-6 shrink-0 cursor-pointer items-center justify-center outline-none transition-colors duration-100"
-                    :class="
-                      layer.is3D
-                        ? 'text-accent'
-                        : 'text-neutral-subtle opacity-0 hover:text-neutral-strong group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
+                    class="flex h-full shrink-0 items-stretch self-stretch"
+                    :class="threeDBracket(i) && 'bg-accent/15'"
+                    :style="
+                      threeDBracket(i)
+                        ? {
+                            borderTopLeftRadius: threeDBracket(i)!.first ? '6px' : '0',
+                            borderTopRightRadius: threeDBracket(i)!.first ? '6px' : '0',
+                            borderBottomLeftRadius: threeDBracket(i)!.last ? '6px' : '0',
+                            borderBottomRightRadius: threeDBracket(i)!.last ? '6px' : '0',
+                          }
+                        : undefined
                     "
-                    @click.stop="toggleLayer3D(layer)"
                   >
-                    <component
-                      :is="layer.is3D ? CubeIcon : CubeTransparentIcon"
-                      class="size-4 shrink-0"
-                      aria-hidden="true"
-                    />
-                  </button>
+                    <button
+                      v-if="supports3D(layer)"
+                      type="button"
+                      title="3D layer"
+                      class="flex w-6 shrink-0 cursor-pointer items-center justify-center outline-none transition-colors duration-100"
+                      :class="
+                        layer.is3D
+                          ? 'text-accent'
+                          : 'text-neutral-subtle opacity-0 hover:text-neutral-strong group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
+                      "
+                      @click.stop="toggleLayer3D(layer)"
+                    >
+                      <component
+                        :is="layer.is3D ? CubeIcon : CubeTransparentIcon"
+                        class="size-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <span
+                      v-else
+                      title="Always a 3D layer"
+                      class="flex w-6 shrink-0 cursor-default items-center justify-center text-accent"
+                    >
+                      <CubeIcon class="size-4 shrink-0" aria-hidden="true" />
+                    </span>
+                  </span>
                   <UiButton
                     variant="ghost"
                     size="sm"

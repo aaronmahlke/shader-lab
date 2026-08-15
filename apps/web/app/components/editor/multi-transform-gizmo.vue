@@ -15,6 +15,13 @@ import {
   type Vec2,
 } from "#shared/editor/layer-transform";
 import { findSnap, type SnapTargets } from "#shared/editor/snapping";
+import {
+  inversePositionJacobian,
+  mapUvDelta,
+  projectGizmoQuad,
+  type InverseJacobian,
+  type ThreeDGizmoData,
+} from "#shared/editor/threed-gizmo";
 
 /**
  * Group gizmo for multi-selection: an axis-aligned box around the union of
@@ -32,6 +39,8 @@ type Props = {
   pickAt?: (uv: Vec2, aspect: number) => string | null;
   /** Per-layer content rect (component/text draw less than the full frame). */
   getExtent?: (layer: LayerInstance) => ContentExtent;
+  /** 3D members: transform + scene view (their box uses the projected quad). */
+  getThreeD?: (layer: LayerInstance) => ThreeDGizmoData | null;
   /** Viewport zoom of the scaled artboard; keeps gizmo chrome constant on screen. */
   zoom?: number;
 };
@@ -57,13 +66,33 @@ const ROTATION_LIMIT = 360;
 const SNAP_THRESHOLD_PX = 6;
 const GUIDE_COLOR = "#FF5D8F";
 
-const groupBounds = computed<LayerBounds | null>(() =>
-  unionBounds(
-    props.layers.map((l) =>
-      layerBoundsInCompUv(props.getTransform(l), aspect.value, props.getExtent?.(l)),
-    ),
-  ),
-);
+/** Screen bbox of a 3D member's projected quad (comp UV); null = behind camera. */
+function threeDBounds(data: ThreeDGizmoData): LayerBounds | null {
+  const quad = projectGizmoQuad(data, aspect.value);
+  if (!quad) return null;
+  const xs = quad.map((p) => p.x);
+  const ys = quad.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { minX, maxX, minY, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 };
+}
+
+const groupBounds = computed<LayerBounds | null>(() => {
+  const all: LayerBounds[] = [];
+  for (const l of props.layers) {
+    const data = props.getThreeD?.(l);
+    if (data) {
+      // 3D member: union its projected quad's bbox; behind-camera drops out.
+      const b = threeDBounds(data);
+      if (b) all.push(b);
+      continue;
+    }
+    all.push(layerBoundsInCompUv(props.getTransform(l), aspect.value, props.getExtent?.(l)));
+  }
+  return unionBounds(all);
+});
 
 function boundsCorners(b: LayerBounds): Vec2[] {
   return [
@@ -142,6 +171,9 @@ type LayerSnapshot = {
   id: string;
   values: LayerTransformValues;
   center: Vec2;
+  /** 3D members: screen-delta → position-delta mapping (null = degenerate). */
+  jacobian: InverseJacobian | null;
+  is3D: boolean;
 };
 
 const dragMode = ref<DragMode | null>(null);
@@ -186,7 +218,14 @@ function onHandlePointerDown(mode: DragMode, e: PointerEvent) {
   startBounds = { ...bounds };
   snapshots = props.layers.map((layer) => {
     const values = props.getTransform(layer);
-    return { id: layer.id, values, center: transformCenter(values) };
+    const data = props.getThreeD?.(layer) ?? null;
+    return {
+      id: layer.id,
+      values,
+      center: transformCenter(values),
+      jacobian: data ? inversePositionJacobian(data, aspect.value) : null,
+      is3D: !!data,
+    };
   });
   const groupCenter = { x: bounds.centerX, y: bounds.centerY };
   startDistance = Math.max(aspectDistance(uv, groupCenter), 1e-4);
@@ -262,8 +301,11 @@ function onWindowPointerMove(e: PointerEvent) {
 
     activeGuides.value = { x: guideX, y: guideY };
     for (const snap of snapshots) {
-      props.applyParam(snap.id, "layerPositionX", clampPos(snap.values.positionX + dx));
-      props.applyParam(snap.id, "layerPositionY", clampPos(snap.values.positionY + dy));
+      // 3D members track the cursor at their depth via the jacobian; 2D
+      // members (and degenerate jacobians) keep the plain comp-UV delta.
+      const delta = snap.is3D && snap.jacobian ? mapUvDelta(snap.jacobian, dx, dy) : { x: dx, y: dy };
+      props.applyParam(snap.id, "layerPositionX", clampPos(snap.values.positionX + delta.x));
+      props.applyParam(snap.id, "layerPositionY", clampPos(snap.values.positionY + delta.y));
     }
     return;
   }
