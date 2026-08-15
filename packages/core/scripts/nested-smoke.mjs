@@ -115,20 +115,29 @@ const W = 128, H = 128;
     hostLayer({ layerScale: 60, layerRotationY: 55, layerRotationX: 0, layerPositionZ: 0 }, { is3D: true }),
   ]);
   const buf = await pixels(await renderCompositionToBuffer(parent, { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } }), W, H);
-  // Relative threshold against the frame's own max (CI drivers render dim).
+  // Position-independent perspective check: CI drivers rasterize the plane a
+  // touch offset from local mesa, so locate the blob first, then compare lit
+  // column heights near its own left and right edges (foreshortening).
   let max = 0;
   for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) max = Math.max(max, at(buf, W, x, y)[0]);
   if (!(max > 20)) fail(`3D precomp should render the nested comp somewhere, max r=${max}`);
   const threshold = max * 0.5;
-  const [rc] = at(buf, W, 64, 64);
-  if (!(rc > threshold)) fail(`3D precomp center should show the nested comp, got r=${rc} (max ${max})`);
-  // Perspective foreshortening: red column heights differ left vs right.
-  let left = 0, right = 0;
-  for (let y = 20; y < 108; y += 4) {
-    if (at(buf, W, 50, y)[0] > threshold) left++;
-    if (at(buf, W, 78, y)[0] > threshold) right++;
+
+  const columnHeight = (x) => {
+    let n = 0;
+    for (let y = 0; y < H; y += 2) if (at(buf, W, x, y)[0] > threshold) n++;
+    return n;
+  };
+  let minX = W, maxX = -1;
+  for (let x = 0; x < W; x += 2) {
+    if (columnHeight(x) > 0) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); }
   }
-  if (left === right) fail(`yawed precomp should be asymmetric (left ${left} vs right ${right})`);
+  if (maxX - minX < 12) fail(`3D precomp blob too small (${minX}..${maxX})`);
+  const leftH = columnHeight(minX + 4);
+  const rightH = columnHeight(maxX - 4);
+  if (Math.abs(leftH - rightH) < 2) {
+    fail(`yawed precomp should foreshorten (left ${leftH} vs right ${rightH}, x ${minX}..${maxX})`);
+  }
   console.log("ok: a 3D composition layer renders with perspective");
 }
 
