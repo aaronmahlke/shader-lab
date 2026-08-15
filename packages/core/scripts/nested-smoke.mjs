@@ -115,10 +115,14 @@ const W = 128, H = 128;
     hostLayer({ layerScale: 60, layerRotationY: 55, layerRotationX: 0, layerPositionZ: 0 }, { is3D: true }),
   ]);
   const buf = await pixels(await renderCompositionToBuffer(parent, { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } }), W, H);
+  // Relative threshold against the frame's own max (CI drivers render dim).
+  let max = 0;
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) max = Math.max(max, at(buf, W, x, y)[0]);
+  if (!(max > 20)) fail(`3D precomp should render the nested comp somewhere, max r=${max}`);
+  const threshold = max * 0.5;
   const [rc] = at(buf, W, 64, 64);
-  if (!(rc > 40)) fail(`3D precomp center should show the nested comp, got r=${rc}`);
+  if (!(rc > threshold)) fail(`3D precomp center should show the nested comp, got r=${rc} (max ${max})`);
   // Perspective foreshortening: red column heights differ left vs right.
-  const threshold = Math.max(40, rc * 0.5);
   let left = 0, right = 0;
   for (let y = 20; y < 108; y += 4) {
     if (at(buf, W, 50, y)[0] > threshold) left++;
