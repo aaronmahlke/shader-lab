@@ -409,6 +409,9 @@ const mediaSources = useMediaSources({
   requestRender,
   currentTime,
   compSize: () => ({ width: settings.value.width, height: settings.value.height }),
+  // Nested comps: register image/video sources under `host::layerId` pass ids.
+  resolveComposition,
+  registryVersion,
 });
 
 // Default clip length: a video layer with no timing yet gets out = its clip

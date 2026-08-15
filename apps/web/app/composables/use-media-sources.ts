@@ -1,8 +1,9 @@
-import type { LayerInstance, MediaSource } from "@shader-lab/core";
+import type { CompositionConfig, LayerInstance, MediaSource } from "@shader-lab/core";
 import { mediaDisplayFit } from "#shared/editor/layer-content-extent";
 import { TRANSFORM_PARAM_NAMES } from "#shared/editor/layer-transform";
 import {
   mediaSrcFromValues,
+  NESTED_SEP,
   videoLoopFromValues,
   videoTrimStartFromValues,
 } from "@shader-lab/core";
@@ -31,6 +32,23 @@ const PLAYHEAD_STALL_MS = 300;
 const EXPORT_SEEK_TIMEOUT_MS = 400;
 /** Hard cap on either dimension of an SVG raster (texture-size safety). */
 const SVG_MAX_RASTER_DIM = 4096;
+/** Max nested-composition depth walked for media (mirrors core's MAX_NESTING_DEPTH). */
+const MAX_MEDIA_NESTING_DEPTH = 4;
+
+/**
+ * One renderable image/video occurrence. Top-level layers key by their own
+ * id; layers inside NESTED composition layers key by the core pass id
+ * `host1::host2::layerId` — one instance PER PATH, so a comp nested twice
+ * yields two instances (raster images share one element via the pool below;
+ * videos get one element per instance because each path has its own clock).
+ */
+type MediaInstance = {
+  /** Pass id the renderer looks the source up under (`setMediaSource` key). */
+  key: string;
+  layer: LayerInstance;
+  /** Sum of host layers' in-points (s): root time − inOffset = local comp time. */
+  inOffset: number;
+};
 
 /** Vector state for SVG image layers, re-rasterized when comp size or layer scale demands it. */
 type SvgState = {
@@ -108,6 +126,10 @@ type MediaSourcesOptions = {
   currentTime: Ref<number>;
   /** Composition size; media is displayed contain-fitted to it (never upscaled). */
   compSize: () => { width: number; height: number };
+  /** Registry lookup for nested composition layers (`::`-prefixed pass ids). */
+  resolveComposition?: (compId: string) => CompositionConfig | null;
+  /** Bumps when a referenced comp arrives; re-scans nested media layers. */
+  registryVersion?: Ref<number>;
 };
 
 export function useMediaSources(options: MediaSourcesOptions) {
@@ -126,28 +148,99 @@ export function useMediaSources(options: MediaSourcesOptions) {
   let lastPlayheadMoveAt = 0;
   let lastSyncedPlayhead: number | null = null;
 
-  function mediaLayers(): LayerInstance[] {
-    return options.layers.value.filter(
-      (layer) => (layer.type === "image" || layer.type === "video") && layer.enabled,
-    );
+  /**
+   * Depth-first walk into enabled composition layers, collecting image/video
+   * occurrences under core's prefixed pass ids (`host::layerId`). Depth-capped
+   * and cycle-safe per path (a comp may legally appear twice on SIBLING
+   * paths, just not on its own ancestry).
+   */
+  function collectInstances(
+    layers: LayerInstance[],
+    prefix: string,
+    inOffset: number,
+    visited: ReadonlySet<string>,
+    depth: number,
+    out: MediaInstance[],
+  ): void {
+    for (const layer of layers) {
+      if (!layer.enabled) continue;
+      if (layer.type === "image" || layer.type === "video") {
+        out.push({ key: `${prefix}${layer.id}`, layer, inOffset });
+        continue;
+      }
+      if (layer.type !== "composition" || depth >= MAX_MEDIA_NESTING_DEPTH) continue;
+      const compId = layer.values.compRefId;
+      if (typeof compId !== "string" || !compId || visited.has(compId)) continue;
+      const config = options.resolveComposition?.(compId);
+      if (!config) continue;
+      collectInstances(
+        config.layers,
+        `${prefix}${layer.id}${NESTED_SEP}`,
+        inOffset + (layer.timing?.in ?? 0),
+        new Set([...visited, compId]),
+        depth + 1,
+        out,
+      );
+    }
   }
 
-  function liveLayer(layerId: string): LayerInstance | undefined {
-    return options.layers.value.find((layer) => layer.id === layerId);
+  /** Every enabled image/video occurrence: the open comp's layers plus nested comps'. */
+  function mediaInstances(): MediaInstance[] {
+    const out: MediaInstance[] = [];
+    collectInstances(options.layers.value, "", 0, new Set(), 0, out);
+    return out;
+  }
+
+  function liveInstance(key: string): MediaInstance | undefined {
+    return mediaInstances().find((instance) => instance.key === key);
   }
 
   /**
-   * Media-local time the playhead maps to: playhead minus the layer in-point,
-   * offset by trimStart; loop wraps over the trimmed tail, otherwise the last
-   * frame holds (duration − ε keeps the seek inside the stream).
+   * Media-local time the playhead maps to: playhead minus the nested comps'
+   * summed in-points (each nesting level runs on its own clock, clamped so
+   * pre-roll holds the first frame), minus the layer in-point, offset by
+   * trimStart; loop wraps over the trimmed tail, otherwise the last frame
+   * holds (duration − ε keeps the seek inside the stream).
    */
-  function videoTargetTime(layer: LayerInstance, duration: number, tSec: number): number {
-    const trimStart = videoTrimStartFromValues(layer.values);
-    const local = Math.max(0, tSec - (layer.timing?.in ?? 0)) + trimStart;
-    if (videoLoopFromValues(layer.values) && duration > trimStart) {
+  function videoTargetTime(instance: MediaInstance, duration: number, tSec: number): number {
+    const trimStart = videoTrimStartFromValues(instance.layer.values);
+    const localComp = Math.max(0, tSec - instance.inOffset);
+    const local = Math.max(0, localComp - (instance.layer.timing?.in ?? 0)) + trimStart;
+    if (videoLoopFromValues(instance.layer.values) && duration > trimStart) {
       return trimStart + ((local - trimStart) % (duration - trimStart));
     }
     return Math.min(local, Math.max(0, duration - 0.001));
+  }
+
+  // --- Shared raster-image pool ------------------------------------------
+  // The same image layer can appear under several prefixes (comp nested
+  // twice): all keys share one HTMLImageElement per src, refcounted so the
+  // last dispose stops the network/decode work. SVGs stay per-key (their
+  // raster density is per-instance) and videos per-key (per-instance clock).
+
+  const imagePool = new Map<string, { img: HTMLImageElement; refs: number }>();
+
+  function acquireImage(src: string): HTMLImageElement {
+    let pooled = imagePool.get(src);
+    if (!pooled) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = src;
+      pooled = { img, refs: 0 };
+      imagePool.set(src, pooled);
+    }
+    pooled.refs++;
+    return pooled.img;
+  }
+
+  function releaseImage(src: string): void {
+    const pooled = imagePool.get(src);
+    if (!pooled) return;
+    pooled.refs--;
+    if (pooled.refs <= 0) {
+      pooled.img.src = "";
+      imagePool.delete(src);
+    }
   }
 
   /** Push the element's current frame; `render` schedules a live redraw (exports render explicitly). */
@@ -203,9 +296,9 @@ export function useMediaSources(options: MediaSourcesOptions) {
   // scale so gestures only re-rasterize when the rounded target size grows.
   watch(
     () =>
-      options.layers.value
-        .filter((layer) => layer.type === "image" && layer.enabled)
-        .map((layer) => `${layer.id}:${svgTargetDensity(layer)}`)
+      mediaInstances()
+        .filter((instance) => instance.layer.type === "image")
+        .map((instance) => `${instance.key}:${svgTargetDensity(instance.layer)}`)
         .join("|"),
     () => {
       for (const [layerId, entry] of entries) {
@@ -236,7 +329,7 @@ export function useMediaSources(options: MediaSourcesOptions) {
     const fit = Math.min(comp.width / svg.width, comp.height / svg.height);
     const maxDensity = SVG_MAX_RASTER_DIM / Math.max(1, svg.width * fit, svg.height * fit);
     const density = Math.min(
-      Math.max(svg.density, svgTargetDensity(liveLayer(layerId))),
+      Math.max(svg.density, svgTargetDensity(liveInstance(layerId)?.layer)),
       Math.max(1, maxDensity),
     );
     const width = Math.max(1, Math.round(svg.width * fit * density));
@@ -262,8 +355,8 @@ export function useMediaSources(options: MediaSourcesOptions) {
    * SVG image path: fetch the document (size attributes are the source of
    * truth), decode it via a same-origin blob URL, then rasterize on demand.
    */
-  function loadSvgLayer(layer: LayerInstance, entry: MediaEntry): void {
-    const stale = () => disposed || entries.get(layer.id) !== entry;
+  function loadSvgLayer(instance: MediaInstance, entry: MediaEntry): void {
+    const stale = () => disposed || entries.get(instance.key) !== entry;
     const img = new Image();
     let blobUrl = "";
     const onLoad = () => {
@@ -277,7 +370,7 @@ export function useMediaSources(options: MediaSourcesOptions) {
           canvas: document.createElement("canvas"),
           density: 0,
         };
-        rasterizeSvg(layer.id, entry);
+        rasterizeSvg(instance.key, entry);
       }).catch(() => {});
     };
     entry.dispose = () => {
@@ -313,8 +406,9 @@ export function useMediaSources(options: MediaSourcesOptions) {
     options.setMediaSource(layerId, null);
   }
 
-  function loadLayer(layer: LayerInstance): void {
+  function loadInstance(instance: MediaInstance): void {
     if (import.meta.server) return;
+    const { key, layer } = instance;
     const rawSrc = mediaSrcFromValues(layer.values);
     if (!rawSrc) return; // no source picked yet — the layer renders transparent
     const src = normalizeMediaSrc(rawSrc);
@@ -326,29 +420,29 @@ export function useMediaSources(options: MediaSourcesOptions) {
       version: 0,
       dispose: () => {},
     };
-    entries.set(layer.id, entry);
-    const stale = () => disposed || entries.get(layer.id) !== entry;
+    entries.set(key, entry);
+    const stale = () => disposed || entries.get(key) !== entry;
 
     if (entry.kind === "image" && isSvgSrc(src)) {
-      loadSvgLayer(layer, entry);
+      loadSvgLayer(instance, entry);
       return;
     }
 
     if (entry.kind === "image") {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
+      const img = acquireImage(src);
       const onLoad = () => {
         if (stale()) return;
-        naturalSizes.set(layer.id, { width: img.naturalWidth, height: img.naturalHeight });
-        pushFrame(layer.id, entry, true);
+        naturalSizes.set(key, { width: img.naturalWidth, height: img.naturalHeight });
+        pushFrame(key, entry, true);
       };
       img.addEventListener("load", onLoad);
       entry.element = img;
       entry.dispose = () => {
         img.removeEventListener("load", onLoad);
-        img.src = "";
+        releaseImage(src);
       };
-      img.src = src;
+      // Pooled element may already be decoded (same src under another key).
+      if (img.complete && img.naturalWidth > 0) onLoad();
       return;
     }
 
@@ -361,16 +455,16 @@ export function useMediaSources(options: MediaSourcesOptions) {
     video.loop = false;
     const onMeta = () => {
       if (stale()) return;
-      naturalSizes.set(layer.id, { width: video.videoWidth, height: video.videoHeight });
-      durations.set(layer.id, video.duration);
+      naturalSizes.set(key, { width: video.videoWidth, height: video.videoHeight });
+      durations.set(key, video.duration);
       // Land on the playhead-mapped frame; `loadeddata`/`seeked` push it.
-      const live = liveLayer(layer.id) ?? layer;
+      const live = liveInstance(key) ?? instance;
       video.currentTime = videoTargetTime(live, video.duration, options.currentTime.value);
     };
     // Live-only frame pushes; exports bump versions themselves in syncForExport.
     const onFrame = () => {
       if (stale() || paused) return;
-      pushFrame(layer.id, entry, true);
+      pushFrame(key, entry, true);
     };
     video.addEventListener("loadedmetadata", onMeta);
     video.addEventListener("loadeddata", onFrame);
@@ -394,28 +488,34 @@ export function useMediaSources(options: MediaSourcesOptions) {
   }
 
   // Reload on src change, free renderer sources for removed/disabled layers —
-  // same join-key pattern as useComponentCapture.
+  // same join-key pattern as useComponentCapture. registryVersion is part of
+  // the key so nested media registers as soon as its referenced comp arrives
+  // (and structural edits inside already-loaded nested comps re-scan too).
   watch(
     () =>
-      options.layers.value
-        .filter((layer) => layer.type === "image" || layer.type === "video")
+      `${options.registryVersion?.value ?? 0}#` +
+      mediaInstances()
         .map(
-          (layer) =>
-            `${layer.id}:${layer.enabled ? 1 : 0}:${layer.type}:${mediaSrcFromValues(layer.values)}`,
+          (instance) =>
+            `${instance.key}:${instance.layer.type}:${mediaSrcFromValues(instance.layer.values)}`,
         )
         .join("|"),
     () => {
       if (disposed) return;
-      const active = new Map(mediaLayers().map((layer) => [layer.id, layer]));
+      const active = new Map(mediaInstances().map((instance) => [instance.key, instance]));
       for (const id of [...entries.keys()]) {
-        const layer = active.get(id);
+        const instance = active.get(id);
         const entry = entries.get(id)!;
-        if (!layer || layer.type !== entry.kind || mediaSrcFromValues(layer.values) !== entry.src) {
+        if (
+          !instance ||
+          instance.layer.type !== entry.kind ||
+          normalizeMediaSrc(mediaSrcFromValues(instance.layer.values)) !== entry.src
+        ) {
           disposeEntry(id);
         }
       }
-      for (const [id, layer] of active) {
-        if (!entries.has(id)) loadLayer(layer);
+      for (const [id, instance] of active) {
+        if (!entries.has(id)) loadInstance(instance);
       }
     },
     { immediate: true },
@@ -430,11 +530,11 @@ export function useMediaSources(options: MediaSourcesOptions) {
     lastSyncedPlayhead = t;
     if (paused || disposed) return; // exports drive media explicitly
     const isPlayback = delta > 0 && delta < PLAYBACK_DELTA_MAX_S;
-    for (const layer of mediaLayers()) {
-      if (layer.type !== "video") continue;
-      const video = videoElement(entries.get(layer.id));
+    for (const instance of mediaInstances()) {
+      if (instance.layer.type !== "video") continue;
+      const video = videoElement(entries.get(instance.key));
       if (!video || !(video.duration > 0)) continue;
-      const target = videoTargetTime(layer, video.duration, t);
+      const target = videoTargetTime(instance, video.duration, t);
       if (isPlayback) {
         if (Math.abs(video.currentTime - target) > PLAYBACK_DRIFT_MAX_S) {
           video.currentTime = target; // drift or loop wrap
@@ -454,19 +554,19 @@ export function useMediaSources(options: MediaSourcesOptions) {
     rafId = requestAnimationFrame(tick);
     if (paused || disposed) return;
     const stalled = performance.now() - lastPlayheadMoveAt > PLAYHEAD_STALL_MS;
-    for (const layer of mediaLayers()) {
-      if (layer.type !== "video") continue;
-      const entry = entries.get(layer.id);
+    for (const instance of mediaInstances()) {
+      if (instance.layer.type !== "video") continue;
+      const entry = entries.get(instance.key);
       const video = videoElement(entry);
       if (!video || video.paused) continue;
       if (stalled) {
         video.pause();
         if (video.duration > 0) {
-          video.currentTime = videoTargetTime(layer, video.duration, options.currentTime.value);
+          video.currentTime = videoTargetTime(instance, video.duration, options.currentTime.value);
         }
         continue;
       }
-      pushFrame(layer.id, entry!, true);
+      pushFrame(instance.key, entry!, true);
     }
   }
 
@@ -507,19 +607,19 @@ export function useMediaSources(options: MediaSourcesOptions) {
   async function syncForExport(tSec: number): Promise<void> {
     if (disposed) return;
     const jobs: Promise<void>[] = [];
-    for (const layer of mediaLayers()) {
-      if (layer.type !== "video") continue;
-      const entry = entries.get(layer.id);
+    for (const instance of mediaInstances()) {
+      if (instance.layer.type !== "video") continue;
+      const entry = entries.get(instance.key);
       const video = videoElement(entry);
       if (!entry || !video) continue;
       video.pause();
       if (!(video.duration > 0)) continue; // metadata still loading → stays transparent
-      const target = videoTargetTime(layer, video.duration, tSec);
+      const target = videoTargetTime(instance, video.duration, tSec);
       jobs.push(
         seekAndWait(video, target).then(() => {
           // Push whatever frame the seek landed on (watchdog path included);
           // the export's own renderFrame call does the actual draw.
-          pushFrame(layer.id, entry, false);
+          pushFrame(instance.key, entry, false);
         }),
       );
     }
