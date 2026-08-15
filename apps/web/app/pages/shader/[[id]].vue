@@ -1175,6 +1175,7 @@ function transformDef(name: string) {
 }
 
 const transformPosDef = transformDef("layerPositionX");
+const transformPosZDef = transformDef("layerPositionZ");
 const transformScaleDef = transformDef("layerScale");
 const transformRotationDef = transformDef("layerRotation");
 const transformAnchorDef = transformDef("layerAnchorX");
@@ -1804,12 +1805,15 @@ registerKeyboard({
                 :three-d="threeDGizmoDataFor(selectedLayer)"
                 :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
                 :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
+                :position-z="getTransformFloat(selectedLayer, 'layerPositionZ')"
                 :scale="getTransformFloat(selectedLayer, 'layerScale')"
                 :rotation="getTransformFloat(selectedLayer, 'layerRotation')"
                 :anchor-x="getTransformFloat(selectedLayer, 'layerAnchorX')"
                 :anchor-y="getTransformFloat(selectedLayer, 'layerAnchorY')"
                 :position-min="transformPosDef.min ?? -1"
                 :position-max="transformPosDef.max ?? 1"
+                :position-z-min="transformPosZDef.min ?? -2"
+                :position-z-max="transformPosZDef.max ?? 2"
                 :scale-min="transformScaleDef.min ?? 0"
                 :scale-max="transformScaleDef.max ?? 400"
                 :rotation-min="transformRotationDef.min ?? -360"
@@ -1818,6 +1822,7 @@ registerKeyboard({
                 :anchor-max="transformAnchorDef.max ?? 1"
                 @update:position-x="setTransformFloat(selectedLayer, 'layerPositionX', $event)"
                 @update:position-y="setTransformFloat(selectedLayer, 'layerPositionY', $event)"
+                @update:position-z="setTransformFloat(selectedLayer, 'layerPositionZ', $event)"
                 @update:scale="setTransformFloat(selectedLayer, 'layerScale', $event)"
                 @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
                 @update:anchor-x="setTransformFloat(selectedLayer, 'layerAnchorX', $event)"

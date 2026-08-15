@@ -17,6 +17,18 @@ import {
   VideoCameraIcon,
   SunIcon,
   StopIcon,
+  SwatchIcon,
+  Squares2X2Icon,
+  CloudIcon,
+  SparklesIcon,
+  CircleStackIcon,
+  AdjustmentsHorizontalIcon,
+  Bars3Icon,
+  Bars2Icon,
+  ScissorsIcon,
+  PaintBrushIcon,
+  BoltIcon,
+  ViewfinderCircleIcon,
 } from "@heroicons/vue/16/solid";
 import { useEventListener } from "@vueuse/core";
 import {
@@ -463,7 +475,7 @@ function layerLabel(layer: LayerInstance): string {
 }
 
 /** Small type badge before the name — comps, media, and scene citizens only. */
-const LAYER_TYPE_ICONS: Partial<Record<LayerInstance["type"], unknown>> = {
+const LAYER_TYPE_ICONS: Record<LayerInstance["type"], unknown> = {
   composition: Square2StackIcon,
   image: PhotoIcon,
   video: FilmIcon,
@@ -472,6 +484,20 @@ const LAYER_TYPE_ICONS: Partial<Record<LayerInstance["type"], unknown>> = {
   camera: VideoCameraIcon,
   light: SunIcon,
   shape: StopIcon,
+  object3d: CubeIcon,
+  gradient: SwatchIcon,
+  mesh: Squares2X2Icon,
+  solid: StopIcon,
+  noise: CloudIcon,
+  waveFill: Bars2Icon,
+  bandFill: Bars3Icon,
+  distortion: AdjustmentsHorizontalIcon,
+  dither: CircleStackIcon,
+  grain: SparklesIcon,
+  seam: ScissorsIcon,
+  diffuse: PaintBrushIcon,
+  vignette: ViewfinderCircleIcon,
+  chromaticAberration: BoltIcon,
 };
 
 function layerTypeIcon(layer: LayerInstance) {

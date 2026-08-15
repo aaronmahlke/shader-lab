@@ -5,6 +5,7 @@ import {
   inverseProjectionJacobian,
   lightStagePoint,
   mapUvDelta,
+  type AxisOffset,
   type InverseJacobian,
 } from "#shared/editor/threed-gizmo";
 
@@ -104,6 +105,35 @@ const lightIcons = computed<LightIcon[]>(() => {
   }
   return out;
 });
+
+/**
+ * Axis triad for a SINGLE selected point light: shares the layer gizmo's
+ * translate handles (X/Y/Z arrows) on top of the plain XY move drag.
+ */
+const triadLight = computed(() => {
+  if (props.selectedLayerIds.length !== 1) return null;
+  const id = props.selectedLayerIds[0]!;
+  const layer = props.layers.find((l) => l.id === id);
+  if (!layer || layer.type !== "light" || !layer.enabled) return null;
+  if (Number(layer.values.lightType ?? 0) !== 1) return null; // point lights only
+  return layer;
+});
+
+/** Projects the selected light's stage point with position offsets applied. */
+function projectTriadPoint(offset: AxisOffset, aspectValue: number) {
+  const light = triadLight.value;
+  if (!light) return null;
+  return projectStagePoint(
+    lightStagePoint(
+      props.getParam(light.id, "layerPositionX", 0) + offset.x,
+      props.getParam(light.id, "layerPositionY", 0) + offset.y,
+      props.getParam(light.id, "layerPositionZ", 0) + offset.z,
+      aspectValue,
+    ),
+    props.getView(light.id),
+    aspectValue,
+  );
+}
 
 /** Arrowhead triangle at the icon end of the direction arrow. */
 function arrowHead(icon: LightIcon): string {
@@ -290,5 +320,25 @@ onUnmounted(() => {
         />
       </g>
     </svg>
+
+    <!-- Single selected point light: axis triad translate handles (after the
+         svg so the arrows take pointer priority over the icon's free drag) -->
+    <EditorAxisTriadGizmo
+      v-if="triadLight"
+      :project="projectTriadPoint"
+      :x="getParam(triadLight.id, 'layerPositionX', 0)"
+      :y="getParam(triadLight.id, 'layerPositionY', 0)"
+      :z="getParam(triadLight.id, 'layerPositionZ', 0)"
+      :x-min="-POSITION_LIMIT"
+      :x-max="POSITION_LIMIT"
+      :y-min="-POSITION_LIMIT"
+      :y-max="POSITION_LIMIT"
+      :z-min="-2"
+      :z-max="2"
+      :zoom="zoom"
+      @update:x="applyParam(triadLight.id, 'layerPositionX', $event)"
+      @update:y="applyParam(triadLight.id, 'layerPositionY', $event)"
+      @update:z="applyParam(triadLight.id, 'layerPositionZ', $event)"
+    />
   </div>
 </template>
