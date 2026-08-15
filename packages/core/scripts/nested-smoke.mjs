@@ -83,7 +83,14 @@ const W = 128, H = 128;
   const [rMidCenter] = at(mid, W, 64, 64);
   const [rEarlyCenter] = at(early, W, 64, 64);
   const [rEarlyLeft] = at(early, W, 26, 64);
+  const profile = (d) => {
+    let out = "";
+    for (let x = 0; x < W; x += 4) out += at(d, W, x, 64)[0] > 40 ? "#" : ".";
+    return out;
+  };
   if (!(rMidCenter - rEarlyCenter > 40)) {
+    console.error(`mid   row64: ${profile(mid)}`);
+    console.error(`early row64: ${profile(early)}`);
     fail(`solid should be centered at local t=1 only (center r ${rMidCenter} vs ${rEarlyCenter})`);
   }
   if (!(rEarlyLeft - rEarlyCenter > 40)) {
