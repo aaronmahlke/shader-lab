@@ -351,18 +351,11 @@ const { registryVersion, resolveComposition } = useCompRegistry({
   layers,
 });
 
-// Project comp list for the inspector's Composition select (id → name).
-// Client-only refresh on mount, like the comp tabs, so the list is never stale.
-const projectComps = ref<CompositionMeta[]>([]);
-async function refreshProjectComps() {
-  if (!projectId.value) return;
-  try {
-    const project = await $fetch<ProjectWithCompositions>(`/api/projects/${projectId.value}`);
-    projectComps.value = project.compositions ?? [];
-  } catch {
-    // Silent: the select just stays empty.
-  }
-}
+// Project comp list, shared with the project panel, the comp tab strip and
+// the inspector's Composition select (useProjectCompositions). One refresh on
+// mount keeps every consumer fresh without triple-fetching.
+const { comps: projectComps, refresh: refreshProjectComps } =
+  useProjectCompositions(projectId);
 onMounted(refreshProjectComps);
 
 /** Selectable nesting targets: every project comp except the open one (self-cycle). */
@@ -1685,6 +1678,13 @@ registerKeyboard({
 
 <template>
   <EditorFrame>
+    <template v-if="projectId" #left>
+      <EditorProjectPanel
+        :project-id="projectId"
+        :active-comp-id="shaderId"
+      />
+    </template>
+
     <div ref="editorSplitRef" class="flex h-full min-h-0 flex-col">
       <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-layer-1">
         <ClientOnly>
@@ -1905,17 +1905,6 @@ registerKeyboard({
           <EditorComponentStageHost ref="stageHostRef" :layers="layers" />
         </ClientOnly>
 
-        <!-- Composition tabs (top-left; the centered toolbar owns inset-x-0 but ignores pointer events) -->
-        <div class="pointer-events-none absolute top-3 left-3 z-50 flex max-w-[40%]">
-          <EditorCompTabs
-            v-if="projectId"
-            ref="compTabsRef"
-            class="pointer-events-auto"
-            :project-id="projectId"
-            :active-comp-id="shaderId"
-          />
-        </div>
-
         <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">
           <EditorLayerAddBar ref="layerAddBarRef" class="pointer-events-auto" @select="addLayer" />
           <UiPopover side="bottom" align="center">
@@ -1987,24 +1976,34 @@ registerKeyboard({
         class="flex shrink-0 flex-col overflow-hidden rounded-lg bg-layer-1"
         :style="{ height: `${timelineHeight}px` }"
       >
-        <EditorTimeline
-          ref="timelineRef"
-          v-model:layers="layers"
-          v-model:tracks="tracks"
-          v-model:selected-layer-id="selectedLayerId"
-          v-model:selected-layer-ids="selectedLayerIds"
-          v-model:selection-anchor-id="selectionAnchorId"
-          v-model:selected-keyframes="selectedKeyframes"
-          v-model:current-time="currentTime"
-          v-model:playing="playing"
-          v-model:px-per-second="timelineZoom"
-          :settings="settings"
-          @toggle-stopwatch="toggleStopwatch"
-          @toggle-keyframe="toggleKeyframeAtPlayhead"
-          @duplicate-layer="duplicateLayer"
-          @remove-layer="removeLayer"
-          @precompose="precomposeLayers"
+        <!-- Open-comps tab strip (AE-style), visually attached to the timeline. -->
+        <EditorCompTabs
+          v-if="projectId"
+          ref="compTabsRef"
+          :project-id="projectId"
+          :active-comp-id="shaderId"
+          :active-comp-name="shaderName"
         />
+        <div class="min-h-0 flex-1">
+          <EditorTimeline
+            ref="timelineRef"
+            v-model:layers="layers"
+            v-model:tracks="tracks"
+            v-model:selected-layer-id="selectedLayerId"
+            v-model:selected-layer-ids="selectedLayerIds"
+            v-model:selection-anchor-id="selectionAnchorId"
+            v-model:selected-keyframes="selectedKeyframes"
+            v-model:current-time="currentTime"
+            v-model:playing="playing"
+            v-model:px-per-second="timelineZoom"
+            :settings="settings"
+            @toggle-stopwatch="toggleStopwatch"
+            @toggle-keyframe="toggleKeyframeAtPlayhead"
+            @duplicate-layer="duplicateLayer"
+            @remove-layer="removeLayer"
+            @precompose="precomposeLayers"
+          />
+        </div>
       </div>
     </div>
 

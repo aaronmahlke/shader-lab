@@ -18,6 +18,7 @@ uniform float layerOpacity;   // percent, 0..100 (pre-gated by in/out points)
 // 7 color dodge, 8 color burn, 9 hard light, 10 soft light, 11 difference,
 // 12 exclusion, 13 hue, 14 saturation, 15 color, 16 luminosity
 uniform int layerBlendMode;
+uniform float u_keepAlpha;   // 1 inside nested comps: accumulate coverage alpha
 
 vec3 blendOverlay(vec3 b, vec3 s) {
   vec3 lo = 2.0 * b * s;
@@ -79,7 +80,8 @@ vec3 applyBlend(vec3 below, vec3 src, int mode) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
-  vec3 below = texture2D(u_input, uv).rgb;
+  vec4 belowSample = texture2D(u_input, uv);
+  vec3 below = belowSample.rgb;
 
   vec2 anchor = vec2(layerAnchorX, layerAnchorY);
   vec2 center = anchor + vec2(layerPositionX, layerPositionY);
@@ -110,5 +112,8 @@ void main() {
   float alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
 
   vec3 blended = applyBlend(below, content.rgb, layerBlendMode);
-  gl_FragColor = vec4(mix(below, blended, alpha), 1.0);
+  // Root comps flatten to opaque; nested comps keep union coverage so the
+  // host composite sees transparency where nothing rendered.
+  float outAlpha = mix(1.0, belowSample.a + alpha * (1.0 - belowSample.a), u_keepAlpha);
+  gl_FragColor = vec4(mix(below, blended, alpha), outAlpha);
 }

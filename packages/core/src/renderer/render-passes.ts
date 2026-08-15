@@ -105,6 +105,11 @@ function resolvePassUniformValues(
     mergeSceneUniforms(merged, layer, pass, ctx);
   }
 
+  if (isComposite) {
+    // Nested comps accumulate coverage alpha; the root comp flattens to 1.
+    merged.u_keepAlpha = pass.preserveAlpha ? 1 : 0;
+  }
+
   // A camera that drives 3D groups films the plate flat: the view transform
   // is applied per 3D layer instead, the lens chain (DOF/bloom/tonemap) stays.
   if (pass.layerType === "cameraStage" && merged.drive3d === true) {
@@ -589,6 +594,7 @@ export type RenderPipelineCache = {
   quadBuffers: Map<WebGLProgram, WebGLBuffer>;
   neutralTexture: WebGLTexture | null;
   blackTexture: WebGLTexture | null;
+  transparentTexture: WebGLTexture | null;
 };
 
 export function createRenderPipelineCache(): RenderPipelineCache {
@@ -600,6 +606,7 @@ export function createRenderPipelineCache(): RenderPipelineCache {
     quadBuffers: new Map(),
     neutralTexture: null,
     blackTexture: null,
+    transparentTexture: null,
   };
 }
 
@@ -612,11 +619,13 @@ export function disposeRenderPipelineCache(gl: GlContext, cache: RenderPipelineC
   for (const buffer of cache.quadBuffers.values()) gl.deleteBuffer(buffer);
   if (cache.neutralTexture) gl.deleteTexture(cache.neutralTexture);
   if (cache.blackTexture) gl.deleteTexture(cache.blackTexture);
+  if (cache.transparentTexture) gl.deleteTexture(cache.transparentTexture);
   cache.programs.clear();
   cache.fbos.clear();
   cache.quadBuffers.clear();
   cache.neutralTexture = null;
   cache.blackTexture = null;
+  cache.transparentTexture = null;
   cache.passSignature = "";
   cache.sizeKey = "";
 }
@@ -695,6 +704,7 @@ function getQuadBuffer(
 function createFallbackTextures(gl: GlContext): {
   neutralTexture: WebGLTexture;
   blackTexture: WebGLTexture;
+  transparentTexture: WebGLTexture;
 } {
   const neutralTexture = gl.createTexture()!;
   const neutralData = new Uint8Array([128, 128, 255, 255]);
@@ -710,7 +720,14 @@ function createFallbackTextures(gl: GlContext): {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-  return { neutralTexture, blackTexture };
+  // Bottom of a NESTED stack: fully transparent so coverage accumulates.
+  const transparentTexture = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D, transparentTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  return { neutralTexture, blackTexture, transparentTexture };
 }
 
 export type RenderPassOptions = {
@@ -743,6 +760,7 @@ export function renderPasses(
   let quadBuffers: Map<WebGLProgram, WebGLBuffer> | null = null;
   let neutralTexture: WebGLTexture | null;
   let blackTexture: WebGLTexture | null;
+  let transparentTexture: WebGLTexture | null;
 
   if (pipelineCache) {
     if (pipelineCache.sizeKey !== sizeKey || pipelineCache.passSignature !== passSignature) {
@@ -757,10 +775,12 @@ export function renderPasses(
     quadBuffers = pipelineCache.quadBuffers;
     neutralTexture = pipelineCache.neutralTexture;
     blackTexture = pipelineCache.blackTexture;
-    if (!neutralTexture || !blackTexture) {
+    transparentTexture = pipelineCache.transparentTexture;
+    if (!neutralTexture || !blackTexture || !transparentTexture) {
       const fallback = createFallbackTextures(gl);
       neutralTexture = pipelineCache.neutralTexture = fallback.neutralTexture;
       blackTexture = pipelineCache.blackTexture = fallback.blackTexture;
+      transparentTexture = pipelineCache.transparentTexture = fallback.transparentTexture;
     }
   } else {
     programs = new Map();
@@ -770,6 +790,7 @@ export function renderPasses(
     const fallback = createFallbackTextures(gl);
     neutralTexture = fallback.neutralTexture;
     blackTexture = fallback.blackTexture;
+    transparentTexture = fallback.transparentTexture;
   }
 
   function getNeutralTexture(): WebGLTexture {
@@ -828,8 +849,9 @@ export function renderPasses(
     } else if (pass.layerType === "distortion") {
       inputTexture = getNeutralTexture();
     } else if (pass.layerType === "layerComposite" || pass.layerType === "layerComposite3d") {
-      // Bottom layer: composite onto black.
-      inputTexture = getBlackTexture();
+      // Bottom layer: root comps composite onto opaque black, nested comps
+      // onto transparency so coverage alpha can accumulate.
+      inputTexture = pass.preserveAlpha ? transparentTexture! : getBlackTexture();
     }
 
     const colorTexture = pass.colorSourceLayerId
@@ -865,6 +887,7 @@ export function renderPasses(
     }
     if (neutralTexture) gl.deleteTexture(neutralTexture);
     if (blackTexture) gl.deleteTexture(blackTexture);
+    if (transparentTexture) gl.deleteTexture(transparentTexture);
   }
 
   return { pixels };

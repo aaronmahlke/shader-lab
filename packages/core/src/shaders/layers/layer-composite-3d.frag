@@ -26,6 +26,7 @@ uniform float layerAnchorX;   // pivot in layer UV space (0..1)
 uniform float layerAnchorY;
 uniform float layerOpacity;   // percent, 0..100 (pre-gated by in/out points)
 uniform int layerBlendMode;
+uniform float u_keepAlpha;   // 1 inside nested comps: accumulate coverage alpha
 uniform float layerAcceptsLight; // 3D quads: shade content with group lights
 
 // Scene camera (identity when no camera layer drives the group).
@@ -229,7 +230,8 @@ vec3 shadeQuad(vec3 base, vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
 
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
-  vec3 below = texture2D(u_input, uv).rgb;
+  vec4 belowSample = texture2D(u_input, uv);
+  vec3 below = belowSample.rgb;
 
   float aspect = u_frameSize.x / u_frameSize.y;
   float tanHalf = tan(radians(u_sceneFov) * 0.5);
@@ -322,5 +324,8 @@ void main() {
   }
 
   vec3 blended = applyBlend(below, src, layerBlendMode);
-  gl_FragColor = vec4(mix(below, blended, alpha), 1.0);
+  // Root comps flatten to opaque; nested comps keep union coverage so the
+  // host composite sees transparency where nothing rendered.
+  float outAlpha = mix(1.0, belowSample.a + alpha * (1.0 - belowSample.a), u_keepAlpha);
+  gl_FragColor = vec4(mix(below, blended, alpha), outAlpha);
 }

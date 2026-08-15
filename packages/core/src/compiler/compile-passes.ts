@@ -62,6 +62,8 @@ export type CompileOptions = {
   rootCompositionId?: string;
   /** Comp ids on the current descent path (cycle guard). @internal */
   _stack?: ReadonlySet<string>;
+  /** True while compiling a nested comp's stack (alpha-preserving). @internal */
+  _nested?: boolean;
 };
 
 const MAX_NESTING_DEPTH = 4;
@@ -109,6 +111,7 @@ function makeCompositePass(
   layer: LayerInstance,
   belowLayerId: string | null,
   modFn: ModulationFn | null,
+  preserveAlpha = false,
 ): RenderPass {
   return {
     layerId: compositePassId(layer.id),
@@ -117,6 +120,7 @@ function makeCompositePass(
     inputLayerId: belowLayerId,
     colorSourceLayerId: layer.id,
     sourceLayerId: layer.id,
+    preserveAlpha,
     isOutput: false,
   };
 }
@@ -185,6 +189,7 @@ function emitNestedComposition(
   const nested = compileStack(config.layers, modFn, {
     ...opts,
     _stack: new Set([...stack, compId]),
+    _nested: true,
   });
   if (!nested.lastId) return false;
 
@@ -399,6 +404,7 @@ function compileStack(
           sourceLayerId: member.id,
           threeDGroup: { key: groupKey, memberIds, slot, lightIds },
           cameraSourceLayerId,
+          preserveAlpha: opts?._nested,
           isOutput: false,
         });
       }
@@ -412,7 +418,7 @@ function compileStack(
       // Nested comp: its stack renders into an FBO keyed by this layer's id,
       // then the normal composite pass applies transform/opacity/blend.
       if (emitNestedComposition(layer, result, modFn, opts)) {
-        result.push(makeCompositePass(layer, previousLayerId, modFn));
+        result.push(makeCompositePass(layer, previousLayerId, modFn, opts?._nested));
         previousLayerId = compositePassId(layer.id);
       }
       i++;
@@ -437,7 +443,7 @@ function compileStack(
     if (isGenerator) {
       // Generators render pure content (alpha = coverage); the composite pass
       // applies universal transform + opacity and blends onto the stack below.
-      result.push(makeCompositePass(layer, previousLayerId, modFn));
+      result.push(makeCompositePass(layer, previousLayerId, modFn, opts?._nested));
       previousLayerId = compositePassId(layer.id);
     } else {
       previousLayerId = layer.id;

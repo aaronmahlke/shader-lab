@@ -49,6 +49,22 @@ describe("nested composition compilation", () => {
     expect(hostComposite.colorSourceLayerId).toBe("host");
   });
 
+  it("nested composites preserve alpha; the root comp flattens", () => {
+    const passes = compilePasses(
+      [compRef("host", "compB"), layer("bg", "solid")],
+      null,
+      { resolveComposition },
+    );
+    const nestedComposite = passes.find(
+      (p) => p.layerId === `host${NESTED_SEP}${compositePassId("inner")}`,
+    )!;
+    expect(nestedComposite.preserveAlpha).toBe(true);
+    const rootComposite = passes.find((p) => p.layerId === compositePassId("bg"))!;
+    expect(rootComposite.preserveAlpha ?? false).toBe(false);
+    const hostComposite = passes.find((p) => p.layerId === compositePassId("host"))!;
+    expect(hostComposite.preserveAlpha ?? false).toBe(false);
+  });
+
   it("an unresolved reference renders nothing (layer drops out)", () => {
     const passes = compilePasses(
       [compRef("host", "missing"), layer("bg", "solid")],

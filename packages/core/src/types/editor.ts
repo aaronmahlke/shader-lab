@@ -118,6 +118,11 @@ export type RenderPass = {
   threeDGroup?: ThreeDGroupSlot;
   /** Camera layer piloting this pass's 3D group (nearest drive-3D camera above). */
   cameraSourceLayerId?: string | null;
+  /**
+   * Composite passes inside NESTED comps accumulate coverage alpha instead of
+   * flattening to 1, so a precomp keeps transparency where nothing rendered.
+   */
+  preserveAlpha?: boolean;
   isOutput: boolean;
 };
 
