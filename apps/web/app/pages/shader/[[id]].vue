@@ -5,6 +5,7 @@ import type {
   LFOSource,
   ModulationAssignment,
   PropertyTrack,
+  CompositionConfig,
   CompositionSettings,
 } from "@shader-lab/core";
 import {
@@ -967,6 +968,87 @@ function duplicateSelectedLayers() {
   history.record();
 }
 
+// --- Pre-compose (AE-style: group selected layers into a new composition) ---
+
+const compTabsRef = ref<{ refresh: () => Promise<void> } | null>(null);
+
+/** First "Precomp N" not already used by a comp in this project. */
+function nextPrecompName(): string {
+  const taken = new Set(projectComps.value.map((c) => c.name));
+  let n = 1;
+  while (taken.has(`Precomp ${n}`)) n++;
+  return `Precomp ${n}`;
+}
+
+/**
+ * Move the given layers into a brand-new comp and replace them with one
+ * composition layer at the topmost moved layer's index. The moved layers'
+ * tracks and assignments move too; LFO sources are copied (deep-cloned) into
+ * the new comp but stay in the parent — other layers may still use them.
+ * Undo restores the parent comp only; the created comp persists on the server.
+ */
+async function precomposeLayers(layerIds: string[]) {
+  if (!projectId.value) return;
+  const idSet = new Set(layerIds);
+  // Stack order comes from layers.value, not from the incoming id order.
+  const moved = layers.value.filter((l) => idSet.has(l.id));
+  if (moved.length === 0) return;
+  const topIndex = layers.value.findIndex((l) => idSet.has(l.id));
+
+  const movedAssignments = assignments.value.filter((a) => idSet.has(a.layerId));
+  const movedTracks = tracks.value.filter((t) => idSet.has(t.layerId));
+  const usedLfoIds = new Set(movedAssignments.map((a) => a.sourceId));
+  const movedLfos = lfos.value.filter((l) => usedLfoIds.has(l.id));
+
+  const data = JSON.parse(
+    JSON.stringify({
+      version: 1,
+      layers: moved,
+      lfos: movedLfos,
+      assignments: movedAssignments,
+      tracks: movedTracks,
+      settings: settings.value,
+    }),
+  ) as CompositionConfig;
+
+  let created: CompositionMeta;
+  try {
+    created = await $fetch<CompositionMeta>(
+      `/api/projects/${projectId.value}/compositions`,
+      { method: "POST", body: { name: nextPrecompName(), data } },
+    );
+  } catch (e) {
+    console.error("Failed to pre-compose:", e);
+    return;
+  }
+
+  const newId = createUniqueLayerId("composition", layers.value, layerCounter);
+  const values = buildLayerValues("composition");
+  values.compRefId = created.id;
+  const remaining = layers.value.filter((l) => !idSet.has(l.id));
+  // topIndex is the first selected index, so no moved layer sits above it.
+  remaining.splice(topIndex, 0, {
+    id: newId,
+    type: "composition",
+    name: created.name,
+    enabled: true,
+    values,
+  });
+  layers.value = remaining;
+  assignments.value = assignments.value.filter((a) => !idSet.has(a.layerId));
+  tracks.value = tracks.value.filter((t) => !idSet.has(t.layerId));
+  selectedKeyframes.value = selectedKeyframes.value.filter((k) => !idSet.has(k.layerId));
+  selectedLayerId.value = newId;
+  selectedLayerIds.value = new Set([newId]);
+  selectionAnchorId.value = newId;
+  history.record();
+
+  // The comp registry watches compRefIds and fetches the new comp on its own;
+  // refresh the comp lists (tabs + inspector's Composition select) here.
+  void refreshProjectComps();
+  void compTabsRef.value?.refresh();
+}
+
 // --- LFO Management ---
 
 function deleteLfo(id: string) {
@@ -1827,6 +1909,7 @@ registerKeyboard({
         <div class="pointer-events-none absolute top-3 left-3 z-50 flex max-w-[40%]">
           <EditorCompTabs
             v-if="projectId"
+            ref="compTabsRef"
             class="pointer-events-auto"
             :project-id="projectId"
             :active-comp-id="shaderId"
@@ -1920,6 +2003,7 @@ registerKeyboard({
           @toggle-keyframe="toggleKeyframeAtPlayhead"
           @duplicate-layer="duplicateLayer"
           @remove-layer="removeLayer"
+          @precompose="precomposeLayers"
         />
       </div>
     </div>

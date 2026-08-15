@@ -65,6 +65,8 @@ type Emits = {
   "toggle-keyframe": [layerId: string, paramName: string];
   "duplicate-layer": [id: string];
   "remove-layer": [id: string];
+  /** AE-style pre-compose: group the given layers into a new composition. */
+  precompose: [layerIds: string[]];
 };
 
 const expanded = ref<Set<string>>(new Set());
@@ -1263,6 +1265,24 @@ registerKeyboard({
   handle(e) {
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a") return false;
     selectAllLayers();
+    return true;
+  },
+});
+
+registerKeyboard({
+  id: "timeline:precompose",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return false;
+    if (e.key.toLowerCase() !== "g") return false;
+    const ids =
+      selectedLayerIds.value.size > 0
+        ? layers.value.filter((l) => selectedLayerIds.value.has(l.id)).map((l) => l.id)
+        : selectedLayerId.value
+          ? [selectedLayerId.value]
+          : [];
+    if (ids.length === 0) return false;
+    emit("precompose", ids);
     return true;
   },
 });

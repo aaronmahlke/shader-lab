@@ -115,6 +115,9 @@ function onMenuCloseAutoFocus(compId: string, event: Event) {
   renameQueuedId.value = null;
   editableRefs.get(compId)?.startEditing();
 }
+
+// The page creates comps too (pre-compose); let it refresh the tab list.
+defineExpose({ refresh });
 </script>
 
 <template>
