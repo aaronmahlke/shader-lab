@@ -469,6 +469,17 @@ function setLayerName(layer: LayerInstance, name: string) {
   history?.record();
 }
 
+/** AE-style: double-click a composition layer opens the referenced comp
+ * (capture phase so it wins over the name field's rename; Enter still renames). */
+function onLayerRowDblClick(layer: LayerInstance, e: MouseEvent) {
+  if (layer.type !== "composition") return;
+  const ref = layer.values.compRefId;
+  if (typeof ref !== "string" || !ref) return;
+  e.stopPropagation();
+  e.preventDefault();
+  navigateTo(`/shader/${ref}`);
+}
+
 function startRenameSelectedLayer() {
   const id = selectedLayerId.value;
   if (!id) return;
@@ -1665,7 +1676,9 @@ function selectAllLayers() {
                 <div
                   data-drag-handle
                   class="flex h-7 w-full cursor-default items-center gap-0.5 px-1 select-none"
+                  :title="layer.type === 'composition' ? 'Double-click to open the composition' : undefined"
                   @click="selectLayer(layer.id, $event)"
+                  @dblclick.capture="onLayerRowDblClick(layer, $event)"
                 >
                   <button
                     type="button"

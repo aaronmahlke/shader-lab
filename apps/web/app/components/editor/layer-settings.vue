@@ -16,7 +16,7 @@ import {
   layerBoundsInCompUv,
   type LayerTransformValues,
 } from "#shared/editor/layer-transform";
-import { EyeIcon, EyeSlashIcon, XMarkIcon } from "@heroicons/vue/16/solid";
+import { ArrowRightCircleIcon, EyeIcon, EyeSlashIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import { stageComponentOptions } from "~/utils/stage-components";
 import { mediaSrcFileName, uploadMediaFile, type MediaUploadKind } from "~/utils/media-upload";
 
@@ -80,6 +80,12 @@ const compRefOptions = inject<Ref<{ value: string; label: string }[]>>(
   "compRefOptions",
   ref([]),
 );
+
+/** AE-style "enter the precomp": navigate to the referenced composition. */
+function openReferencedComposition() {
+  const compId = layer.values.compRefId;
+  if (typeof compId === "string" && compId) navigateTo(`/shader/${compId}`);
+}
 
 function getAssignment(paramName: string): ModulationAssignment | undefined {
   return assignments.find((a) => a.layerId === layer.id && a.paramName === paramName);
@@ -759,15 +765,29 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             :label="def.label"
             @update:model-value="setText(def, layer.values, String($event))"
           />
-          <UiSelect
+          <div
             v-else-if="layer.type === 'composition' && def.name === 'compRefId'"
-            :model-value="getSelect(def, layer.values) as string"
-            :options="compRefOptions"
-            :label="def.label"
-            placeholder="Pick a composition…"
-            @update:model-value="setSelect(def, layer.values, $event as string | number)"
-            @select="setSelect(def, layer.values, $event)"
-          />
+            class="flex items-center gap-1.5"
+          >
+            <UiSelect
+              class="min-w-0 flex-1"
+              :model-value="getSelect(def, layer.values) as string"
+              :options="compRefOptions"
+              :label="def.label"
+              placeholder="Pick a composition…"
+              @update:model-value="setSelect(def, layer.values, $event as string | number)"
+              @select="setSelect(def, layer.values, $event)"
+            />
+            <UiButton
+              v-if="layer.values.compRefId"
+              variant="ghost"
+              size="sm"
+              class="!size-7 shrink-0"
+              :icon-left="ArrowRightCircleIcon"
+              title="Open composition"
+              @click="openReferencedComposition"
+            />
+          </div>
           <div
             v-else-if="isMediaLayer && def.name === 'src'"
             class="flex flex-col gap-1"
