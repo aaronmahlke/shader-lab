@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const { renderCompositionToBuffer } = await import(pathToFileURL(join(pkgRoot, "dist", "server.js")).href);
+const { createNestedResolvers } = await import(pathToFileURL(join(pkgRoot, "dist", "index.js")).href);
 const stbnPath = join(pkgRoot, "..", "..", "apps", "web", "public", "textures", "stbn-scalar-128x64.png");
 
 const solid = (id, color, values = {}, extra = {}) => ({
@@ -89,6 +90,23 @@ const W = 128, H = 128;
     return out;
   };
   if (!(rMidCenter - rEarlyCenter > 40)) {
+    // JS-level check: what does the nested modFn actually evaluate to?
+    for (const t of [2, 1.017]) {
+      const { modFn } = createNestedResolvers({
+        layers: parent.layers,
+        parentModFn: null,
+        resolveComposition: (id) => (id === "c" ? nested : null),
+        time: t,
+      });
+      console.error(
+        `t=${t}: js positionX=${modFn("host::inner", "layerPositionX", -0.3).toFixed(3)}`,
+      );
+    }
+    for (let y = 8; y < H; y += 8) {
+      let row = "";
+      for (let x = 0; x < W; x += 4) row += at(mid, W, x, y)[0] > 40 ? "#" : ".";
+      console.error(`mid y${String(y).padStart(3)}: ${row}`);
+    }
     console.error(`mid   row64: ${profile(mid)}`);
     console.error(`early row64: ${profile(early)}`);
     fail(`solid should be centered at local t=1 only (center r ${rMidCenter} vs ${rEarlyCenter})`);
