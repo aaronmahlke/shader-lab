@@ -75,6 +75,12 @@ function fail(msg) {
   process.exit(1);
 }
 
+// CI's ANGLE backend reads the default framebuffer darker/quantized than a
+// local mesa stack, so assert channel DOMINANCE instead of absolute values.
+function dominant(a, b) {
+  return a > 96 && a > b * 2.5;
+}
+
 const W = 128;
 const H = 128;
 
@@ -88,11 +94,11 @@ const H = 128;
 
   const flat = render(gl, make(false), W, H);
   const [fr, , fb] = px(flat, W, 64, 64);
-  if (!(fb > 200 && fr < 60)) fail(`2D stack should show blue on top, got rgb(${fr},_,${fb})`);
+  if (!dominant(fb, fr)) fail(`2D stack should show blue on top, got rgb(${fr},_,${fb})`);
 
   const deep = render(gl, make(true), W, H);
   const [dr, , db] = px(deep, W, 64, 64);
-  if (!(dr > 200 && db < 60)) fail(`3D group should show red (higher z) on top, got rgb(${dr},_,${db})`);
+  if (!dominant(dr, db)) fail(`3D group should show red (higher z) on top, got rgb(${dr},_,${db})`);
   destroyGlContext(gl);
   console.log("ok: depth order beats stack order in a 3D group");
 }
