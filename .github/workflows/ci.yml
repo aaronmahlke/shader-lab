@@ -24,6 +24,11 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      # Web-shared modules import @shader-lab/core's built dist — build first.
+      - name: Core build
+        working-directory: packages/core
+        run: bun run build
+
       - name: Core tests
         working-directory: packages/core
         run: bun test src/
@@ -31,10 +36,6 @@ jobs:
       - name: Web tests
         working-directory: apps/web
         run: bun test
-
-      - name: Core build
-        working-directory: packages/core
-        run: bun run build
 
   headless-render:
     name: Headless WebGL2 render (Node)
