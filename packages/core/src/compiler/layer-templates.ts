@@ -565,6 +565,17 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     ],
   },
 
+  composition: {
+    type: "composition",
+    label: "Composition",
+    category: "generator",
+    description: "Nests another composition of the project as a layer (AE precomp)",
+    uniforms: [
+      // Populated by the editor with the project's compositions.
+      { name: "compRefId", type: "select", label: "Composition", default: "", options: [], keyframeable: false },
+    ],
+  },
+
   light: {
     type: "light",
     label: "Light",

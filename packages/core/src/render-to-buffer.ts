@@ -1,5 +1,6 @@
 import type { CompositionConfig } from "./types/composition";
 import { compilePasses } from "./compiler/compile-passes";
+import { createNestedResolvers } from "./compiler/nested";
 import { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 import { ModulationEngine } from "./modulation/engine";
 import { destroyGlContext, renderPasses } from "./renderer/render-passes";
@@ -16,6 +17,8 @@ export type RenderCompositionOptions = {
   height?: number;
   time?: number;
   stbnPath?: string;
+  /** Referenced compositions by id (nested composition layers). */
+  compositions?: Record<string, CompositionConfig>;
 };
 
 export async function renderCompositionToBuffer(
@@ -39,7 +42,15 @@ export async function renderCompositionToBuffer(
   engine.setAssignments(config.assignments);
   engine.sampleAt(time);
   const modFn = createAnimatedModulationFn(time, config.tracks ?? [], engine);
-  const passes = compilePasses(config.layers, modFn);
+  const registry = options.compositions ?? {};
+  const resolveComposition = (compId: string) => registry[compId] ?? null;
+  const nested = createNestedResolvers({
+    layers: config.layers,
+    parentModFn: modFn,
+    resolveComposition,
+    time,
+  });
+  const passes = compilePasses(config.layers, modFn, { resolveComposition });
   if (passes.length === 0) return null;
 
   let gl: WebGL2RenderingContext;
@@ -68,9 +79,8 @@ export async function renderCompositionToBuffer(
         textTextures: new Map(),
         createTextImage: createNodeTextImage,
         contentScale: height / (config.settings?.height ?? height),
-        findLayer: (pass) =>
-          config.layers.find((l) => l.id === (pass.sourceLayerId ?? pass.layerId)),
-        getModulatedValue: modFn,
+        findLayer: nested.findLayer,
+        getModulatedValue: nested.modFn,
       },
       { readPixels: true, disposeResources: true },
     );

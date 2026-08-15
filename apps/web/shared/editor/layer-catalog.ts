@@ -85,6 +85,7 @@ const SECTION_BY_TYPE: Record<string, LayerCatalogSection> = {
   noise: "generate",
   waveFill: "generate",
   bandFill: "generate",
+  composition: "content",
   object3d: "scene3d",
   light: "scene3d",
   distortion: "distort",
@@ -100,6 +101,7 @@ const SECTION_BY_TYPE: Record<string, LayerCatalogSection> = {
 /** Fallback for unknown/future types: map the core category to a section. */
 const SECTION_BY_CATEGORY: Record<LayerCategory, LayerCatalogSection> = {
   generator: "generate",
+  composition: "content",
   object3d: "scene3d",
   light: "scene3d",
   distortion: "distort",
@@ -129,6 +131,7 @@ const CATALOG_META: Partial<
   image: { tags: ["photo", "picture", "media", "upload"], featured: true },
   video: { tags: ["movie", "clip", "media", "screen recording", "upload"], featured: true },
   camera: { tags: ["3d", "tilt", "lens", "dof", "bokeh", "bloom", "focus", "plate"], featured: true },
+  composition: { tags: ["nested", "precomp", "comp", "reuse", "instance"], featured: true },
   object3d: { tags: ["3d", "cube", "sphere", "plane", "mesh", "primitive", "scene"], featured: true },
   light: { tags: ["3d", "sun", "directional", "point", "shading", "scene"], featured: true },
   shape: { tags: ["rectangle", "ellipse", "circle", "box", "sdf"], featured: true },

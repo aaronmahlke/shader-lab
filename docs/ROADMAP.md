@@ -2,7 +2,7 @@
 
 Living reference for planned work toward a **modern motion-design tool with shader superpowers** (After Effects mental model, unified stack, GPU-native).
 
-Last updated: 2026-08-13
+Last updated: 2026-08-15
 
 ---
 
@@ -34,8 +34,8 @@ Status:
 - [x] Universal properties in data model + inspector + timeline (opacity, position, scale, rotation, anchor, in/out points) — `layer.values` reserved names + `layer.timing`, rendered via the per-generator `layerComposite` pass; effects crossfade by opacity, distortion scales displacement
 - [x] AE-style P/S/R/T reveal shortcuts (timeline)
 - [x] In/out layer bar on the timeline (drag to move, edges to trim, double-click to reset)
-- [ ] 3D layer toggle (Phase 7 prerequisite; add `positionZ`/`rotationX/Y` when scene3d lands)
-- [ ] Timeline value editing (scrub/click values in the labels column)
+- [x] 3D layer toggle — per-layer switch (timeline cube + inspector), `layerPositionZ`/`layerRotationX/Y` universal uniforms, contiguous 3D layers form depth-sorted groups with 2D walls (2026-08-15)
+- [x] Timeline value editing (scrub/click values in the labels column)
 
 ### Universal layer properties
 
@@ -104,7 +104,7 @@ Core already supports named eases; need **Flow-style** curve editing.
 - [x] Upgrade keyframe easing to **cubic bezier** (`x1, y1, x2, y2`) + named presets — `Keyframe.curve` beats `ease`, presets in `core/animation/easing.ts`
 - [x] Apply to selected keyframe segment(s) — right-click a keyframe for the easing menu (applies to the whole selection)
 - [x] Evaluate in `evaluateKeyframes` (bezier solve for `y` given `x`)
-- [ ] UI: curve editor with handles, preset grid visualization, favorites
+- [x] UI: curve editor with draggable bezier handles (`easing-panel.vue`); preset grid visualization / favorites still open
 
 ---
 
@@ -117,8 +117,8 @@ We have a **headless renderer** — use it systematically.
 - Defined preview compositions per layer type / effect (like current `layer-previews` but rendered, not hand-picked)
 - Headless render → PNG/WebP for:
   - [x] Layer add menu / catalog cards (`previews:generate`, 2026-08-13)
-  - Dashboard composition cards
-  - OG images / social previews
+  - Dashboard composition cards (still client-captured thumbnails)
+  - [x] OG images / social previews (`/api/og/[id]/[state]`, headless; resolves nested comps)
 - Script or CI job to regenerate preview assets when shaders change
 
 Location: extend `shared/editor/layer-previews.ts` + batch render script using `@shader-lab/core/server`.
@@ -126,6 +126,14 @@ Location: extend `shared/editor/layer-previews.ts` + batch render script using `
 ---
 
 ## Phase 5 — Project structure & nesting
+
+> ✅ Shipped 2026-08-15: `projects` own `compositions` (lossless migration from
+> shader docs, old ids/URLs keep working), project API, comp tabs in the editor
+> (create/rename/duplicate/delete/switch), project dashboard with comp count,
+> and **nested compositions**: a `composition` layer renders another comp of
+> the project (own clock = parent time minus in-point, keyframes/LFOs local,
+> cycle-guarded, works as a 3D group member). Still open below: assets sidebar,
+> media library, drag-from-sidebar.
 
 ### Compositions as first-class assets
 
@@ -189,7 +197,9 @@ Old artworks reference commit: `a3f6bdb` (`shared/artwork/text-layer.ts`, etc.) 
 
 Custom **scene3d** module in core (no Three.js — keep bundle small; exact use cases only).
 
-> ✅ First slice shipped: a `camera` **layer** films the stack below it as a plate on a tilted 3D plane (analytic ray/plane, no scene graph) with DOF (golden-angle gather, analytic CoC), a Karis-style bloom mip chain, exposure and ACES — all keyframeable. Lens chain runs in linear half-float targets and falls back to RGBA8. Full scene3d (meshes/lights/materials) still open below.
+> ✅ First slice shipped: a `camera` **layer** films the stack below it as a plate on a tilted 3D plane (analytic ray/plane, no scene graph) with DOF (golden-angle gather, analytic CoC), a Karis-style bloom mip chain, exposure and ACES — all keyframeable. Lens chain runs in linear half-float targets and falls back to RGBA8.
+>
+> ✅ Second slice shipped 2026-08-15: **3D layer groups** (per-layer perspective, camera-aware painter's sort, 2D walls), `object3d` layers (analytic ray-traced cube/sphere/plane with blinn-phong material), `light` layers (directional/point, up to 4 per group), and the camera's **Drive 3D layers** switch (tilt/yaw/roll/zoom/fov pilot the groups → real parallax; lens chain unchanged). Still open: quads receiving light, per-layer-depth DOF, glass/transmission/env, motion blur, plane intersections (OIT).
 
 See prior architecture discussion:
 

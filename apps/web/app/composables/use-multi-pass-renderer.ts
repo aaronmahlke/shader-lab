@@ -1,6 +1,8 @@
 import {
   CompositionRenderer,
+  createNestedResolvers,
   type ComponentSourceInput,
+  type CompositionConfig,
   type MediaSource,
   type ModulationFn,
   type RenderPass,
@@ -11,6 +13,8 @@ type RendererOptions = {
   layers?: Ref<LayerInstance[]>;
   tracks?: Ref<unknown[]>;
   getModulatedValue?: Ref<ModulationFn | null>;
+  /** Registry lookup for nested composition layers (enables `::`-prefixed passes). */
+  resolveComposition?: (compId: string) => CompositionConfig | null;
   sampleLfosAtTime?: (time: number) => void;
   fixedBufferSize?: Ref<{ width: number; height: number }>;
   /** Reference width for u_scale (composition native width). */
@@ -59,10 +63,24 @@ export function useMultiPassRenderer(
     });
   }
 
+  /**
+   * Per-frame nested resolvers (nested composition layers only). The renderer
+   * captures `findLayerForPass` once at construction, so the render loop
+   * updates this closure variable each frame and the static option functions
+   * delegate to it. Resolvers must be rebuilt per frame: they evaluate nested
+   * keyframes/LFOs at the host layer's LOCAL time, which depends on `time`.
+   */
+  let nestedResolvers: ReturnType<typeof createNestedResolvers> | null = null;
+
   function findLayerForPass(pass: RenderPass): LayerInstance | undefined {
+    if (nestedResolvers) return nestedResolvers.findLayer(pass);
     if (!layersRef?.value) return undefined;
     const id = pass.sourceLayerId ?? pass.layerId;
     return layersRef.value.find((l) => l.id === id);
+  }
+
+  function hasCompositionLayers(): boolean {
+    return layersRef?.value.some((l) => l.type === "composition") ?? false;
   }
 
   function render() {
@@ -72,10 +90,23 @@ export function useMultiPassRenderer(
 
     sampleLfosAtTime?.(time);
 
+    // Fast path: without composition layers the plain findLayer/modFn work
+    // and there is nothing to resolve.
+    if (options.resolveComposition && layersRef?.value && hasCompositionLayers()) {
+      nestedResolvers = createNestedResolvers({
+        layers: layersRef.value,
+        parentModFn: getModulatedValue?.value ?? null,
+        resolveComposition: options.resolveComposition,
+        time,
+      });
+    } else {
+      nestedResolvers = null;
+    }
+
     renderer.renderFrame(
       time,
       passes.value,
-      getModulatedValue?.value ?? null,
+      nestedResolvers?.modFn ?? getModulatedValue?.value ?? null,
     );
   }
 
@@ -198,6 +229,11 @@ export function useMultiPassRenderer(
       if (renderer && len > 0 && prev === 0) resize();
     },
   );
+
+  // Recompiles that keep the pass count (e.g. a nested composition arriving
+  // in the registry) still need a redraw — the paused loop won't pick the new
+  // pass array up on its own.
+  watch(passes, scheduleRender);
 
   watch(
     () => getModulatedValue?.value,

@@ -72,3 +72,6 @@ jobs:
 
       - name: 3D group render smoke test
         run: xvfb-run -a node packages/core/scripts/threed-smoke.mjs
+
+      - name: Nested composition smoke test
+        run: xvfb-run -a node packages/core/scripts/nested-smoke.mjs
