@@ -26,6 +26,7 @@ uniform float layerAnchorX;   // pivot in layer UV space (0..1)
 uniform float layerAnchorY;
 uniform float layerOpacity;   // percent, 0..100 (pre-gated by in/out points)
 uniform int layerBlendMode;
+uniform int layerAcceptsLights; // quads only: 1 = group lights shade the content
 
 // Scene camera (identity when no camera layer drives the group).
 uniform float u_sceneFov;     // vertical FOV in degrees
@@ -176,7 +177,8 @@ float intersectObject(vec3 ro, vec3 rd, vec3 h, out vec3 nLocal) {
 
 vec3 lightContribution(
   int type, vec3 color, float intensity, vec3 lvec,
-  vec3 hitPos, vec3 N, vec3 V, mat3 rcam
+  vec3 hitPos, vec3 N, vec3 V, mat3 rcam,
+  vec3 surfaceAlbedo, float surfaceSpecular
 ) {
   if (intensity <= 0.0) return vec3(0.0);
   vec3 L;
@@ -193,13 +195,22 @@ vec3 lightContribution(
   }
   float diff = max(dot(N, L), 0.0);
   vec3 H = normalize(L + V);
-  float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * specular;
-  return color * intensity * att * (albedo * diff + vec3(spec));
+  float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * surfaceSpecular;
+  return color * intensity * att * (surfaceAlbedo * diff + vec3(spec));
+}
+
+/** Accumulate every group light for a surface point. */
+vec3 accumulateLights(vec3 hitPos, vec3 N, vec3 V, mat3 rcam, vec3 surfaceAlbedo, float surfaceSpecular) {
+  vec3 col = surfaceAlbedo * u_ambient;
+  if (u_lightCount > 0) col += lightContribution(u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam, surfaceAlbedo, surfaceSpecular);
+  if (u_lightCount > 1) col += lightContribution(u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam, surfaceAlbedo, surfaceSpecular);
+  if (u_lightCount > 2) col += lightContribution(u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam, surfaceAlbedo, surfaceSpecular);
+  if (u_lightCount > 3) col += lightContribution(u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam, surfaceAlbedo, surfaceSpecular);
+  return col;
 }
 
 vec3 shadeObject(vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
   vec3 V = -dir;
-  vec3 col = albedo * u_ambient + albedo * emissive;
   if (u_lightCount == 0) {
     // Headlight fallback so objects are never pitch black without lights.
     vec3 L = normalize(vec3(0.3, 0.45, 0.85));
@@ -208,11 +219,7 @@ vec3 shadeObject(vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
     float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * specular;
     return albedo * (0.18 + diff) + vec3(spec) + albedo * emissive;
   }
-  if (u_lightCount > 0) col += lightContribution(u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 1) col += lightContribution(u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 2) col += lightContribution(u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 3) col += lightContribution(u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam);
-  return col;
+  return accumulateLights(hitPos, N, V, rcam, albedo, specular) + albedo * emissive;
 }
 
 void main() {
@@ -298,6 +305,14 @@ void main() {
         vec4 content = texture2D(u_color, clamp(luv, 0.0, 1.0));
         alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
         src = content.rgb;
+
+        // AE-style "accepts lights": the group's lights shade the quad
+        // (diffuse + ambient, no specular so text/images stay clean).
+        // Emissive when off or when the group has no lights.
+        if (layerAcceptsLights == 1 && u_lightCount > 0) {
+          vec3 N = denom > 0.0 ? -n : n; // face the viewer (double-sided)
+          src = accumulateLights(hit, N, -dir, rcam, content.rgb, 0.0);
+        }
       }
     }
   }

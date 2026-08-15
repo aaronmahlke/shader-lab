@@ -168,6 +168,7 @@ export {
   TRANSFORM_UNIFORMS,
   THREED_TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
+  ACCEPTS_LIGHTS_UNIFORM,
   universalUniformsFor,
   findLayerParamDef,
   isUniversalParamName,

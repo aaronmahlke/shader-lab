@@ -164,8 +164,37 @@ const H = 128;
   if (!(cNo > 48 && cNo < 80)) fail(`baseline quad should sit near center, got ${cNo}`);
   if (!(Math.abs(cDrive - cNo) > 4)) fail(`drive3d yaw should shift the 3D layer (center ${cNo} -> ${cDrive})`);
 
+  // 2d. Quads accept lights: with a light in the group, toggling the
+  // material option changes the quad's brightness (relative compare).
+  const dimSun = {
+    id: "dimsun",
+    type: "light",
+    enabled: true,
+    values: { ...buildLayerValues("light"), intensity: 0.5, ambient: 0.05, lightColor: "#ffffff" },
+  };
+  const litQuad = (accepts) => [
+    dimSun,
+    { id: "q", type: "solid", enabled: true, is3D: true,
+      values: { ...buildLayerValues("solid"), u_color: "#808080", layerScale: 60, layerAcceptsLights: accepts } },
+  ];
+  const acceptOn = render(gl, litQuad(1), W, H);
+  const acceptOff = render(gl, litQuad(0), W, H);
+  const [onR] = px(acceptOn, W, 64, 64);
+  const [offR] = px(acceptOff, W, 64, 64);
+  if (!(Math.abs(onR - offR) > 12)) {
+    fail(`accepts-lights should change quad shading (on ${onR} vs off ${offR})`);
+  }
+  // No lights in the group -> the toggle must be a no-op (emissive).
+  const aloneOn = render(gl, [litQuad(1)[1]], W, H);
+  const aloneOff = render(gl, [litQuad(0)[1]], W, H);
+  const [aOnR] = px(aloneOn, W, 64, 64);
+  const [aOffR] = px(aloneOff, W, 64, 64);
+  if (Math.abs(aOnR - aOffR) > 4) {
+    fail(`accepts-lights must be a no-op without lights (${aOnR} vs ${aOffR})`);
+  }
+
   destroyGlContext(gl);
-  console.log("ok: objects shade, lights matter, drive3d camera moves 3D layers");
+  console.log("ok: objects shade, lights matter, drive3d camera moves 3D layers, quads accept lights");
 }
 
 // --- 2. identity parity with the 2D path ----------------------------------

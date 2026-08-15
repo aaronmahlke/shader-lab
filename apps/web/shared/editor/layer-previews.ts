@@ -120,6 +120,24 @@ function generatorStack(type: LayerType): LayerInstance[] {
     case "solid":
       return [previewLayer(type, { u_color: "#6b2cff" })];
 
+    case "composition":
+      // Previews cannot resolve a real nested comp (no registry in the
+      // preview renderer) — stage the LOOK of a precomp: a scaled comp card
+      // floating over the project background.
+      return [
+        previewLayer("gradient", {
+          layerScale: 58,
+          layerRotation: -4,
+          angle: 135,
+          u_gradient: [
+            { color: "#1b1036", position: 0 },
+            { color: "#7048e8", position: 0.5 },
+            { color: "#ffd43b", position: 1 },
+          ],
+        }, "preview-comp-card"),
+        previewLayer("solid", { u_color: "#101014" }, "preview-comp-bg"),
+      ];
+
     case "object3d":
       // Lit cube at a readable angle over a dark base.
       return [
