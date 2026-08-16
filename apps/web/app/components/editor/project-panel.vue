@@ -6,6 +6,7 @@ import {
   Square2StackIcon,
 } from "@heroicons/vue/16/solid";
 import type { CompositionMeta } from "#shared/types/project";
+import { COMP_DRAG_TYPE, type CompDragPayload } from "#shared/editor/comp-drag";
 import { removeOpenCompId } from "~/utils/open-comps";
 
 const props = defineProps<{
@@ -119,6 +120,22 @@ async function renameComp(comp: CompositionMeta, name: string) {
   await refresh();
 }
 
+// --- Drag a comp into the timeline (AE-style: drop adds a composition layer) ---
+
+function onCompDragStart(comp: CompositionMeta, e: DragEvent) {
+  // While renaming, let the input keep drag-to-select-text behavior.
+  if ((e.currentTarget as HTMLElement | null)?.querySelector("input")) {
+    e.preventDefault();
+    return;
+  }
+  if (!e.dataTransfer) return;
+  e.dataTransfer.setData(
+    COMP_DRAG_TYPE,
+    JSON.stringify({ id: comp.id, name: comp.name } satisfies CompDragPayload),
+  );
+  e.dataTransfer.effectAllowed = "copy";
+}
+
 // --- Rename via context menu (same close-auto-focus pattern as the comp tabs) ---
 
 type EditableText = { startEditing: () => void };
@@ -202,11 +219,13 @@ function onMenuCloseAutoFocus(compId: string, event: Event) {
           @close-auto-focus="onMenuCloseAutoFocus(comp.id, $event)"
         >
           <div
-            class="mx-1.5 flex h-7 cursor-default items-center gap-1.5 rounded-md px-1.5 text-copy-xs transition-colors"
+            class="mx-1.5 flex h-7 cursor-grab items-center gap-1.5 rounded-md px-1.5 text-copy-xs transition-colors"
             :class="comp.id === activeCompId
               ? 'bg-control text-neutral-strong'
               : 'text-neutral-subtle hover:bg-control/50 hover:text-neutral-strong'"
             :title="comp.name"
+            draggable="true"
+            @dragstart="onCompDragStart(comp, $event)"
             @click="openComp(comp)"
           >
             <Square2StackIcon class="size-3.5 shrink-0 text-neutral-weak" />

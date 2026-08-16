@@ -60,6 +60,7 @@ import {
   type LayerUniformDef,
   type PropertyTrack,
 } from "@shader-lab/core";
+import { dataTransferHasComp, readCompDragPayload } from "#shared/editor/comp-drag";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
@@ -79,6 +80,8 @@ type Emits = {
   "remove-layer": [id: string];
   /** AE-style pre-compose: group the given layers into a new composition. */
   precompose: [layerIds: string[]];
+  /** A comp was dragged in from the project panel; the page owns the insert. */
+  "insert-composition": [payload: { compId: string; name: string; index: number }];
 };
 
 const expanded = ref<Set<string>>(new Set());
@@ -148,6 +151,57 @@ const { containerRef: layerListRef, draggingIndices } = useDragReorder(layers, {
   onReorderGestureCommit: () => history?.commitGesture(),
   onReorderGestureCancel: () => history?.cancelGesture(),
 });
+
+// --- Composition drop (native HTML5 drag from the project panel) ---
+// Independent from useDragReorder: the reorder system is pointer-event based
+// and a native drag suppresses pointer events, so the two never overlap.
+
+/** Insertion slot while a comp drag hovers the timeline, or null. */
+const compDropIndex = ref<number | null>(null);
+/** Indicator line y in layer-list content space (labels and tracks align). */
+const compDropY = ref(0);
+
+/** Insertion slot + indicator y from the pointer, over the layer row blocks. */
+function compDropSlotFor(clientY: number): { index: number; y: number } {
+  const listEl = layerListRef.value as HTMLElement | null;
+  if (!listEl) return { index: 0, y: 0 };
+  const listTop = listEl.getBoundingClientRect().top;
+  // Row blocks only (header + expanded property rows); skips any overlays.
+  const rows = Array.from(listEl.querySelectorAll(":scope > .layer-group")) as HTMLElement[];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i]!.getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) return { index: i, y: r.top - listTop };
+  }
+  const last = rows[rows.length - 1]?.getBoundingClientRect();
+  return { index: rows.length, y: last ? last.bottom - listTop : 0 };
+}
+
+function onCompDragOver(e: DragEvent) {
+  if (!dataTransferHasComp(e.dataTransfer)) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  const slot = compDropSlotFor(e.clientY);
+  compDropIndex.value = slot.index;
+  compDropY.value = slot.y;
+}
+
+function onCompDragLeave(e: DragEvent) {
+  // dragleave also fires when moving over children; only clear on a real exit.
+  const el = e.currentTarget as HTMLElement | null;
+  const to = e.relatedTarget as Node | null;
+  if (el && to && el.contains(to)) return;
+  compDropIndex.value = null;
+}
+
+function onCompDrop(e: DragEvent) {
+  const payload = readCompDragPayload(e.dataTransfer);
+  compDropIndex.value = null;
+  if (!payload) return; // Foreign drag (e.g. media files): leave it alone.
+  e.preventDefault();
+  e.stopPropagation();
+  const { index } = compDropSlotFor(e.clientY);
+  emit("insert-composition", { compId: payload.id, name: payload.name, index });
+}
 
 watch(
   selectedLayerId,
@@ -1713,9 +1767,18 @@ function selectAllLayers() {
         <!-- Labels: fixed width, no scrollbar, follows vertical scroll -->
         <div
           ref="labelsScrollRef"
-          class="shrink-0 overflow-hidden border-r border-neutral bg-layer-1"
+          class="relative shrink-0 overflow-hidden border-r border-neutral bg-layer-1"
           :style="{ width: `${labelWidth}px` }"
+          @dragover="onCompDragOver"
+          @dragleave="onCompDragLeave"
+          @drop="onCompDrop"
         >
+          <!-- Comp-drop insertion line (absolute children scroll with content) -->
+          <div
+            v-if="compDropIndex !== null"
+            class="pointer-events-none absolute inset-x-1 z-40 h-0.5 -translate-y-1/2 rounded-full bg-accent"
+            :style="{ top: `${compDropY}px` }"
+          />
           <div ref="layerListRef" class="min-h-full" @click.self="clearSelection">
             <div
               v-for="(layer, i) in layers"

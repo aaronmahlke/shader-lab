@@ -1042,6 +1042,28 @@ async function precomposeLayers(layerIds: string[]) {
   void compTabsRef.value?.refresh();
 }
 
+/** Drop from the project panel: insert a composition layer at the slot. */
+function insertCompositionLayer(payload: { compId: string; name: string; index: number }) {
+  // Nesting the open comp into itself would be a trivial cycle — ignore.
+  if (!payload.compId || payload.compId === shaderId.value) return;
+
+  const newId = createUniqueLayerId("composition", layers.value, layerCounter);
+  const values = buildLayerValues("composition");
+  values.compRefId = payload.compId;
+  const index = Math.max(0, Math.min(payload.index, layers.value.length));
+  layers.value.splice(index, 0, {
+    id: newId,
+    type: "composition",
+    name: payload.name || "Composition",
+    enabled: true,
+    values,
+  });
+  selectedLayerId.value = newId;
+  selectedLayerIds.value = new Set([newId]);
+  selectionAnchorId.value = newId;
+  history.record();
+}
+
 // --- LFO Management ---
 
 function deleteLfo(id: string) {
@@ -2007,6 +2029,7 @@ registerKeyboard({
             @duplicate-layer="duplicateLayer"
             @remove-layer="removeLayer"
             @precompose="precomposeLayers"
+            @insert-composition="insertCompositionLayer"
           />
         </div>
       </div>
