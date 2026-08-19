@@ -29,7 +29,11 @@ import shapeFrag from "./layers/shape.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
 import type { RenderPassType } from "../types/editor";
 
-export const FRAG_SHADERS: Record<Exclude<RenderPassType, "camera">, string> & { camera?: undefined } = {
+// camera expands into lens passes; object3d/light render inside 3D group slots.
+export const FRAG_SHADERS: Record<
+  Exclude<RenderPassType, "camera" | "object3d" | "light">,
+  string
+> & { camera?: undefined; object3d?: undefined; light?: undefined } = {
   gradient: gradientFrag,
   mesh: meshFrag,
   solid: solidFrag,
@@ -85,6 +89,13 @@ export const INT_UNIFORMS = new Set([
   // making the DOF pass early-out on every pixel (no blur at any aperture).
   "dofSamples",
   "layerBlendMode",
+  // scene3d: object shape + flattened light arrays (declared int in the shader)
+  "u_shape",
+  "u_lightCount",
+  "u_light0Type",
+  "u_light1Type",
+  "u_light2Type",
+  "u_light3Type",
 ]);
 
 export const GRADIENT_RESOLUTION = 256;
