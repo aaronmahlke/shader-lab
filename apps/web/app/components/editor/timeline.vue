@@ -38,7 +38,7 @@ import {
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
-  clampBarMoveIn,
+  clampGroupBarMoveDelta,
   fitPxPerSecond,
   parseCompositionDuration,
 } from "#shared/editor/timeline-window";
@@ -1351,11 +1351,17 @@ function writeLayerTiming(layer: LayerInstance, inPoint: number, outPoint: numbe
 
 function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: PointerEvent) {
   if (e.button !== 0) return;
-  if (!selectedLayerIds.value.has(layer.id)) {
-    selectedLayerId.value = layer.id;
-    selectedLayerIds.value = new Set([layer.id]);
-    selectionAnchorId.value = layer.id;
+
+  // Bars take the same modifier clicks as layer names: shift extends, cmd/ctrl
+  // toggles, plain click on an unselected bar selects it. A plain press on an
+  // already selected bar keeps the selection so the group can be dragged.
+  // selectLayer returns the fresh set; the models still hold last tick's value.
+  let selection = selectedLayerIds.value;
+  if (e.shiftKey || e.metaKey || e.ctrlKey || !selection.has(layer.id)) {
+    selection = selectLayer(layer.id, e) ?? selection;
   }
+  // A cmd/ctrl press can deselect the pressed bar; nothing to drag then.
+  if (!selection.has(layer.id)) return;
 
   const startX = e.clientX;
   const startIn = layerInPoint(layer);
@@ -1363,18 +1369,24 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
   const frame = 1 / settings.fps;
   let dragging = false;
 
-  // Moving the bar shifts the layer in time: keyframes travel with it.
+  // Moving a bar moves every selected bar together; trims stay on the pressed layer.
+  const movedLayers = mode === "move" ? layers.value.filter((l) => selection.has(l.id)) : [layer];
+  const movedIds = new Set(movedLayers.map((l) => l.id));
+  const startWindows = new Map(
+    movedLayers.map((l) => [l.id, { in: layerInPoint(l), out: layerOutPoint(l) }]),
+  );
+
+  // Moving a bar shifts the layer in time: keyframes travel with it.
   const startKeyTimes = new Map(
     tracks.value
-      .filter((t) => t.layerId === layer.id)
-      .map((t) => [t.paramName, t.keys.map((k) => k.time)]),
+      .filter((t) => movedIds.has(t.layerId))
+      .map((t) => [`${t.layerId}\u0000${t.paramName}`, t.keys.map((k) => k.time)]),
   );
 
   function shiftLayerKeyframes(delta: number) {
     if (startKeyTimes.size === 0) return;
     tracks.value = tracks.value.map((track) => {
-      if (track.layerId !== layer.id) return track;
-      const startTimes = startKeyTimes.get(track.paramName);
+      const startTimes = startKeyTimes.get(`${track.layerId}\u0000${track.paramName}`);
       if (!startTimes) return track;
       return {
         ...track,
@@ -1392,15 +1404,18 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
 
     const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
     if (mode === "move") {
-      // The bar may overhang either end as long as a grabbable slice stays inside.
-      const length = startOut - startIn;
-      const nextIn = clampBarMoveIn(
-        snapTime(startIn + deltaTime),
-        length,
+      // Snap against the pressed bar, then clamp one shared delta so every
+      // moved bar keeps a grabbable slice inside the composition.
+      const delta = clampGroupBarMoveDelta(
+        snapTime(startIn + deltaTime) - startIn,
+        [...startWindows.values()],
         settings.duration,
       );
-      writeLayerTiming(layer, nextIn, nextIn + length);
-      shiftLayerKeyframes(nextIn - startIn);
+      for (const moved of movedLayers) {
+        const w = startWindows.get(moved.id)!;
+        writeLayerTiming(moved, w.in + delta, w.out + delta);
+      }
+      shiftLayerKeyframes(delta);
     } else if (mode === "in") {
       // Trim stops at 0 as before, but keeps an existing left overhang reachable.
       const nextIn = Math.max(
@@ -1456,18 +1471,24 @@ function layerRowBlockRole(index: number) {
   return layerHeaderBlockRole(index, selectedLayerIndices(), [...draggingIndices.value]);
 }
 
-function selectLayer(id: string, e?: MouseEvent) {
+/**
+ * Returns the resulting selection so pointerdown handlers can use it right
+ * away: the selection models are defineModel and only sync back next tick.
+ */
+function selectLayer(id: string, e?: MouseEvent): Set<string> | null {
   const index = layerIndex(id);
-  if (index === -1) return;
+  if (index === -1) return null;
 
+  let next: Set<string>;
   if (e?.shiftKey) {
     const anchorId = selectionAnchorId.value ?? selectedLayerId.value;
     const anchorIndex = anchorId ? layerIndex(anchorId) : index;
     const lo = Math.min(anchorIndex, index);
     const hi = Math.max(anchorIndex, index);
-    selectedLayerIds.value = new Set(layers.value.slice(lo, hi + 1).map((l) => l.id));
+    next = new Set(layers.value.slice(lo, hi + 1).map((l) => l.id));
+    selectedLayerIds.value = next;
   } else if (e?.metaKey || e?.ctrlKey) {
-    const next = new Set(selectedLayerIds.value);
+    next = new Set(selectedLayerIds.value);
     const adding = !next.has(id);
     if (adding) next.add(id);
     else next.delete(id);
@@ -1477,7 +1498,7 @@ function selectLayer(id: string, e?: MouseEvent) {
     if (next.size === 0) {
       selectedLayerId.value = null;
       history?.record();
-      return;
+      return next;
     }
     if (adding) {
       selectedLayerId.value = id;
@@ -1488,15 +1509,17 @@ function selectLayer(id: string, e?: MouseEvent) {
           : [...next][0]!;
     }
     history?.record();
-    return;
+    return next;
   } else {
-    selectedLayerIds.value = new Set([id]);
+    next = new Set([id]);
+    selectedLayerIds.value = next;
     selectionAnchorId.value = id;
   }
 
   selectedLayerId.value = id;
   selectedKeyframes.value = [];
   history?.record();
+  return next;
 }
 
 function selectAllLayers() {
