@@ -53,6 +53,11 @@ export type LayerInstance = {
   type: LayerType;
   name?: string;
   enabled: boolean;
+  /**
+   * AE-style 3D switch (generators only). Adds Z position and X/Y rotation to
+   * the universal transform; contiguous 3D layers form a depth-sorted group.
+   */
+  is3D?: boolean;
   values: Record<string, unknown>;
   /** In/out points; layer contributes nothing outside this window. */
   timing?: LayerTiming;

@@ -166,6 +166,7 @@ export type {
 export {
   UNIVERSAL_LAYER_UNIFORMS,
   TRANSFORM_UNIFORMS,
+  THREED_TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
   universalUniformsFor,
   findLayerParamDef,
@@ -174,8 +175,11 @@ export {
   layerOpacityValue,
   layerTimingFactor,
   isIdentityTransform,
+  supports3D,
+  isLayer3D,
 } from "./compiler/universal-uniforms";
 export { compositePassId } from "./compiler/compile-passes";
+export { find3DRuns, threeDGroupMemberIds, type ThreeDRun } from "./compiler/threed";
 
 export type { GradientStop } from "./types";
 

@@ -7,6 +7,8 @@ import {
   PlusIcon,
   EyeIcon,
   EyeSlashIcon,
+  CubeIcon,
+  CubeTransparentIcon,
 } from "@heroicons/vue/16/solid";
 import { useEventListener } from "@vueuse/core";
 import {
@@ -18,6 +20,7 @@ import {
   LAYER_TEMPLATES,
   evaluateKeyframes,
   evaluatePropertyTrack,
+  find3DRuns,
   findPropertyTrack,
   hasKeyframeAt,
   isKeyframeableUniform,
@@ -25,6 +28,7 @@ import {
   matchEasingPreset,
   offsetKeyframes,
   setKeyframesEasing,
+  supports3D,
   universalUniformsFor,
   upsertKeyframe,
   type CompositionSettings,
@@ -1262,11 +1266,12 @@ registerKeyboard({
   },
 });
 
-/** AE-style property reveal shortcuts on the selected layer(s). */
+/** AE-style property reveal shortcuts on the selected layer(s).
+ * 3D-only params are filtered per layer below, so 2D layers keep the classic set. */
 const PROPERTY_SHORTCUT_PARAMS: Record<string, string[]> = {
-  p: ["layerPositionX", "layerPositionY"],
+  p: ["layerPositionX", "layerPositionY", "layerPositionZ"],
   s: ["layerScale"],
-  r: ["layerRotation"],
+  r: ["layerRotation", "layerRotationX", "layerRotationY"],
   t: ["layerOpacity"],
 };
 
@@ -1545,6 +1550,30 @@ function toggleLayerEnabled(layer: LayerInstance) {
   history?.record();
 }
 
+/** AE-style 3D switch — same mutation + history path as toggleLayerEnabled. */
+function toggleLayer3D(layer: LayerInstance) {
+  const next = !layer.is3D;
+  const multi = selectedLayerIds.value.size > 1 && selectedLayerIds.value.has(layer.id);
+  const applyTo = multi
+    ? layers.value.filter((l) => selectedLayerIds.value.has(l.id))
+    : [layer];
+
+  for (const target of applyTo) {
+    if (supports3D(target)) target.is3D = next;
+  }
+  history?.record();
+}
+
+/** Contiguous 3D runs in the visible top→bottom order (disabled layers are neutral). */
+const threeDRuns = computed(() => find3DRuns(layers.value));
+
+/** Bracket segment for a layer row index, or null when the layer is not in a 3D run. */
+function threeDBracket(index: number): { first: boolean; last: boolean } | null {
+  const run = threeDRuns.value.find((r) => index >= r.start && index < r.end);
+  if (!run) return null;
+  return { first: index === run.start, last: index === run.end - 1 };
+}
+
 function isLayerSelected(id: string): boolean {
   return selectedLayerIds.value.has(id);
 }
@@ -1722,12 +1751,22 @@ function selectAllLayers() {
             <div
               v-for="(layer, i) in layers"
               :key="layer.id"
-              class="layer-group"
+              class="layer-group relative"
               :class="[
                 !layer.enabled && 'opacity-50',
-                draggingIndices.has(i) && 'relative z-50 scale-[1.01] shadow-lg',
+                draggingIndices.has(i) && 'z-50 scale-[1.01] shadow-lg',
               ]"
             >
+              <!-- 3D group bracket: contiguous 3D layers sort together in one depth space.
+                   Inset from the pane border so it can't blend into the playhead at t=0. -->
+              <div
+                v-if="threeDBracket(i)"
+                class="pointer-events-none absolute inset-y-0 right-[3px] z-10 w-0.5 bg-accent/50"
+                :class="[
+                  threeDBracket(i)!.first && 'rounded-t-full',
+                  threeDBracket(i)!.last && 'rounded-b-full',
+                ]"
+              />
               <UiHover
                 solid
                 :active="isLayerSelected(layer.id) || draggingIndices.has(i)"
@@ -1774,6 +1813,25 @@ function selectAllLayers() {
                   >
                     {{ enabledTracksForLayer(layer.id).length }}
                   </span>
+                  <button
+                    v-if="supports3D(layer)"
+                    type="button"
+                    data-drag-exclude
+                    title="3D layer"
+                    class="flex size-6 shrink-0 cursor-pointer items-center justify-center outline-none transition-colors duration-100"
+                    :class="
+                      layer.is3D
+                        ? 'text-accent'
+                        : 'text-neutral-subtle opacity-0 hover:text-neutral-strong group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
+                    "
+                    @click.stop="toggleLayer3D(layer)"
+                  >
+                    <component
+                      :is="layer.is3D ? CubeIcon : CubeTransparentIcon"
+                      class="size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  </button>
                   <UiButton
                     variant="ghost"
                     size="sm"
