@@ -1,4 +1,7 @@
+import { eq } from "drizzle-orm";
+import { projects } from "../../database/schema";
 
+/** Legacy delete removes the whole project (single-comp world). */
 export default defineEventHandler(async (event) => {
   const { userId } = await requireUser(event);
   const id = getRouterParam(event, "id");
@@ -6,14 +9,11 @@ export default defineEventHandler(async (event) => {
 
   const db = useDrizzle();
 
-  const [deleted] = await db
-    .delete(shaders)
-    .where(and(eq(shaders.id, id), eq(shaders.userId, userId)))
-    .returning({ id: shaders.id });
-
-  if (!deleted) {
+  const found = await findOwnedComposition(db, userId, id);
+  if (!found) {
     throw createError({ statusCode: 404, statusMessage: "Composition not found" });
   }
 
+  await db.delete(projects).where(eq(projects.id, found.project.id));
   return { ok: true };
 });

@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import { compositions } from "../../../database/schema";
+
 export default defineEventHandler(async (event) => {
   const { userId } = await requireUser(event);
   const id = getRouterParam(event, "id");
@@ -5,16 +8,11 @@ export default defineEventHandler(async (event) => {
 
   const db = useDrizzle();
 
-  // Verify ownership
-  const [shader] = await db
-    .select({ id: shaders.id })
-    .from(shaders)
-    .where(and(eq(shaders.id, id), eq(shaders.userId, userId)))
-    .limit(1);
-
-  if (!shader) {
+  const found = await findOwnedComposition(db, userId, id);
+  if (!found) {
     throw createError({ statusCode: 404, statusMessage: "Composition not found" });
   }
+  const compId = found.comp.id;
 
   // Read uploaded file from multipart form data
   const formData = await readMultipartFormData(event);
@@ -26,21 +24,18 @@ export default defineEventHandler(async (event) => {
 
   // Upload to S3
   const s3 = useS3();
-  const key = `thumbnails/${id}.png`;
+  const key = `thumbnails/${compId}.png`;
   await s3.putObject(key, file.data, "image/png");
 
   // Store an app-served URL: the S3 endpoint is not necessarily reachable
   // from the browser (internal-only in prod). ?v= busts the immutable cache.
   const thumbnailUpdatedAt = new Date();
-  const thumbnailUrl = `/api/shaders/${id}/thumbnail?v=${thumbnailUpdatedAt.getTime()}`;
+  const thumbnailUrl = `/api/shaders/${compId}/thumbnail?v=${thumbnailUpdatedAt.getTime()}`;
 
   await db
-    .update(shaders)
-    .set({
-      thumbnailUrl,
-      thumbnailUpdatedAt,
-    })
-    .where(eq(shaders.id, id));
+    .update(compositions)
+    .set({ thumbnailUrl, thumbnailUpdatedAt })
+    .where(eq(compositions.id, compId));
 
   return { thumbnailUrl };
 });
