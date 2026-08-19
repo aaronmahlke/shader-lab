@@ -43,9 +43,21 @@ import {
   parseCompositionDuration,
 } from "#shared/editor/timeline-window";
 import {
+  collectBarSnapTargets,
+  snapBarMoveDelta,
+  snapEdgeTime,
+  TIMELINE_GUIDE_COLOR,
+  TIMELINE_SNAP_RELEASE_PX,
+  TIMELINE_SNAP_THRESHOLD_PX,
+} from "#shared/editor/timeline-snapping";
+import UIcon from "../UIcon.vue";
+import {
   isKeyframeInSelection,
   toggleKeyframeInSelection,
 } from "#shared/editor/keyframe-selection";
+
+/** Lucide magnet as a component so UiButton can take it as icon-left. */
+const MagnetIcon = () => h(UIcon, { name: "i-lucide-magnet" });
 
 type Emits = {
   "toggle-stopwatch": [layerId: string, paramName: string];
@@ -85,6 +97,7 @@ const selectedKeyframes = defineModel<KeyframeSelection[]>("selectedKeyframes", 
 const currentTime = defineModel<number>("currentTime", { required: true });
 const playing = defineModel<boolean>("playing", { required: true });
 const pxPerSecond = defineModel<number>("pxPerSecond", { default: DEFAULT_PX_PER_SECOND });
+const snapping = defineModel<boolean>("snapping", { default: true });
 
 const { settings } = defineProps<{
   settings: CompositionSettings;
@@ -1311,6 +1324,9 @@ function toggleUniversalPropertyReveal(params: string[]): boolean {
 
 type LayerBarDragMode = "move" | "in" | "out";
 
+/** Time of the active edge-snap guide while a bar drag is locked on. */
+const snapGuideTime = ref<number | null>(null);
+
 function layerInPoint(layer: LayerInstance): number {
   return layer.timing?.in ?? 0;
 }
@@ -1375,6 +1391,19 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
   const startWindows = new Map(
     movedLayers.map((l) => [l.id, { in: layerInPoint(l), out: layerOutPoint(l) }]),
   );
+  const startWindowList = [...startWindows.values()];
+
+  // Edge snapping like the canvas: comp bounds, playhead, other bars' edges.
+  const snapTargets = collectBarSnapTargets(
+    layers.value.map((l) => ({ id: l.id, in: layerInPoint(l), out: layerOutPoint(l) })),
+    movedIds,
+    settings.duration,
+    currentTime.value,
+  );
+  const snapThreshold = () => TIMELINE_SNAP_THRESHOLD_PX / pxPerSecond.value;
+  const snapRelease = () => TIMELINE_SNAP_RELEASE_PX / pxPerSecond.value;
+  // The currently held target (hysteresis), kept across pointermoves.
+  let snapLock: number | null = null;
 
   // Moving a bar shifts the layer in time: keyframes travel with it.
   const startKeyTimes = new Map(
@@ -1403,36 +1432,89 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
     }
 
     const deltaTime = (ev.clientX - startX) / pxPerSecond.value;
+    // Frames quantize the drag; an edge snap in range takes over. Holding
+    // ⌥/Alt bypasses snapping for this move. When the clamp then moves the
+    // result, the guide would lie, so it is dropped.
+    const snapActive = snapping.value && !ev.altKey;
+    if (!snapActive) snapLock = null;
+    let guide: number | null = null;
     if (mode === "move") {
-      // Snap against the pressed bar, then clamp one shared delta so every
-      // moved bar keeps a grabbable slice inside the composition.
-      const delta = clampGroupBarMoveDelta(
-        snapTime(startIn + deltaTime) - startIn,
-        [...startWindows.values()],
-        settings.duration,
-      );
+      let delta = snapTime(startIn + deltaTime) - startIn;
+      if (snapActive) {
+        const snapped = snapBarMoveDelta(
+          deltaTime,
+          startWindowList,
+          snapTargets,
+          snapThreshold(),
+          snapLock,
+          snapRelease(),
+        );
+        if (snapped.guide !== null) {
+          delta = snapped.delta;
+          guide = snapped.guide;
+        }
+      }
+      snapLock = guide;
+      // Clamp one shared delta so every moved bar keeps a grabbable slice
+      // inside the composition.
+      const clamped = clampGroupBarMoveDelta(delta, startWindowList, settings.duration);
+      if (clamped !== delta) guide = null;
       for (const moved of movedLayers) {
         const w = startWindows.get(moved.id)!;
-        writeLayerTiming(moved, w.in + delta, w.out + delta);
+        writeLayerTiming(moved, w.in + clamped, w.out + clamped);
       }
-      shiftLayerKeyframes(delta);
+      shiftLayerKeyframes(clamped);
     } else if (mode === "in") {
+      let nextIn = snapTime(startIn + deltaTime);
+      if (snapActive) {
+        const snapped = snapEdgeTime(
+          startIn + deltaTime,
+          snapTargets,
+          snapThreshold(),
+          snapLock,
+          snapRelease(),
+        );
+        if (snapped.guide !== null) {
+          nextIn = snapped.time;
+          guide = snapped.guide;
+        }
+      }
+      snapLock = guide;
       // Trim stops at 0 as before, but keeps an existing left overhang reachable.
-      const nextIn = Math.max(
+      const clamped = Math.max(
         Math.min(0, startIn),
-        Math.min(snapTime(startIn + deltaTime), startOut - frame, settings.duration - frame),
+        Math.min(nextIn, startOut - frame, settings.duration - frame),
       );
-      writeLayerTiming(layer, nextIn, startOut);
+      if (clamped !== nextIn) guide = null;
+      writeLayerTiming(layer, clamped, startOut);
     } else {
+      let nextOut = snapTime(startOut + deltaTime);
+      if (snapActive) {
+        const snapped = snapEdgeTime(
+          startOut + deltaTime,
+          snapTargets,
+          snapThreshold(),
+          snapLock,
+          snapRelease(),
+        );
+        if (snapped.guide !== null) {
+          nextOut = snapped.time;
+          guide = snapped.guide;
+        }
+      }
+      snapLock = guide;
       // The out point may pass the composition end; that tail never plays.
-      const nextOut = Math.max(snapTime(startOut + deltaTime), startIn + frame, frame);
-      writeLayerTiming(layer, startIn, nextOut);
+      const clamped = Math.max(nextOut, startIn + frame, frame);
+      if (clamped !== nextOut) guide = null;
+      writeLayerTiming(layer, startIn, clamped);
     }
+    snapGuideTime.value = guide;
   }
 
   function onUp() {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    snapGuideTime.value = null;
     if (dragging) history?.commitGesture();
   }
 
@@ -1560,6 +1642,14 @@ function selectAllLayers() {
         @click="openDurationEditor"
       >/ {{ formatTime(settings.duration) }}</span>
       <div class="ml-auto flex items-center gap-0.5">
+        <UiButton
+          variant="option"
+          size="sm"
+          :active="snapping"
+          :icon-left="MagnetIcon"
+          :title="snapping ? 'Snapping on (hold ⌥ to bypass)' : 'Snapping off'"
+          @click="snapping = !snapping"
+        />
         <UiButton variant="ghost" size="sm" title="Fit composition to view (⇧Z)" @click="fitTimeline">Fit</UiButton>
         <UiButton variant="ghost" size="sm" :icon-left="MinusIcon" title="Zoom out (⌥ scroll)" @click="zoomOut" />
         <span class="min-w-10 text-center font-mono text-copy-xs text-neutral-subtle">{{ zoomPercent }}%</span>
@@ -1861,6 +1951,15 @@ function selectAllLayers() {
               v-if="marquee"
               class="pointer-events-none absolute z-30 border border-accent/80 bg-accent/10"
               :style="marqueeStyle"
+            />
+
+            <div
+              v-if="snapGuideTime !== null"
+              class="pointer-events-none absolute -top-px bottom-0 z-30 w-px -translate-x-1/2"
+              :style="{
+                left: `${snapGuideTime * pxPerSecond}px`,
+                backgroundColor: TIMELINE_GUIDE_COLOR,
+              }"
             />
 
             <div

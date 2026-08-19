@@ -99,6 +99,11 @@ const timelineZoom = computed({
   set: (pxPerSecond) => updateLayoutPrefs({ timelinePxPerSecond: pxPerSecond }),
 });
 
+const timelineSnapping = computed({
+  get: () => layoutPrefs.value.timelineSnapping,
+  set: (snapping) => updateLayoutPrefs({ timelineSnapping: snapping }),
+});
+
 const { onPointerDown: onTimelineResizePointerDown } = useVerticalPaneResize({
   height: timelineHeight,
   min: 120,
@@ -1789,6 +1794,7 @@ registerKeyboard({
           v-model:current-time="currentTime"
           v-model:playing="playing"
           v-model:px-per-second="timelineZoom"
+          v-model:snapping="timelineSnapping"
           :settings="settings"
           @toggle-stopwatch="toggleStopwatch"
           @toggle-keyframe="toggleKeyframeAtPlayhead"

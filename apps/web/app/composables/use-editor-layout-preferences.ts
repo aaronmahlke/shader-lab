@@ -1,11 +1,13 @@
 export type EditorLayoutPreferences = {
   timelineHeight: number;
   timelinePxPerSecond: number;
+  timelineSnapping: boolean;
 };
 
 export const EDITOR_LAYOUT_DEFAULTS: EditorLayoutPreferences = {
   timelineHeight: 224,
   timelinePxPerSecond: 96,
+  timelineSnapping: true,
 };
 
 const COOKIE_NAME = "shader-lab-editor-layout";
@@ -31,6 +33,9 @@ export function normalizeEditorLayoutPreferences(
   return {
     timelineHeight: clampTimelineHeight(value?.timelineHeight),
     timelinePxPerSecond: clampPxPerSecond(value?.timelinePxPerSecond),
+    // Anything but an explicit false (e.g. cookies from before the field
+    // existed) means snapping on.
+    timelineSnapping: value?.timelineSnapping !== false,
   };
 }
 
