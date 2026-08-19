@@ -24,6 +24,7 @@ import {
   pasteKeyframesAtTime,
 } from "@shader-lab/core";
 import { refDebounced } from "@vueuse/core";
+import type { ShaderDoc } from "#shared/types/project";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { clampValue, type LayerTransformValues } from "#shared/editor/layer-transform";
@@ -86,6 +87,10 @@ import { MESH_MAX_POINTS } from "@shader-lab/core";
 
 useHead({ title: "Shader — Shader Lab" });
 
+// Remount the page when navigating between compositions (/shader/a → /shader/b)
+// so the whole editor state reloads for the new composition.
+definePageMeta({ key: (route) => route.fullPath });
+
 const route = useRoute();
 const exportOpen = ref(false);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -120,6 +125,7 @@ const initialDoc = cloneShaderPreset(
 );
 
 const shaderId = ref<string | null>(routeId ?? null);
+const projectId = ref<string | null>(null);
 const shaderName = ref(
   routeId ? "Untitled" : (getShaderPreset(presetId)?.name ?? "Untitled"),
 );
@@ -164,19 +170,22 @@ function syncInitialLayerSelection() {
 if (routeId) {
   const { data } = await useFetch(`/api/shaders/${routeId}`);
   if (data.value) {
-    const comp = data.value as {
-      id: string;
-      name: string;
-      data: {
-        layers: LayerInstance[];
-        lfos: LFOSource[];
-        assignments: ModulationAssignment[];
-        settings?: CompositionSettings;
-        tracks?: PropertyTrack[];
-      };
-    };
+    const comp = data.value as unknown as ShaderDoc;
     shaderId.value = comp.id;
+    projectId.value = comp.projectId;
     shaderName.value = comp.name;
+    // Legacy URLs may carry the project id; the adapter resolves it to the
+    // first composition. Normalize the URL to the canonical comp id so saves
+    // and tab highlighting always work off the comp id. Wait for the router's
+    // initial navigation: it finalizes with a history.replace of the original
+    // URL and would overwrite an earlier replaceState.
+    // (window.history explicitly: `history` is the editor's undo history here)
+    if (import.meta.client && comp.id !== routeId) {
+      const router = useRouter();
+      router.isReady().then(() => {
+        window.history.replaceState(window.history.state, "", `/shader/${comp.id}`);
+      });
+    }
     layers.value = comp.data.layers;
     settings.value = { ...DEFAULT_COMPOSITION_SETTINGS, ...comp.data.settings };
     tracks.value = comp.data.tracks ?? [];
@@ -501,7 +510,7 @@ const shaderData = computed(() => ({
   tracks: tracks.value,
 }));
 
-useAutoSave(shaderId, shaderName, shaderData, { getCanvas });
+useAutoSave(shaderId, shaderName, shaderData, { getCanvas, projectId });
 
 // --- Keyframe / track helpers ---
 
@@ -1711,6 +1720,16 @@ registerKeyboard({
 
           <EditorComponentStageHost ref="stageHostRef" :layers="layers" />
         </ClientOnly>
+
+        <!-- Composition tabs (top-left; the centered toolbar owns inset-x-0 but ignores pointer events) -->
+        <div class="pointer-events-none absolute top-3 left-3 z-50 flex max-w-[40%]">
+          <EditorCompTabs
+            v-if="projectId"
+            class="pointer-events-auto"
+            :project-id="projectId"
+            :active-comp-id="shaderId"
+          />
+        </div>
 
         <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">
           <EditorLayerAddBar ref="layerAddBarRef" class="pointer-events-auto" @select="addLayer" />

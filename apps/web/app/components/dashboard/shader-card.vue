@@ -1,18 +1,24 @@
 <script setup lang="ts">
 import type { CompositionSettings, LayerInstance, LFOSource, ModulationAssignment, PropertyTrack } from "@shader-lab/core";
 
+type CardData = {
+  layers: LayerInstance[];
+  lfos: LFOSource[];
+  assignments: ModulationAssignment[];
+  tracks?: PropertyTrack[];
+  settings?: CompositionSettings;
+};
+
 type Props = {
+  /** Composition id (the card links to /shader/<id> and lazy-loads its data). */
   id: string;
   name: string;
   thumbnailUrl: string | null;
   updatedAt: string;
-  data: {
-    layers: LayerInstance[];
-    lfos: LFOSource[];
-    assignments: ModulationAssignment[];
-    tracks?: PropertyTrack[];
-    settings?: CompositionSettings;
-  };
+  /** Optional eager data; when omitted it is fetched on first hover. */
+  data?: CardData;
+  /** Number of compositions in the project (badge shown when > 1). */
+  compCount?: number;
 };
 
 type Emits = {
@@ -21,8 +27,31 @@ type Emits = {
   rename: [name: string];
 };
 
-const { id, name, thumbnailUrl, updatedAt, data } = defineProps<Props>();
+const { id, name, thumbnailUrl, updatedAt, data, compCount } = defineProps<Props>();
 const emit = defineEmits<Emits>();
+
+// --- Preview data (lazy) ---
+
+// The dashboard now lists projects without data payloads; the hover preview
+// pulls the composition through the legacy adapter on first hover.
+const doc = ref<CardData | null>(data ?? null);
+let docRequested = false;
+
+async function ensureDoc() {
+  if (doc.value || docRequested) return;
+  docRequested = true;
+  try {
+    const res = await $fetch<{ data: CardData }>(`/api/shaders/${id}`);
+    doc.value = res.data;
+    layers.value = res.data.layers ?? [];
+    lfos.value = res.data.lfos ?? [];
+    assignments.value = res.data.assignments ?? [];
+    tracks.value = res.data.tracks ?? [];
+  } catch (e) {
+    docRequested = false;
+    console.warn("Failed to load composition preview:", e);
+  }
+}
 
 // --- Inline rename ---
 
@@ -77,11 +106,15 @@ const innerGlow = "inset 0 1px 0 0 rgba(255,255,255,0.1), inset 0 -1px 0 0 rgba(
 // Match the editor: buffer follows the comp size (capped for VRAM) and the
 // comp dimensions feed u_scale / text raster scale so effects like
 // distortion displace identically to the editor render.
-const compWidth = data.settings?.width ?? 1920;
-const compHeight = data.settings?.height ?? 1080;
-const bufferScale = Math.min(1, 1920 / Math.max(compWidth, compHeight));
-const RENDER_WIDTH = Math.max(2, Math.round(compWidth * bufferScale));
-const RENDER_HEIGHT = Math.max(2, Math.round(compHeight * bufferScale));
+const compWidth = computed(() => doc.value?.settings?.width ?? 1920);
+const compHeight = computed(() => doc.value?.settings?.height ?? 1080);
+const renderSize = computed(() => {
+  const bufferScale = Math.min(1, 1920 / Math.max(compWidth.value, compHeight.value));
+  return {
+    width: Math.max(2, Math.round(compWidth.value * bufferScale)),
+    height: Math.max(2, Math.round(compHeight.value * bufferScale)),
+  };
+});
 
 // Hidden offscreen canvas for WebGL rendering at full resolution
 const offscreenCanvas = ref<HTMLCanvasElement | null>(null);
@@ -89,17 +122,25 @@ const offscreenCanvas = ref<HTMLCanvasElement | null>(null);
 // Create offscreen canvas when component mounts (but only used on hover)
 onMounted(() => {
   const canvas = document.createElement("canvas");
-  canvas.width = RENDER_WIDTH;
-  canvas.height = RENDER_HEIGHT;
+  canvas.width = renderSize.value.width;
+  canvas.height = renderSize.value.height;
   canvas.style.display = "none";
   offscreenCanvas.value = canvas;
 });
 
+// Keep the offscreen buffer in sync once lazily fetched data reveals the size.
+watch(renderSize, ({ width, height }) => {
+  const canvas = offscreenCanvas.value;
+  if (!canvas) return;
+  canvas.width = width;
+  canvas.height = height;
+});
+
 // The WebGL renderer targets the offscreen canvas
-const layers = ref<LayerInstance[]>(data.layers ?? []);
-const lfos = ref<LFOSource[]>(data.lfos ?? []);
-const assignments = ref<ModulationAssignment[]>(data.assignments ?? []);
-const tracks = ref<PropertyTrack[]>(data.tracks ?? []);
+const layers = ref<LayerInstance[]>(data?.layers ?? []);
+const lfos = ref<LFOSource[]>(data?.lfos ?? []);
+const assignments = ref<ModulationAssignment[]>(data?.assignments ?? []);
+const tracks = ref<PropertyTrack[]>(data?.tracks ?? []);
 
 // Render-time clock drives both LFO sampling and keyframe evaluation, so the
 // hover preview animates exactly like the editor (previously tracks were
@@ -112,8 +153,9 @@ const { getModulatedValue, sampleLfosAtTime } = useModulationEngine(lfos, assign
 const modFn = computed(() => getModulatedValue);
 const { passes } = useLayerCompiler(layers, modFn, lfos, assignments);
 
-// Only activate the renderer when hovered
-const activeCanvasRef = computed(() => isHovered.value ? offscreenCanvas.value : null);
+// Only activate the renderer when hovered and the data has arrived
+const showPreview = computed(() => isHovered.value && doc.value !== null);
+const activeCanvasRef = computed(() => showPreview.value ? offscreenCanvas.value : null);
 useMultiPassRenderer(activeCanvasRef, passes, {
   layers,
   tracks,
@@ -122,9 +164,9 @@ useMultiPassRenderer(activeCanvasRef, passes, {
     previewTime.value = t;
     sampleLfosAtTime(t);
   },
-  fixedBufferSize: ref({ width: RENDER_WIDTH, height: RENDER_HEIGHT }),
-  scaleReferenceWidth: ref(compWidth),
-  contentReferenceHeight: ref(compHeight),
+  fixedBufferSize: renderSize,
+  scaleReferenceWidth: compWidth,
+  contentReferenceHeight: compHeight,
 });
 
 // Blit offscreen canvas to the visible display canvas
@@ -182,8 +224,15 @@ function stopBlit() {
 
 function onPointerEnter() {
   isHovered.value = true;
+  ensureDoc();
   nextTick(startBlit);
 }
+
+// Data may arrive after the pointer entered; kick the blit loop once the
+// display canvas exists (it is v-if gated on showPreview).
+watch(showPreview, (show) => {
+  if (show) nextTick(startBlit);
+});
 
 function onPointerMove(e: PointerEvent) {
   if (!cardRef.value) return;
@@ -282,7 +331,7 @@ const specularNarrow = computed(() => {
                 :src="thumbnailUrl"
                 :alt="name"
                 class="size-full object-cover transition-opacity duration-200"
-                :class="isHovered ? 'opacity-0' : 'opacity-100'"
+                :class="showPreview ? 'opacity-0' : 'opacity-100'"
               />
               <div v-else class="flex size-full items-center justify-center">
                 <span class="text-copy-sm text-tertiary">No preview</span>
@@ -290,10 +339,18 @@ const specularNarrow = computed(() => {
 
               <!-- Display canvas (shows downscaled offscreen render) -->
               <canvas
-                v-if="isHovered"
+                v-if="showPreview"
                 ref="displayCanvasRef"
                 class="absolute inset-0 size-full"
               />
+            </div>
+
+            <!-- Composition count badge (only for multi-comp projects) -->
+            <div
+              v-if="compCount && compCount > 1"
+              class="absolute top-2 right-2 z-10 rounded-md border border-edge bg-base-0/70 px-1.5 py-0.5 text-copy-xs text-secondary backdrop-blur"
+            >
+              {{ compCount }} comps
             </div>
 
             <!-- Specular light strips (sweep across card based on tilt) -->
