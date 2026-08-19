@@ -34,6 +34,22 @@ export const OPACITY_UNIFORM: LayerUniformDef = {
   name: "layerOpacity", type: "float", label: "Opacity", default: 100, min: 0, max: 100, step: 0.1,
 };
 
+/**
+ * 3D quads only: shade the layer's content with the group's light layers
+ * (diffuse + ambient, AE's "Accepts Lights"). Off by default — flat/emissive.
+ */
+export const ACCEPTS_LIGHT_UNIFORM: LayerUniformDef = {
+  name: "layerAcceptsLight",
+  type: "select",
+  label: "Accepts light",
+  default: 0,
+  options: [
+    { label: "Off", value: 0 },
+    { label: "On", value: 1 },
+  ],
+  keyframeable: false,
+};
+
 /** How a generator's content blends onto the stack below (composite pass). */
 export const BLEND_MODE_UNIFORM: LayerUniformDef = {
   name: "layerBlendMode",
@@ -68,6 +84,7 @@ export const UNIVERSAL_LAYER_UNIFORMS: LayerUniformDef[] = [
   ...THREED_TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
   BLEND_MODE_UNIFORM,
+  ACCEPTS_LIGHT_UNIFORM,
 ];
 
 const UNIVERSAL_NAMES = new Set(UNIVERSAL_LAYER_UNIFORMS.map((def) => def.name));
@@ -106,18 +123,25 @@ const THREED_DISPLAY_ORDER: LayerUniformDef[] = [
   findUniform("layerAnchorY"),
   OPACITY_UNIFORM,
   BLEND_MODE_UNIFORM,
+  ACCEPTS_LIGHT_UNIFORM,
 ];
 
 /**
  * Universal uniform defs applicable to a layer: generators get transform + opacity
- * (plus Z/X/Y rotation when the 3D switch is on), others opacity only.
+ * (plus Z/X/Y rotation and Accepts light when the 3D switch is on), others
+ * opacity only. object3d/light are always lit/emitting — no toggle for them.
  */
 export function universalUniformsFor(
   layer: Pick<LayerInstance, "type"> & Partial<Pick<LayerInstance, "is3D">>,
 ): LayerUniformDef[] {
   const template = LAYER_TEMPLATES[layer.type];
   if (template?.category !== "generator") return [OPACITY_UNIFORM];
-  if (isLayer3D(layer)) return THREED_DISPLAY_ORDER;
+  if (isLayer3D(layer)) {
+    if (ALWAYS_3D.has(layer.type)) {
+      return THREED_DISPLAY_ORDER.filter((def) => def.name !== "layerAcceptsLight");
+    }
+    return THREED_DISPLAY_ORDER;
+  }
   return [...TRANSFORM_UNIFORMS, OPACITY_UNIFORM, BLEND_MODE_UNIFORM];
 }
 

@@ -186,7 +186,24 @@ export {
 } from "./compiler/compile-passes";
 export { createNestedResolvers } from "./compiler/nested";
 export { find3DRuns, threeDGroupMemberIds, type ThreeDRun } from "./compiler/threed";
-export { orderThreeDMembers, assignThreeDSlots, SCENE_FOV_DEG } from "./renderer/threed-order";
+export {
+  orderThreeDMembers,
+  assignThreeDSlots,
+  resolveSceneView,
+  IDENTITY_VIEW,
+  SCENE_FOV_DEG,
+  type SceneView,
+} from "./renderer/threed-order";
+export {
+  projectLayerQuad,
+  projectObjectBounds,
+  projectStagePoint,
+  pointInProjectedQuad,
+  threeDTransformFromValues,
+  drivingCameraIdFor,
+  type ProjectedPoint,
+  type ThreeDTransform,
+} from "./compiler/threed-project";
 export { renderPasses, destroyGlContext } from "./renderer/render-passes";
 
 export type { GradientStop } from "./types";

@@ -18,6 +18,14 @@ import {
   type Vec2,
 } from "#shared/editor/layer-transform";
 import { findSnap, type SnapTargets } from "#shared/editor/snapping";
+import {
+  inversePositionJacobian,
+  mapUvDelta,
+  projectGizmoAnchor,
+  projectGizmoQuad,
+  type InverseJacobian,
+  type ThreeDGizmoData,
+} from "#shared/editor/threed-gizmo";
 
 type Props = {
   /** The layer this gizmo controls. */
@@ -48,6 +56,11 @@ type Props = {
   contentExtent?: ContentExtent;
   /** Viewport zoom of the scaled artboard; keeps gizmo chrome constant on screen. */
   zoom?: number;
+  /**
+   * Present for 3D layers (is3D generators, object3d): transform + scene view
+   * so the outline/handles land on the projected quad, matching the render.
+   */
+  threeD?: ThreeDGizmoData | null;
 };
 
 type Emits = {
@@ -79,20 +92,54 @@ const values = computed<LayerTransformValues>(() => ({
 
 const aspect = computed(() => (height.value > 0 ? width.value / height.value : 1));
 
-const cornerPoints = computed(() =>
-  layerCornersInCompUv(values.value, aspect.value, props.contentExtent).map((uv) =>
-    compUvToScreen(uv, width.value, height.value),
-  ),
+/** 3D layers: the projected screen quad (comp UV, y up); null = behind camera. */
+const projectedQuad = computed(() =>
+  props.threeD ? projectGizmoQuad(props.threeD, aspect.value) : null,
 );
+
+/** 3D layers: projected anchor point (falls back to the quad centroid). */
+const projectedAnchorUv = computed<Vec2 | null>(() => {
+  if (!props.threeD) return null;
+  const anchor = projectGizmoAnchor(props.threeD, aspect.value);
+  if (anchor) return { x: anchor.x, y: anchor.y };
+  const quad = projectedQuad.value;
+  if (!quad) return null;
+  return {
+    x: quad.reduce((sum, p) => sum + p.x, 0) / quad.length,
+    y: quad.reduce((sum, p) => sum + p.y, 0) / quad.length,
+  };
+});
+
+/** Behind-camera 3D layers hide the whole gizmo. */
+const gizmoVisible = computed(() => !props.threeD || !!projectedQuad.value);
+
+const cornerPoints = computed(() => {
+  if (props.threeD) {
+    const quad = projectedQuad.value;
+    if (!quad) return [];
+    return quad.map((p) => compUvToScreen({ x: p.x, y: p.y }, width.value, height.value));
+  }
+  return layerCornersInCompUv(values.value, aspect.value, props.contentExtent).map((uv) =>
+    compUvToScreen(uv, width.value, height.value),
+  );
+});
 
 const polygonPoints = computed(() =>
   cornerPoints.value.map((p) => `${p.x},${p.y}`).join(" "),
 );
 
 /** The anchor/pivot on screen — also where the anchor handle renders. */
-const centerPoint = computed(() =>
-  compUvToScreen(anchorPointInCompUv(values.value, aspect.value), width.value, height.value),
-);
+const centerPoint = computed(() => {
+  if (props.threeD) {
+    const anchor = projectedAnchorUv.value;
+    if (anchor) return compUvToScreen(anchor, width.value, height.value);
+    return { x: 0, y: 0 };
+  }
+  return compUvToScreen(anchorPointInCompUv(values.value, aspect.value), width.value, height.value);
+});
+
+/** Corner handle squares align with layerRotation only in 2D. */
+const handleRotation = computed(() => (props.threeD ? 0 : props.rotation));
 
 /**
  * Figma-style rotation zones: invisible circular hit areas just outside each
@@ -163,6 +210,24 @@ let dragStartValues: LayerTransformValues | null = null;
 let dragStartPointer: Vec2 | null = null; // comp uv
 let dragStartDistance = 0;
 let dragStartAngle = 0;
+/** 3D move drags: screen-UV delta → position delta (recomputed per drag start). */
+let drag3DJacobian: InverseJacobian | null = null;
+/** 3D scale/rotate drags pivot around the projected anchor (comp uv). */
+let drag3DCenter: Vec2 | null = null;
+
+/** Aspect-corrected distance from the projected 3D pivot. */
+function distanceFrom3DCenter(uv: Vec2): number {
+  const c = drag3DCenter;
+  if (!c) return 1e-4;
+  return Math.hypot((uv.x - c.x) * aspect.value, uv.y - c.y);
+}
+
+/** Screen-clockwise angle around the projected 3D pivot, like angleAroundCenter. */
+function angleAround3DCenter(uv: Vec2): number {
+  const c = drag3DCenter;
+  if (!c) return 0;
+  return (Math.atan2(-(uv.y - c.y), (uv.x - c.x) * aspect.value) * 180) / Math.PI;
+}
 
 const POSITION_STEP = 0.001;
 const SCALE_STEP = 0.1;
@@ -212,13 +277,28 @@ function onHandlePointerDown(mode: DragMode, e: PointerEvent) {
     }
   }
 
+  // 3D layers: the anchor's pan-behind math is 2D-only; skip the drag there.
+  if (mode === "anchor" && props.threeD) return;
+
   // Alt-drag on the body rotates — the rotation stem can sit outside the
   // clipped canvas when the layer fills the frame.
   dragMode.value = mode === "move" && e.altKey ? "rotate" : mode;
   dragStartValues = { ...values.value };
   dragStartPointer = uv;
-  dragStartDistance = Math.max(distanceFromCenter(uv, dragStartValues, aspect.value), 1e-4);
-  dragStartAngle = angleAroundCenter(uv, dragStartValues, aspect.value);
+  if (props.threeD) {
+    // Jacobian of the projected anchor: maps pointer-UV deltas to position
+    // deltas so the layer tracks the cursor at its depth. Per drag start is
+    // accurate enough (the camera does not move during the drag).
+    drag3DJacobian = inversePositionJacobian(props.threeD, aspect.value);
+    drag3DCenter = projectedAnchorUv.value;
+    dragStartDistance = Math.max(distanceFrom3DCenter(uv), 1e-4);
+    dragStartAngle = angleAround3DCenter(uv);
+  } else {
+    drag3DJacobian = null;
+    drag3DCenter = null;
+    dragStartDistance = Math.max(distanceFromCenter(uv, dragStartValues, aspect.value), 1e-4);
+    dragStartAngle = angleAroundCenter(uv, dragStartValues, aspect.value);
+  }
   history?.beginGesture();
 
   // Keep the handle's cursor while the pointer roams during the drag.
@@ -248,6 +328,29 @@ function onWindowPointerMove(e: PointerEvent) {
       // Constrain to the dominant axis.
       if (Math.abs(dx * aspect.value) >= Math.abs(dy)) dy = 0;
       else dx = 0;
+    }
+
+    if (props.threeD) {
+      // Map the pointer's screen delta to a position delta at the layer's
+      // depth. Smart guides are 2D bounds — skipped for 3D layers.
+      const delta = drag3DJacobian ? mapUvDelta(drag3DJacobian, dx, dy) : { x: dx, y: dy };
+      emit(
+        "update:positionX",
+        clampValue(
+          snapValue(start.positionX + delta.x, POSITION_STEP),
+          props.positionMin,
+          props.positionMax,
+        ),
+      );
+      emit(
+        "update:positionY",
+        clampValue(
+          snapValue(start.positionY + delta.y, POSITION_STEP),
+          props.positionMin,
+          props.positionMax,
+        ),
+      );
+      return;
     }
 
     let nextX = snapValue(start.positionX + dx, POSITION_STEP);
@@ -323,7 +426,10 @@ function onWindowPointerMove(e: PointerEvent) {
   }
 
   if (mode === "scale") {
-    const distance = distanceFromCenter(uv, start, aspect.value);
+    // 3D: measure from the projected pivot so the ratio matches the screen.
+    const distance = props.threeD
+      ? distanceFrom3DCenter(uv)
+      : distanceFromCenter(uv, start, aspect.value);
     const ratio = distance / dragStartDistance;
     emit(
       "update:scale",
@@ -332,7 +438,9 @@ function onWindowPointerMove(e: PointerEvent) {
     return;
   }
 
-  const angle = angleAroundCenter(uv, start, aspect.value);
+  const angle = props.threeD
+    ? angleAround3DCenter(uv)
+    : angleAroundCenter(uv, start, aspect.value);
   let delta = shortestAngleDelta(angle - dragStartAngle);
   let next = start.rotation + delta;
   if (e.shiftKey) next = Math.round(next / ROTATION_SNAP) * ROTATION_SNAP;
@@ -349,6 +457,8 @@ function onWindowPointerUp() {
   dragMode.value = null;
   dragStartValues = null;
   dragStartPointer = null;
+  drag3DJacobian = null;
+  drag3DCenter = null;
   activeGuides.value = { x: null, y: null };
   document.body.style.cursor = "";
   history?.commitGesture();
@@ -368,7 +478,7 @@ onUnmounted(() => {
     aria-label="Layer transform gizmo"
   >
     <svg
-      v-if="width > 0 && height > 0"
+      v-if="width > 0 && height > 0 && gizmoVisible"
       class="absolute inset-0 size-full overflow-visible"
       :viewBox="`0 0 ${width} ${height}`"
     >
@@ -443,7 +553,7 @@ onUnmounted(() => {
         :rx="1 * gz"
         class="pointer-events-auto fill-white stroke-accent"
         :style="{ cursor: resizeCursorFor(corner) }"
-        :transform="`rotate(${rotation} ${corner.x} ${corner.y})`"
+        :transform="`rotate(${handleRotation} ${corner.x} ${corner.y})`"
         stroke-width="1.5"
         vector-effect="non-scaling-stroke"
         @pointerdown="onHandlePointerDown('scale', $event)"
@@ -451,8 +561,9 @@ onUnmounted(() => {
 
       <!-- Anchor handle: crosshair-in-circle at the pivot; dragging moves the
            anchor and pans position behind so the content stays put -->
+      <!-- 3D layers: the anchor dot is display-only (pan-behind math is 2D) -->
       <g
-        class="pointer-events-auto cursor-crosshair"
+        :class="threeD ? 'pointer-events-none' : 'pointer-events-auto cursor-crosshair'"
         aria-label="Anchor handle"
         @pointerdown="onHandlePointerDown('anchor', $event)"
       >

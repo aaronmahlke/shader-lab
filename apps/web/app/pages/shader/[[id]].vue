@@ -11,7 +11,12 @@ import {
   LAYER_TEMPLATES,
   DEFAULT_COMPOSITION_SETTINGS,
   UNIVERSAL_LAYER_UNIFORMS,
+  drivingCameraIdFor,
   findLayerParamDef,
+  isLayer3D,
+  resolveSceneView,
+  threeDTransformFromValues,
+  type SceneView,
   normalizeComposition,
   setTrackEnabled,
   upsertKeyframe,
@@ -37,7 +42,12 @@ import {
   type ContentExtent,
 } from "#shared/editor/layer-content-extent";
 import { createTextLineMeasurer } from "~/utils/text-measure";
-import { PICKABLE_LAYER_TYPES, topLayerAt } from "#shared/editor/canvas-picking";
+import {
+  PICKABLE_LAYER_TYPES,
+  topLayerAt,
+  type LayerProjection,
+} from "#shared/editor/canvas-picking";
+import { projectGizmoQuad, type ThreeDGizmoData } from "#shared/editor/threed-gizmo";
 import { collectSnapTargets } from "#shared/editor/snapping";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
@@ -414,6 +424,9 @@ const mediaSources = useMediaSources({
   requestRender,
   currentTime,
   compSize: () => ({ width: settings.value.width, height: settings.value.height }),
+  // Nested comps: register image/video sources under `host::layerId` pass ids.
+  resolveComposition,
+  registryVersion,
 });
 
 // Default clip length: a video layer with no timing yet gets out = its clip
@@ -1078,7 +1091,7 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
 
 // --- Universal transform gizmo (generators without a specialized gizmo) ---
 
-const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape", "image", "video"]);
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape", "image", "video", "object3d"]);
 
 const showTransformGizmo = computed(
   () =>
@@ -1178,10 +1191,58 @@ function layerContentExtent(layer: LayerInstance): ContentExtent {
 
 /** Topmost pickable layer id at a comp UV point (gizmo click-through). */
 function canvasLayerAt(uv: { x: number; y: number }, aspect: number): string | null {
-  return topLayerAt(layers.value, uv, aspect, layerTransformValues, layerContentExtent)?.id ?? null;
+  return (
+    topLayerAt(
+      layers.value,
+      uv,
+      aspect,
+      layerTransformValues,
+      layerContentExtent,
+      layerProjectionFor,
+    )?.id ?? null
+  );
 }
 
 const compositionAspect = computed(() => settings.value.width / settings.value.height);
+
+// --- 3D gizmos: scene view + projected quads (must match the 3D render) ---
+
+/** Live view of the drive-3D camera piloting the layer's group (or identity). */
+function sceneViewForLayer(layerId: string): SceneView {
+  return resolveSceneView(
+    drivingCameraIdFor(layers.value, layerId),
+    (id) => layers.value.find((l) => l.id === id),
+    // Same modFn the renderer uses — keyframed/LFO camera params stay in sync.
+    getModulatedValue,
+  );
+}
+
+/** Transform + view + (object3d) size for 3D gizmo projection; null for 2D layers. */
+function threeDGizmoDataFor(layer: LayerInstance): ThreeDGizmoData | null {
+  if (!isLayer3D(layer)) return null;
+  return {
+    // Same evaluated reads the 2D gizmo uses (keyframes via paramValue).
+    transform: threeDTransformFromValues(layer.values, (name, fallback) =>
+      paramValue(layer.id, name, fallback),
+    ),
+    view: sceneViewForLayer(layer.id),
+    size:
+      layer.type === "object3d"
+        ? {
+            x: paramValue(layer.id, "u_sizeX", 0.25),
+            y: paramValue(layer.id, "u_sizeY", 0.25),
+            z: paramValue(layer.id, "u_sizeZ", 0.25),
+          }
+        : null,
+  };
+}
+
+/** 3D layers: projected screen quad for picking/hover; null marks a 2D layer. */
+function layerProjectionFor(layer: LayerInstance): LayerProjection | null {
+  const data = threeDGizmoDataFor(layer);
+  if (!data) return null;
+  return { quad: projectGizmoQuad(data, compositionAspect.value) };
+}
 
 /** Smart-guide lines: composition frame + the other visible layers' bounds. */
 const snapTargets = computed(() =>
@@ -1602,6 +1663,16 @@ registerKeyboard({
                 :selected-layer-ids="[...selectedLayerIds]"
                 :get-transform="layerTransformValues"
                 :get-extent="layerContentExtent"
+                :get-projection="layerProjectionFor"
+                @select="onCanvasSelect"
+              />
+              <EditorLightGizmos
+                :layers="layers"
+                :selected-layer-ids="[...selectedLayerIds]"
+                :zoom="viewport.zoom.value"
+                :get-view="sceneViewForLayer"
+                :get-param="paramValue"
+                :apply-param="applyLayerParam"
                 @select="onCanvasSelect"
               />
               <EditorWavePositionGizmo
@@ -1653,6 +1724,7 @@ registerKeyboard({
                 :pick-at="canvasLayerAt"
                 :snap-targets="snapTargets"
                 :content-extent="layerContentExtent(selectedLayer)"
+                :three-d="threeDGizmoDataFor(selectedLayer)"
                 :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
                 :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
                 :scale="getTransformFloat(selectedLayer, 'layerScale')"
@@ -1681,6 +1753,7 @@ registerKeyboard({
                 :layers="multiSelectedLayers"
                 :get-transform="layerTransformValues"
                 :get-extent="layerContentExtent"
+                :get-three-d="threeDGizmoDataFor"
                 :apply-param="applyLayerParam"
                 :snap-targets="snapTargets"
                 :pick-at="canvasLayerAt"

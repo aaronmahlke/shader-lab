@@ -59,7 +59,12 @@ export function useEditorKeyboard() {
     handlers.set(handler.id, handler);
     ensureListener();
     onUnmounted(() => {
-      handlers.delete(handler.id);
+      // Keyed page swaps mount the NEW instance before the old one unmounts
+      // (Suspense); only delete when the map still holds THIS registration,
+      // or the old page's cleanup would kill the new page's handlers.
+      if (handlers.get(handler.id) === handler) {
+        handlers.delete(handler.id);
+      }
     });
   }
 

@@ -32,6 +32,17 @@ describe("scene3d layer types", () => {
     expect(names).toContain("layerRotationX");
   });
 
+  it("3D quads get the Accepts light toggle; objects and lights do not", () => {
+    const quad = universalUniformsFor({ type: "solid", is3D: true }).map((d) => d.name);
+    expect(quad).toContain("layerAcceptsLight");
+    const flat = universalUniformsFor({ type: "solid" }).map((d) => d.name);
+    expect(flat).not.toContain("layerAcceptsLight");
+    const obj = universalUniformsFor({ type: "object3d" }).map((d) => d.name);
+    expect(obj).not.toContain("layerAcceptsLight");
+    const light = universalUniformsFor({ type: "light" }).map((d) => d.name);
+    expect(light).not.toContain("layerAcceptsLight");
+  });
+
   it("the camera template has the drive3d switch", () => {
     const def = LAYER_TEMPLATES.camera!.uniforms.find((u) => u.name === "drive3d");
     expect(def?.type).toBe("bool");
