@@ -1,7 +1,7 @@
 import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
 import { expandMeshUniforms } from "./mesh-uniforms";
-import { buildUniversalUniforms, layerOpacityValue } from "./universal-uniforms";
+import { buildUniversalUniforms, isLayer3D, layerOpacityValue } from "./universal-uniforms";
 
 export type ModulationFn = (
   layerId: string,
@@ -44,6 +44,11 @@ export function buildLayerUniforms(
 /** Synthetic pass id for a generator layer's transform/opacity composite step. */
 export function compositePassId(layerId: string): string {
   return `composite-${layerId}`;
+}
+
+/** Synthetic pass id for a 3D group's composite slot. */
+export function threeDSlotPassId(groupKey: string, slot: number): string {
+  return `3dslot-${groupKey}-${slot}`;
 }
 
 /** Composite pass: blends a generator's content FBO onto the stack below with transform + opacity. */
@@ -230,6 +235,48 @@ export function compilePasses(
 
       previousLayerId = layer.id;
       i++;
+      continue;
+    }
+
+    if (isLayer3D(layer)) {
+      // Contiguous 3D generators form one depth-sorted group (AE model):
+      // content passes render each member, then a chain of composite SLOTS
+      // blends them onto the stack. Slot ids/topology are stable; the renderer
+      // assigns members to slots per frame (painter's sort by Z).
+      let runEnd = i;
+      while (runEnd < enabled.length && isLayer3D(enabled[runEnd]!)) runEnd++;
+      const members = enabled.slice(i, runEnd);
+      const memberIds = members.map((m) => m.id);
+      const groupKey = memberIds[0]!;
+
+      for (const member of members) {
+        result.push({
+          layerId: member.id,
+          layerType: member.type,
+          uniforms: buildLayerUniforms(member, modFn),
+          inputLayerId: null,
+          isOutput: false,
+        });
+      }
+
+      for (let slot = 0; slot < members.length; slot++) {
+        const slotId = threeDSlotPassId(groupKey, slot);
+        // Default member assignment is stack order; the renderer re-sorts.
+        const member = members[slot]!;
+        result.push({
+          layerId: slotId,
+          layerType: "layerComposite3d",
+          uniforms: buildUniversalUniforms(member, modFn),
+          inputLayerId: slot === 0 ? previousLayerId : threeDSlotPassId(groupKey, slot - 1),
+          colorSourceLayerId: member.id,
+          sourceLayerId: member.id,
+          threeDGroup: { key: groupKey, memberIds, slot },
+          isOutput: false,
+        });
+      }
+
+      previousLayerId = threeDSlotPassId(groupKey, members.length - 1);
+      i = runEnd;
       continue;
     }
 

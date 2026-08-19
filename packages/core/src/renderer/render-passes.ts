@@ -25,6 +25,7 @@ import {
   hexToRGB,
   type GlContext,
 } from "./gl-utils";
+import { assignThreeDSlots, SCENE_FOV_DEG } from "./threed-order";
 
 export type GradientDataFactory = (stops: GradientStop[]) => Uint8Array;
 
@@ -95,10 +96,14 @@ function resolvePassUniformValues(
   if (!layer) return { ...pass.uniforms };
 
   // Pass-graph only — not stored on layer templates.
-  const merged: Record<string, unknown> =
-    pass.layerType === "layerComposite"
-      ? buildUniversalUniforms(layer, ctx.getModulatedValue ?? null)
-      : buildLayerUniforms(layer, ctx.getModulatedValue ?? null);
+  const isComposite = pass.layerType === "layerComposite" || pass.layerType === "layerComposite3d";
+  const merged: Record<string, unknown> = isComposite
+    ? buildUniversalUniforms(layer, ctx.getModulatedValue ?? null)
+    : buildLayerUniforms(layer, ctx.getModulatedValue ?? null);
+
+  if (pass.layerType === "layerComposite3d") {
+    merged.u_sceneFov = SCENE_FOV_DEG;
+  }
 
   applyTimingGate(merged, layer, pass, ctx.time);
   return merged;
@@ -673,11 +678,18 @@ export function renderPasses(
     return blackTexture!;
   }
 
-  for (const pass of passes) {
+  // Depth-sort 3D group slots for this frame (keyframed/LFO Z flows through modFn).
+  const execPasses = assignThreeDSlots(passes, ctx.findLayer, ctx.getModulatedValue);
+
+  for (const pass of execPasses) {
     const program = programs.get(pass.layerType);
     if (!program) continue;
 
-    if (pass.layerType === "resolve" || pass.layerType === "layerComposite") {
+    if (
+      pass.layerType === "resolve" ||
+      pass.layerType === "layerComposite" ||
+      pass.layerType === "layerComposite3d"
+    ) {
       const hasColor = pass.colorSourceLayerId && fbos.has(pass.colorSourceLayerId);
       if (!hasColor) continue;
     }
@@ -713,7 +725,7 @@ export function renderPasses(
       }
     } else if (pass.layerType === "distortion") {
       inputTexture = getNeutralTexture();
-    } else if (pass.layerType === "layerComposite") {
+    } else if (pass.layerType === "layerComposite" || pass.layerType === "layerComposite3d") {
       // Bottom layer: composite onto black.
       inputTexture = getBlackTexture();
     }

@@ -72,7 +72,28 @@ export type CameraPassType =
   | "bloomUp"
   | "cameraComposite";
 
-export type RenderPassType = LayerType | "resolve" | "blit" | "layerComposite" | CameraPassType;
+export type RenderPassType =
+  | LayerType
+  | "resolve"
+  | "blit"
+  | "layerComposite"
+  | "layerComposite3d"
+  | CameraPassType;
+
+/**
+ * A composite slot inside a 3D group. Slots have a stable id/FBO/topology;
+ * WHICH member layer a slot composites is decided per frame by the renderer
+ * (painter's sort by Z depth), so animated depth swaps never change the pass
+ * graph signature.
+ */
+export type ThreeDGroupSlot = {
+  /** Stable group key (first member's layer id). */
+  key: string;
+  /** Member layer ids in stack order (bottom → top); the tie-break order. */
+  memberIds: string[];
+  /** This pass's position in the depth-sorted composite chain. */
+  slot: number;
+};
 
 export type RenderPass = {
   layerId: string;
@@ -88,6 +109,8 @@ export type RenderPass = {
   targetScale?: number;
   /** Render into a linear half-float target (camera/lens chain works in linear light). */
   floatTarget?: boolean;
+  /** Set on layerComposite3d passes: depth-sorted composite slot of a 3D group. */
+  threeDGroup?: ThreeDGroupSlot;
   isOutput: boolean;
 };
 
