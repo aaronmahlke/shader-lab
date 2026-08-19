@@ -72,6 +72,15 @@ function toggleLayerEnabled() {
 /** Options for the component layer's picker (static per session: glob-derived). */
 const componentPickerOptions = stageComponentOptions();
 
+/**
+ * Options for the composition layer's `compRefId` select: the project's other
+ * comps (id → name), provided by the editor page (excludes the open comp).
+ */
+const compRefOptions = inject<Ref<{ value: string; label: string }[]>>(
+  "compRefOptions",
+  ref([]),
+);
+
 function getAssignment(paramName: string): ModulationAssignment | undefined {
   return assignments.find((a) => a.layerId === layer.id && a.paramName === paramName);
 }
@@ -749,6 +758,15 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             :options="componentPickerOptions"
             :label="def.label"
             @update:model-value="setText(def, layer.values, String($event))"
+          />
+          <UiSelect
+            v-else-if="layer.type === 'composition' && def.name === 'compRefId'"
+            :model-value="getSelect(def, layer.values) as string"
+            :options="compRefOptions"
+            :label="def.label"
+            placeholder="Pick a composition…"
+            @update:model-value="setSelect(def, layer.values, $event as string | number)"
+            @select="setSelect(def, layer.values, $event)"
           />
           <div
             v-else-if="isMediaLayer && def.name === 'src'"

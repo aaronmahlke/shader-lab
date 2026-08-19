@@ -1,6 +1,7 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { renderCompositionToBuffer, type CompositionConfig } from "@shader-lab/core/server";
+import { compositions as compositionsTable } from "../../../database/schema";
 
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,6 +37,60 @@ async function drawOgOverlays(ctx: ReturnType<ReturnType<typeof createCanvas>["g
   } catch (e) {
     console.error("Failed to load title:", e);
   }
+}
+
+/** Safety cap on referenced comps loaded for one OG render. */
+const MAX_NESTED_COMPS = 10;
+
+/** compRefId values of composition layers (defensive: data is untyped JSON). */
+function compRefIdsIn(layers: CompositionConfig["layers"] | undefined): string[] {
+  if (!Array.isArray(layers)) return [];
+  const ids: string[] = [];
+  for (const layer of layers) {
+    if (layer?.type !== "composition") continue;
+    const id = layer.values?.compRefId;
+    if (typeof id === "string" && id) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Comps referenced (transitively) by the rendered comp's composition layers,
+ * restricted to the same project — mirrors the editor's registry so nested
+ * composition layers show up in OG images too.
+ */
+async function loadReferencedCompositions(
+  db: ReturnType<typeof useDrizzle>,
+  projectId: string,
+  rootLayers: CompositionConfig["layers"] | undefined,
+): Promise<Record<string, CompositionConfig>> {
+  const registry: Record<string, CompositionConfig> = {};
+  const seen = new Set<string>(compRefIdsIn(rootLayers));
+  let pending = [...seen];
+
+  while (pending.length > 0 && Object.keys(registry).length < MAX_NESTED_COMPS) {
+    const rows = await db
+      .select()
+      .from(compositionsTable)
+      .where(and(
+        eq(compositionsTable.projectId, projectId),
+        inArray(compositionsTable.id, pending),
+      ))
+      .limit(MAX_NESTED_COMPS);
+    pending = [];
+    for (const row of rows) {
+      if (!row.data || registry[row.id]) continue;
+      const config = { version: 1, ...(row.data as Omit<CompositionConfig, "version">) };
+      registry[row.id] = config;
+      for (const refId of compRefIdsIn(config.layers)) {
+        if (seen.has(refId)) continue;
+        seen.add(refId);
+        pending.push(refId);
+      }
+    }
+    if (rows.length === 0) break;
+  }
+  return registry;
 }
 
 async function compositeFromPngBuffer(png: Buffer): Promise<Buffer> {

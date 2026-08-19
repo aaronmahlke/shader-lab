@@ -29,11 +29,12 @@ import shapeFrag from "./layers/shape.frag";
 import fullscreenVert from "./layers/fullscreen.vert";
 import type { RenderPassType } from "../types/editor";
 
-// camera expands into lens passes; object3d/light render inside 3D group slots.
+// camera expands into lens passes; object3d/light render inside 3D group
+// slots; composition layers expand into their nested comp's passes.
 export const FRAG_SHADERS: Record<
-  Exclude<RenderPassType, "camera" | "object3d" | "light">,
+  Exclude<RenderPassType, "camera" | "object3d" | "light" | "composition">,
   string
-> & { camera?: undefined; object3d?: undefined; light?: undefined } = {
+> & { camera?: undefined; object3d?: undefined; light?: undefined; composition?: undefined } = {
   gradient: gradientFrag,
   mesh: meshFrag,
   solid: solidFrag,

@@ -24,7 +24,7 @@ import {
   pasteKeyframesAtTime,
 } from "@shader-lab/core";
 import { refDebounced } from "@vueuse/core";
-import type { ShaderDoc } from "#shared/types/project";
+import type { CompositionMeta, ProjectWithCompositions, ShaderDoc } from "#shared/types/project";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { clampValue, type LayerTransformValues } from "#shared/editor/layer-transform";
@@ -338,7 +338,40 @@ const renderLayers = computed<LayerInstance[]>(() => {
   return layers.value.map((l) => (l.id === id ? { ...l, enabled: false } : l));
 });
 
-const { passes } = useLayerCompiler(renderLayers, modFn, lfos, assignments);
+// Nested compositions: fetch referenced comps (and their refs) into a
+// registry the compiler and renderer resolve against.
+const { registryVersion, resolveComposition } = useCompRegistry({
+  projectId,
+  layers,
+});
+
+// Project comp list for the inspector's Composition select (id → name).
+// Client-only refresh on mount, like the comp tabs, so the list is never stale.
+const projectComps = ref<CompositionMeta[]>([]);
+async function refreshProjectComps() {
+  if (!projectId.value) return;
+  try {
+    const project = await $fetch<ProjectWithCompositions>(`/api/projects/${projectId.value}`);
+    projectComps.value = project.compositions ?? [];
+  } catch {
+    // Silent: the select just stays empty.
+  }
+}
+onMounted(refreshProjectComps);
+
+/** Selectable nesting targets: every project comp except the open one (self-cycle). */
+const compRefOptions = computed(() =>
+  projectComps.value
+    .filter((c) => c.id !== shaderId.value)
+    .map((c) => ({ value: c.id, label: c.name })),
+);
+provide("compRefOptions", compRefOptions);
+
+const { passes } = useLayerCompiler(renderLayers, modFn, lfos, assignments, {
+  resolveComposition,
+  registryVersion,
+  rootCompositionId: shaderId,
+});
 const {
   getCanvas,
   capture,
@@ -357,6 +390,7 @@ const {
   scaleReferenceWidth: compositionWidth,
   contentReferenceHeight: compositionHeight,
   getModulatedValue: modFn,
+  resolveComposition,
   sampleLfosAtTime,
   compositionTime: currentTime,
 });

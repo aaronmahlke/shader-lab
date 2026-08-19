@@ -1,3 +1,4 @@
+import type { CompositionConfig } from "../types/composition";
 import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
 import { expandMeshUniforms } from "./mesh-uniforms";
@@ -49,6 +50,45 @@ export function compositePassId(layerId: string): string {
 /** Synthetic pass id for a 3D group's composite slot. */
 export function threeDSlotPassId(groupKey: string, slot: number): string {
   return `3dslot-${groupKey}-${slot}`;
+}
+
+/** Separator between a host composition-layer id and nested pass ids. */
+export const NESTED_SEP = "::";
+
+export type CompileOptions = {
+  /** Resolve a nested composition's config by id (the editor's registry). */
+  resolveComposition?: (compId: string) => CompositionConfig | null | undefined;
+  /** Id of the composition being compiled (guards direct self-nesting). */
+  rootCompositionId?: string;
+  /** Comp ids on the current descent path (cycle guard). @internal */
+  _stack?: ReadonlySet<string>;
+};
+
+const MAX_NESTING_DEPTH = 4;
+
+/** Prefix a nested pass so ids stay unique per host layer and resolvable. */
+function prefixNestedPass(prefix: string, pass: RenderPass): RenderPass {
+  const p = (id: string) => `${prefix}${id}`;
+  return {
+    ...pass,
+    layerId: p(pass.layerId),
+    inputLayerId: pass.inputLayerId != null ? p(pass.inputLayerId) : pass.inputLayerId,
+    colorSourceLayerId:
+      pass.colorSourceLayerId != null ? p(pass.colorSourceLayerId) : pass.colorSourceLayerId,
+    auxSourceLayerId:
+      pass.auxSourceLayerId != null ? p(pass.auxSourceLayerId) : pass.auxSourceLayerId,
+    sourceLayerId: p(pass.sourceLayerId ?? pass.layerId),
+    cameraSourceLayerId:
+      pass.cameraSourceLayerId != null ? p(pass.cameraSourceLayerId) : pass.cameraSourceLayerId,
+    threeDGroup: pass.threeDGroup
+      ? {
+          ...pass.threeDGroup,
+          key: p(pass.threeDGroup.key),
+          memberIds: pass.threeDGroup.memberIds.map(p),
+          lightIds: pass.threeDGroup.lightIds?.map(p),
+        }
+      : pass.threeDGroup,
+  };
 }
 
 /**
@@ -122,15 +162,65 @@ function finishWithScreenBlit(
 }
 
 /**
+ * Emit a nested composition's pass stack (prefixed) plus a blit that lands the
+ * result in an FBO keyed by the HOST layer id — so composite/slot passes can
+ * treat the nested comp exactly like any generator's content.
+ * Returns false when there is nothing to show (unresolved ref, cycle, empty).
+ */
+function emitNestedComposition(
+  layer: LayerInstance,
+  previous: RenderPass[],
+  modFn: ModulationFn | null,
+  opts: CompileOptions | undefined,
+): boolean {
+  const compId = typeof layer.values.compRefId === "string" ? layer.values.compRefId : "";
+  if (!compId || !opts?.resolveComposition) return false;
+
+  const stack = opts._stack ?? new Set<string>(opts.rootCompositionId ? [opts.rootCompositionId] : []);
+  if (stack.has(compId) || stack.size >= MAX_NESTING_DEPTH) return false;
+
+  const config = opts.resolveComposition(compId);
+  if (!config) return false;
+
+  const nested = compileStack(config.layers, modFn, {
+    ...opts,
+    _stack: new Set([...stack, compId]),
+  });
+  if (!nested.lastId) return false;
+
+  const prefix = `${layer.id}${NESTED_SEP}`;
+  for (const pass of nested.passes) previous.push(prefixNestedPass(prefix, pass));
+  previous.push({
+    layerId: layer.id,
+    layerType: "blit",
+    uniforms: {},
+    inputLayerId: `${prefix}${nested.lastId}`,
+    isOutput: false,
+  });
+  return true;
+}
+
+/**
  * Compile layers (UI order top → bottom) into render passes (bottom → top).
  * Contiguous distortion layers form one run: accumulate displacement, then resolve.
  */
 export function compilePasses(
   layers: LayerInstance[],
   modFn: ModulationFn | null = null,
+  opts?: CompileOptions,
 ): RenderPass[] {
+  const { passes, lastId } = compileStack(layers, modFn, opts);
+  return finishWithScreenBlit(passes, lastId);
+}
+
+/** Core walk shared by the top-level comp and nested comps (no screen blit). */
+function compileStack(
+  layers: LayerInstance[],
+  modFn: ModulationFn | null,
+  opts: CompileOptions | undefined,
+): { passes: RenderPass[]; lastId: string | null } {
   const enabled = [...layers].reverse().filter((l) => l.enabled);
-  if (enabled.length === 0) return [];
+  if (enabled.length === 0) return { passes: [], lastId: null };
 
   const result: RenderPass[] = [];
   let previousLayerId: string | null = null;
@@ -262,7 +352,18 @@ export function compilePasses(
       while (runEnd < enabled.length && isLayer3D(enabled[runEnd]!)) runEnd++;
       const run = enabled.slice(i, runEnd);
       const lights = run.filter((m) => m.type === "light");
-      const members = run.filter((m) => m.type !== "light");
+      const visual = run.filter((m) => m.type !== "light");
+
+      // Nested comps render their pass stack first (normalized into an FBO
+      // keyed by the member id). Unresolved/cyclic refs drop out of the group.
+      const members: LayerInstance[] = [];
+      for (const member of visual) {
+        if (member.type === "composition") {
+          if (emitNestedComposition(member, result, modFn, opts)) members.push(member);
+          continue;
+        }
+        members.push(member);
+      }
 
       if (members.length === 0) {
         i = runEnd;
@@ -275,7 +376,7 @@ export function compilePasses(
       const cameraSourceLayerId = findDrivingCameraId(enabled, runEnd);
 
       for (const member of members) {
-        if (member.type === "object3d") continue; // ray-traced in the slot pass
+        if (member.type === "object3d" || member.type === "composition") continue; // no content pass
         result.push({
           layerId: member.id,
           layerType: member.type,
@@ -307,6 +408,23 @@ export function compilePasses(
       continue;
     }
 
+    if (layer.type === "composition") {
+      // Nested comp: its stack renders into an FBO keyed by this layer's id,
+      // then the normal composite pass applies transform/opacity/blend.
+      if (emitNestedComposition(layer, result, modFn, opts)) {
+        result.push(makeCompositePass(layer, previousLayerId, modFn));
+        previousLayerId = compositePassId(layer.id);
+      }
+      i++;
+      continue;
+    }
+
+    if (layer.type === "light") {
+      // A light outside any 3D group illuminates nothing and renders nothing.
+      i++;
+      continue;
+    }
+
     const isGenerator = template.category === "generator";
     result.push({
       layerId: layer.id,
@@ -327,5 +445,5 @@ export function compilePasses(
     i++;
   }
 
-  return finishWithScreenBlit(result, previousLayerId);
+  return { passes: result, lastId: previousLayerId };
 }

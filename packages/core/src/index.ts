@@ -178,7 +178,13 @@ export {
   supports3D,
   isLayer3D,
 } from "./compiler/universal-uniforms";
-export { compositePassId, threeDSlotPassId } from "./compiler/compile-passes";
+export {
+  compositePassId,
+  threeDSlotPassId,
+  NESTED_SEP,
+  type CompileOptions,
+} from "./compiler/compile-passes";
+export { createNestedResolvers } from "./compiler/nested";
 export { find3DRuns, threeDGroupMemberIds, type ThreeDRun } from "./compiler/threed";
 export { orderThreeDMembers, assignThreeDSlots, SCENE_FOV_DEG } from "./renderer/threed-order";
 export { renderPasses, destroyGlContext } from "./renderer/render-passes";
