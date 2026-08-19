@@ -34,14 +34,14 @@ export function projectGizmoQuad(
 export function projectGizmoAnchor(
   data: ThreeDGizmoData,
   aspect: number,
-  posOffset: { x: number; y: number } = { x: 0, y: 0 },
+  posOffset: { x: number; y: number; z?: number } = { x: 0, y: 0 },
 ): ProjectedPoint | null {
   const t = data.transform;
   return projectStagePoint(
     [
       ((t.anchorX + t.posX + posOffset.x) * 2 - 1) * aspect,
       (t.anchorY + t.posY + posOffset.y) * 2 - 1,
-      t.posZ * 2,
+      (t.posZ + (posOffset.z ?? 0)) * 2,
     ],
     data.view,
     aspect,
@@ -77,6 +77,28 @@ export function inverseProjectionJacobian(
   const det = j00 * j11 - j01 * j10;
   if (!Number.isFinite(det) || Math.abs(det) < 1e-9) return null;
   return { a: j11 / det, b: -j01 / det, c: -j10 / det, d: j00 / det };
+}
+
+/** Param-space offset for the axis triad (position fractions on each axis). */
+export type AxisOffset = { x: number; y: number; z: number };
+
+export type AxisKey = "x" | "y" | "z";
+
+/**
+ * Numeric derivative of a projected point wrt ONE position param:
+ * v_i = d(screenUv)/d(param_i), sampled around the current values. Null when
+ * the point (or its probe) is behind the camera.
+ */
+export function axisScreenDerivative(
+  project: (offset: AxisOffset) => ProjectedPoint | null,
+  axis: AxisKey,
+): { du: number; dv: number } | null {
+  const p0 = project({ x: 0, y: 0, z: 0 });
+  const offset: AxisOffset = { x: 0, y: 0, z: 0 };
+  offset[axis] = JACOBIAN_EPS;
+  const p1 = project(offset);
+  if (!p0 || !p1) return null;
+  return { du: (p1.x - p0.x) / JACOBIAN_EPS, dv: (p1.y - p0.y) / JACOBIAN_EPS };
 }
 
 /** Inverse jacobian for a layer's position drag (screen delta → pos delta). */

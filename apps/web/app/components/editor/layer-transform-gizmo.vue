@@ -32,12 +32,16 @@ type Props = {
   layerId: string;
   positionX: number;
   positionY: number;
+  /** 3D layers only: depth in comp fractions (stage z = posZ · 2). */
+  positionZ?: number;
   scale: number;
   rotation: number;
   anchorX: number;
   anchorY: number;
   positionMin: number;
   positionMax: number;
+  positionZMin?: number;
+  positionZMax?: number;
   scaleMin: number;
   scaleMax: number;
   rotationMin: number;
@@ -66,6 +70,7 @@ type Props = {
 type Emits = {
   "update:positionX": [value: number];
   "update:positionY": [value: number];
+  "update:positionZ": [value: number];
   "update:scale": [value: number];
   "update:rotation": [value: number];
   "update:anchorX": [value: number];
@@ -112,6 +117,11 @@ const projectedAnchorUv = computed<Vec2 | null>(() => {
 
 /** Behind-camera 3D layers hide the whole gizmo. */
 const gizmoVisible = computed(() => !props.threeD || !!projectedQuad.value);
+
+/** Axis triad projection: the anchor with position-param offsets applied. */
+function projectTriadPoint(offset: { x: number; y: number; z: number }, aspectValue: number) {
+  return props.threeD ? projectGizmoAnchor(props.threeD, aspectValue, offset) : null;
+}
 
 const cornerPoints = computed(() => {
   if (props.threeD) {
@@ -573,5 +583,25 @@ onUnmounted(() => {
         <circle :cx="centerPoint.x" :cy="centerPoint.y" :r="4.5 * gz" class="fill-white stroke-accent" stroke-width="1.5" vector-effect="non-scaling-stroke" />
       </g>
     </svg>
+
+    <!-- 3D layers: axis triad translate handles. Rendered after the svg so
+         the arrows take pointer priority over the quad's free-drag body. -->
+    <EditorAxisTriadGizmo
+      v-if="threeD && gizmoVisible"
+      :project="projectTriadPoint"
+      :x="positionX"
+      :y="positionY"
+      :z="positionZ ?? 0"
+      :x-min="positionMin"
+      :x-max="positionMax"
+      :y-min="positionMin"
+      :y-max="positionMax"
+      :z-min="positionZMin ?? -2"
+      :z-max="positionZMax ?? 2"
+      :zoom="zoom"
+      @update:x="emit('update:positionX', $event)"
+      @update:y="emit('update:positionY', $event)"
+      @update:z="emit('update:positionZ', $event)"
+    />
   </div>
 </template>

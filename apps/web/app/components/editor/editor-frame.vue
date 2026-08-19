@@ -1,9 +1,10 @@
 <template>
   <div class="flex h-dvh flex-col overflow-hidden bg-layer-0 p-1">
     <div class="flex min-h-0 flex-1 gap-1">
+      <!-- Left panel sizes to its content (the project panel collapses to a thin rail). -->
       <aside
         v-if="$slots.left"
-        class="flex w-editor-panel shrink-0 flex-col overflow-hidden rounded-lg bg-layer-1"
+        class="flex shrink-0 flex-col overflow-hidden rounded-lg bg-layer-1"
       >
         <slot name="left" />
       </aside>

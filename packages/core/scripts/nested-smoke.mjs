@@ -66,6 +66,35 @@ const W = 128, H = 128;
   console.log("ok: composition layer renders its referenced comp");
 }
 
+// --- 1b. precomps are transparent where nothing rendered --------------------
+{
+  // Nested comp: ONLY a small red solid (no background). Parent: full-scale
+  // host over a blue base. The area around the solid must show the base.
+  const nested = comp([solid("inner", "#ff0000", { layerScale: 25 })]);
+  const parent = comp([
+    { ...hostLayer({ layerScale: 100 }) },
+    solid("bg", "#0000ff"),
+  ]);
+  const bgOnly = comp([solid("bg", "#0000ff")]);
+  const withNest = await pixels(await renderCompositionToBuffer(parent, { width: W, height: H, time: 0, stbnPath, compositions: { c: nested } }), W, H);
+  const plain = await pixels(await renderCompositionToBuffer(bgOnly, { width: W, height: H, time: 0, stbnPath }), W, H);
+
+  const [, , cornerB] = at(withNest, W, 8, 8);
+  const [, , plainB] = at(plain, W, 8, 8);
+  if (Math.abs(cornerB - plainB) > 20) {
+    fail(`precomp should be transparent outside its content (corner b ${cornerB} vs bg-only ${plainB})`);
+  }
+  // Content-at-center: CI's driver renders inner-scaled content dim (known
+  // quirk, see test 2's history) — assert the precomp CONTRIBUTES at center
+  // (differs from the bg-only frame); red dominance is covered by test 1.
+  const [centerR, , centerB] = at(withNest, W, 64, 64);
+  const [, , plainCenterB] = at(plain, W, 64, 64);
+  if (!(Math.abs(centerB - plainCenterB) > 40 || centerR > 40)) {
+    fail(`precomp should contribute at center (rgb r=${centerR} b=${centerB} vs bg-only b=${plainCenterB})`);
+  }
+  console.log("ok: precomps keep transparency where nothing rendered");
+}
+
 // --- 2. nested keyframes run on the host-offset local clock ----------------
 {
   const nested = comp([solid("inner", "#ff0000", { layerScale: 25 })], {

@@ -5,6 +5,7 @@ import type {
   LFOSource,
   ModulationAssignment,
   PropertyTrack,
+  CompositionConfig,
   CompositionSettings,
 } from "@shader-lab/core";
 import {
@@ -355,18 +356,11 @@ const { registryVersion, resolveComposition } = useCompRegistry({
   layers,
 });
 
-// Project comp list for the inspector's Composition select (id → name).
-// Client-only refresh on mount, like the comp tabs, so the list is never stale.
-const projectComps = ref<CompositionMeta[]>([]);
-async function refreshProjectComps() {
-  if (!projectId.value) return;
-  try {
-    const project = await $fetch<ProjectWithCompositions>(`/api/projects/${projectId.value}`);
-    projectComps.value = project.compositions ?? [];
-  } catch {
-    // Silent: the select just stays empty.
-  }
-}
+// Project comp list, shared with the project panel, the comp tab strip and
+// the inspector's Composition select (useProjectCompositions). One refresh on
+// mount keeps every consumer fresh without triple-fetching.
+const { comps: projectComps, refresh: refreshProjectComps } =
+  useProjectCompositions(projectId);
 onMounted(refreshProjectComps);
 
 /** Selectable nesting targets: every project comp except the open one (self-cycle). */
@@ -972,6 +966,109 @@ function duplicateSelectedLayers() {
   history.record();
 }
 
+// --- Pre-compose (AE-style: group selected layers into a new composition) ---
+
+const compTabsRef = ref<{ refresh: () => Promise<void> } | null>(null);
+
+/** First "Precomp N" not already used by a comp in this project. */
+function nextPrecompName(): string {
+  const taken = new Set(projectComps.value.map((c) => c.name));
+  let n = 1;
+  while (taken.has(`Precomp ${n}`)) n++;
+  return `Precomp ${n}`;
+}
+
+/**
+ * Move the given layers into a brand-new comp and replace them with one
+ * composition layer at the topmost moved layer's index. The moved layers'
+ * tracks and assignments move too; LFO sources are copied (deep-cloned) into
+ * the new comp but stay in the parent — other layers may still use them.
+ * Undo restores the parent comp only; the created comp persists on the server.
+ */
+async function precomposeLayers(layerIds: string[]) {
+  if (!projectId.value) return;
+  const idSet = new Set(layerIds);
+  // Stack order comes from layers.value, not from the incoming id order.
+  const moved = layers.value.filter((l) => idSet.has(l.id));
+  if (moved.length === 0) return;
+  const topIndex = layers.value.findIndex((l) => idSet.has(l.id));
+
+  const movedAssignments = assignments.value.filter((a) => idSet.has(a.layerId));
+  const movedTracks = tracks.value.filter((t) => idSet.has(t.layerId));
+  const usedLfoIds = new Set(movedAssignments.map((a) => a.sourceId));
+  const movedLfos = lfos.value.filter((l) => usedLfoIds.has(l.id));
+
+  const data = JSON.parse(
+    JSON.stringify({
+      version: 1,
+      layers: moved,
+      lfos: movedLfos,
+      assignments: movedAssignments,
+      tracks: movedTracks,
+      settings: settings.value,
+    }),
+  ) as CompositionConfig;
+
+  let created: CompositionMeta;
+  try {
+    created = await $fetch<CompositionMeta>(
+      `/api/projects/${projectId.value}/compositions`,
+      { method: "POST", body: { name: nextPrecompName(), data } },
+    );
+  } catch (e) {
+    console.error("Failed to pre-compose:", e);
+    return;
+  }
+
+  const newId = createUniqueLayerId("composition", layers.value, layerCounter);
+  const values = buildLayerValues("composition");
+  values.compRefId = created.id;
+  const remaining = layers.value.filter((l) => !idSet.has(l.id));
+  // topIndex is the first selected index, so no moved layer sits above it.
+  remaining.splice(topIndex, 0, {
+    id: newId,
+    type: "composition",
+    name: created.name,
+    enabled: true,
+    values,
+  });
+  layers.value = remaining;
+  assignments.value = assignments.value.filter((a) => !idSet.has(a.layerId));
+  tracks.value = tracks.value.filter((t) => !idSet.has(t.layerId));
+  selectedKeyframes.value = selectedKeyframes.value.filter((k) => !idSet.has(k.layerId));
+  selectedLayerId.value = newId;
+  selectedLayerIds.value = new Set([newId]);
+  selectionAnchorId.value = newId;
+  history.record();
+
+  // The comp registry watches compRefIds and fetches the new comp on its own;
+  // refresh the comp lists (tabs + inspector's Composition select) here.
+  void refreshProjectComps();
+  void compTabsRef.value?.refresh();
+}
+
+/** Drop from the project panel: insert a composition layer at the slot. */
+function insertCompositionLayer(payload: { compId: string; name: string; index: number }) {
+  // Nesting the open comp into itself would be a trivial cycle — ignore.
+  if (!payload.compId || payload.compId === shaderId.value) return;
+
+  const newId = createUniqueLayerId("composition", layers.value, layerCounter);
+  const values = buildLayerValues("composition");
+  values.compRefId = payload.compId;
+  const index = Math.max(0, Math.min(payload.index, layers.value.length));
+  layers.value.splice(index, 0, {
+    id: newId,
+    type: "composition",
+    name: payload.name || "Composition",
+    enabled: true,
+    values,
+  });
+  selectedLayerId.value = newId;
+  selectedLayerIds.value = new Set([newId]);
+  selectionAnchorId.value = newId;
+  history.record();
+}
+
 // --- LFO Management ---
 
 function deleteLfo(id: string) {
@@ -1105,6 +1202,7 @@ function transformDef(name: string) {
 }
 
 const transformPosDef = transformDef("layerPositionX");
+const transformPosZDef = transformDef("layerPositionZ");
 const transformScaleDef = transformDef("layerScale");
 const transformRotationDef = transformDef("layerRotation");
 const transformAnchorDef = transformDef("layerAnchorX");
@@ -1608,6 +1706,13 @@ registerKeyboard({
 
 <template>
   <EditorFrame>
+    <template v-if="projectId" #left>
+      <EditorProjectPanel
+        :project-id="projectId"
+        :active-comp-id="shaderId"
+      />
+    </template>
+
     <div ref="editorSplitRef" class="flex h-full min-h-0 flex-col">
       <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-layer-1">
         <ClientOnly>
@@ -1727,12 +1832,15 @@ registerKeyboard({
                 :three-d="threeDGizmoDataFor(selectedLayer)"
                 :position-x="getTransformFloat(selectedLayer, 'layerPositionX')"
                 :position-y="getTransformFloat(selectedLayer, 'layerPositionY')"
+                :position-z="getTransformFloat(selectedLayer, 'layerPositionZ')"
                 :scale="getTransformFloat(selectedLayer, 'layerScale')"
                 :rotation="getTransformFloat(selectedLayer, 'layerRotation')"
                 :anchor-x="getTransformFloat(selectedLayer, 'layerAnchorX')"
                 :anchor-y="getTransformFloat(selectedLayer, 'layerAnchorY')"
                 :position-min="transformPosDef.min ?? -1"
                 :position-max="transformPosDef.max ?? 1"
+                :position-z-min="transformPosZDef.min ?? -2"
+                :position-z-max="transformPosZDef.max ?? 2"
                 :scale-min="transformScaleDef.min ?? 0"
                 :scale-max="transformScaleDef.max ?? 400"
                 :rotation-min="transformRotationDef.min ?? -360"
@@ -1741,6 +1849,7 @@ registerKeyboard({
                 :anchor-max="transformAnchorDef.max ?? 1"
                 @update:position-x="setTransformFloat(selectedLayer, 'layerPositionX', $event)"
                 @update:position-y="setTransformFloat(selectedLayer, 'layerPositionY', $event)"
+                @update:position-z="setTransformFloat(selectedLayer, 'layerPositionZ', $event)"
                 @update:scale="setTransformFloat(selectedLayer, 'layerScale', $event)"
                 @update:rotation="setTransformFloat(selectedLayer, 'layerRotation', $event)"
                 @update:anchor-x="setTransformFloat(selectedLayer, 'layerAnchorX', $event)"
@@ -1828,16 +1937,6 @@ registerKeyboard({
           <EditorComponentStageHost ref="stageHostRef" :layers="layers" />
         </ClientOnly>
 
-        <!-- Composition tabs (top-left; the centered toolbar owns inset-x-0 but ignores pointer events) -->
-        <div class="pointer-events-none absolute top-3 left-3 z-50 flex max-w-[40%]">
-          <EditorCompTabs
-            v-if="projectId"
-            class="pointer-events-auto"
-            :project-id="projectId"
-            :active-comp-id="shaderId"
-          />
-        </div>
-
         <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">
           <EditorLayerAddBar ref="layerAddBarRef" class="pointer-events-auto" @select="addLayer" />
           <UiPopover side="bottom" align="center">
@@ -1909,24 +2008,36 @@ registerKeyboard({
         class="flex shrink-0 flex-col overflow-hidden rounded-lg bg-layer-1"
         :style="{ height: `${timelineHeight}px` }"
       >
-        <EditorTimeline
-          ref="timelineRef"
-          v-model:layers="layers"
-          v-model:tracks="tracks"
-          v-model:selected-layer-id="selectedLayerId"
-          v-model:selected-layer-ids="selectedLayerIds"
-          v-model:selection-anchor-id="selectionAnchorId"
-          v-model:selected-keyframes="selectedKeyframes"
-          v-model:current-time="currentTime"
-          v-model:playing="playing"
-          v-model:px-per-second="timelineZoom"
-          v-model:snapping="timelineSnapping"
-          :settings="settings"
-          @toggle-stopwatch="toggleStopwatch"
-          @toggle-keyframe="toggleKeyframeAtPlayhead"
-          @duplicate-layer="duplicateLayer"
-          @remove-layer="removeLayer"
+        <!-- Open-comps tab strip (AE-style), visually attached to the timeline. -->
+        <EditorCompTabs
+          v-if="projectId"
+          ref="compTabsRef"
+          :project-id="projectId"
+          :active-comp-id="shaderId"
+          :active-comp-name="shaderName"
         />
+        <div class="min-h-0 flex-1">
+          <EditorTimeline
+            ref="timelineRef"
+            v-model:layers="layers"
+            v-model:tracks="tracks"
+            v-model:selected-layer-id="selectedLayerId"
+            v-model:selected-layer-ids="selectedLayerIds"
+            v-model:selection-anchor-id="selectionAnchorId"
+            v-model:selected-keyframes="selectedKeyframes"
+            v-model:current-time="currentTime"
+            v-model:playing="playing"
+            v-model:px-per-second="timelineZoom"
+            v-model:snapping="timelineSnapping"
+            :settings="settings"
+            @toggle-stopwatch="toggleStopwatch"
+            @toggle-keyframe="toggleKeyframeAtPlayhead"
+            @duplicate-layer="duplicateLayer"
+            @remove-layer="removeLayer"
+            @precompose="precomposeLayers"
+            @insert-composition="insertCompositionLayer"
+          />
+        </div>
       </div>
     </div>
 
