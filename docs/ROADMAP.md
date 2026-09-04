@@ -234,7 +234,7 @@ LFO engine exists (`LFOSource`, `ModulationAssignment`). UI/integration is unres
 | **vs keyframes** | LFO adds on top of keyframed base value, or replaces until disabled? (AE: often additive via expressions) |
 | **Reuse across properties** | Global LFO asset referenced by multiple assignments |
 | **Editing in multiple places** | Inspector shows LFO params; timeline shows assignment; changes must sync via shared ref (one `ModulationAssignment` object) |
-| **Baking** | Optional “bake LFO to keyframes” for export compatibility |
+| **Baking** | ✅ Core: `bakeLfoAssignments(config, options?)` samples an assignment through the engine and writes a simplified keyframe track (tolerance-based thinning), dropping the assignment. UI entry point still open |
 
 Recommendation: treat LFO as an **assignment** (already in model), not duplicate state. UI always reads/writes `assignments[]`. Timeline shows an icon + optional sub-lane; inspector shows full LFO editor when assignment selected.
 

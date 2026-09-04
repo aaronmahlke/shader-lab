@@ -107,6 +107,14 @@ export {
 export type { EasingPreset } from "./animation/easing";
 export { isKeyframeableUniform } from "./animation/keyframeable";
 export { createAnimatedModulationFn } from "./animation/create-modulation-fn";
+export { bakeLfoAssignments } from "./animation/bake-lfo";
+export type {
+  BakedTrack,
+  BakeLfoOptions,
+  BakeLfoResult,
+  SkippedAssignment,
+  SkipReason,
+} from "./animation/bake-lfo";
 export { DEFAULT_COMPOSITION_SETTINGS } from "./types/animation";
 export type {
   CompositionSettings,

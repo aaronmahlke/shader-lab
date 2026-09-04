@@ -51,7 +51,25 @@ exports degrade to an invisible layer instead of a wrong one.
 - `CompositionRenderer` — low-level multi-pass renderer
 - `CompositionRenderer.setComponentSource(layerId, source)` — push captured component frames
 - `ModulationEngine` — LFO sampling and modulation
+- `bakeLfoAssignments(config, options?)` — freeze LFO assignments into keyframe tracks
 - `compilePasses(layers, modFn?)` — layer stack → render pass graph
+
+## Baking LFOs to keyframes
+
+`bakeLfoAssignments` samples each `ModulationAssignment` through the same
+`ModulationEngine` playback uses, then thins the samples to the fewest linear
+keyframes that stay within `tolerance` (default 1% of that parameter's
+peak-to-peak swing) of the sampled curve. It returns a new config with the
+baked assignments removed and `enabled` tracks written, plus a per-assignment
+report of what was baked or skipped.
+
+```ts
+const { config: baked, baked: written, skipped } = bakeLfoAssignments(config);
+```
+
+Parameters that already have keyframes are skipped unless `overwrite` is set,
+since a keyframed track wins over an LFO at render time. LFO sources stay in
+the config — other assignments may still reference them.
 
 ## Camera layer (tilted plate, DOF, bloom)
 
