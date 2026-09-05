@@ -5,6 +5,7 @@ import type { ModulationFn } from "./compiler/compile-passes";
 import { CompositionRenderer } from "./renderer/composition-renderer";
 import type { CompositionRendererOptions } from "./renderer/composition-renderer";
 import { buildLayerValues } from "./compiler/build-layer-values";
+import { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 import LAYER_TEMPLATES from "./compiler/layer-templates";
 
 export type CompositionHandle = {
@@ -37,11 +38,20 @@ export function createComposition(
     getModulatedValue: engine.getModulatedValue,
   });
 
+  /** Keyframed params win over LFOs, same as the editor and headless export. */
+  function modulationAt(time: number): ModulationFn {
+    engine.sampleAt(time);
+    return createAnimatedModulationFn(time, currentConfig.tracks ?? [], engine);
+  }
+
+  function draw(time: number) {
+    const modFn = modulationAt(time);
+    renderer.renderFrame(time, compilePasses(currentConfig.layers, modFn), modFn);
+  }
+
   function tick() {
     const time = (performance.now() - startTime) / 1000;
-    engine.sampleAt(time);
-    const passes = compilePasses(currentConfig.layers, engine.getModulatedValue);
-    renderer.renderFrame(time, passes);
+    draw(time);
     if (running) animationId = requestAnimationFrame(tick);
   }
 
@@ -72,9 +82,7 @@ export function createComposition(
       return renderer.getCanvas();
     },
     renderFrame(time: number) {
-      engine.sampleAt(time);
-      const passes = compilePasses(currentConfig.layers, engine.getModulatedValue);
-      renderer.renderFrame(time, passes);
+      draw(time);
     },
   };
 }

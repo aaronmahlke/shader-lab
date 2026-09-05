@@ -159,7 +159,9 @@ export function bakeLfoAssignments(
     const existing = tracks.find(
       (t) => t.layerId === assignment.layerId && t.paramName === assignment.paramName,
     );
-    if (existing?.enabled && existing.keys.length > 0 && !options.overwrite) {
+    // An enabled track wins over the LFO even with no keys, so baking over one
+    // would change what playback shows.
+    if (existing?.enabled && !options.overwrite) {
       skipped.push({ ...where, reason: "existing-keyframes" });
       continue;
     }
@@ -180,7 +182,7 @@ export function bakeLfoAssignments(
   engine.setLfos(config.lfos);
   engine.setAssignments(config.assignments);
 
-  const frames = Math.max(2, Math.round(duration * fps) + 1);
+  const frames = Math.max(2, Math.ceil(duration * fps) + 1);
   const times: number[] = [];
   const series = targets.map(() => [] as number[]);
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { bakeLfoAssignments } from "./bake-lfo";
 import { createAnimatedModulationFn } from "./create-modulation-fn";
 import { ModulationEngine } from "../modulation/engine";
+import { compilePasses } from "../compiler/compile-passes";
 import { buildLayerValues } from "../compiler/build-layer-values";
 import { cloneMeshPoints, MESH_BLOOM_POINTS, meshParamName } from "../compiler/mesh-uniforms";
 import type { CompositionConfig } from "../types/composition";
@@ -125,6 +126,11 @@ describe("bakeLfoAssignments", () => {
     expect(baked[0]!.samples).toBe(25);
   });
 
+  it("samples through the end of a fractional duration", () => {
+    const { config: baked } = bakeLfoAssignments(configWith(), { fps: 10, duration: 2.34 });
+    expect(baked.tracks![0]!.keys.at(-1)!.time).toBeCloseTo(2.34, 6);
+  });
+
   it("writes one key when the modulated value never moves", () => {
     const config = configWith({ lfos: [lfo({ rate: 0 })] });
     const { config: baked, baked: summary } = bakeLfoAssignments(config);
@@ -208,6 +214,69 @@ describe("bakeLfoAssignments", () => {
     const forced = bakeLfoAssignments(config, { overwrite: true });
     expect(forced.baked[0]!.keys).toBeGreaterThan(1);
     expect(forced.config.tracks!.length).toBe(1);
+  });
+
+  it("skips a stopwatch-on track that has no keys yet", () => {
+    const config = configWith({
+      tracks: [
+        { layerId: "distortion-1", paramName: "amplitude", enabled: true, keys: [] },
+      ],
+    });
+
+    const { baked, skipped } = bakeLfoAssignments(config);
+    expect(baked).toEqual([]);
+    expect(skipped[0]!.reason).toBe("existing-keyframes");
+  });
+
+  it("bakes over a disabled track", () => {
+    const config = configWith({
+      tracks: [
+        {
+          layerId: "distortion-1",
+          paramName: "amplitude",
+          enabled: false,
+          keys: [{ time: 0, value: 0.1, ease: "linear" }],
+        },
+      ],
+    });
+
+    const { config: result, baked } = bakeLfoAssignments(config);
+    expect(baked[0]!.keys).toBeGreaterThan(1);
+    expect(result.tracks!.length).toBe(1);
+    expect(result.tracks![0]!.enabled).toBe(true);
+  });
+
+  it("produces the same pass uniforms as the live LFO config", () => {
+    const config = configWith();
+    const { config: baked } = bakeLfoAssignments(config);
+
+    for (const time of [0, 0.37, 1.25, 2.8, 4]) {
+      const live = new ModulationEngine();
+      live.setLfos(config.lfos);
+      live.setAssignments(config.assignments);
+      live.sampleAt(time);
+
+      const frozen = new ModulationEngine();
+      frozen.setLfos(baked.lfos);
+      frozen.setAssignments(baked.assignments);
+      frozen.sampleAt(time);
+
+      const livePasses = compilePasses(
+        config.layers,
+        createAnimatedModulationFn(time, config.tracks ?? [], live),
+      );
+      const bakedPasses = compilePasses(
+        baked.layers,
+        createAnimatedModulationFn(time, baked.tracks ?? [], frozen),
+      );
+
+      expect(bakedPasses.length).toBe(livePasses.length);
+      for (let i = 0; i < livePasses.length; i++) {
+        const a = livePasses[i]!.uniforms.amplitude as number | undefined;
+        const b = bakedPasses[i]!.uniforms.amplitude as number | undefined;
+        if (typeof a === "number") expect(Math.abs(b! - a)).toBeLessThan(0.01 * 0.3 + 1e-9);
+      }
+    }
   });
 
   it("reports assignments it cannot resolve", () => {
