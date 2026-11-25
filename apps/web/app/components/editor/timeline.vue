@@ -1398,10 +1398,17 @@ function applyKeyframeEasing(
  * whole journey), scaled to the track's own min/max so highs and lows read
  * true. Linked Position draws one line per animated axis.
  */
-function segmentPaths(layerId: string, paramName: string): string[] {
+/** Axis colors, same as the canvas gizmo arrows (X red, Y green, Z blue). */
+const AXIS_COLORS: Record<string, string> = {
+  layerPositionX: "#ef4444",
+  layerPositionY: "#22c55e",
+  layerPositionZ: "#3b82f6",
+};
+
+function segmentPaths(layerId: string, paramName: string): { d: string; color?: string }[] {
   const top = 5;
   const bottom = PROP_ROW_H - 5;
-  const paths: string[] = [];
+  const paths: { d: string; color?: string }[] = [];
   for (const axis of axesFor(layerId, paramName)) {
     const track = findPropertyTrack(tracks.value, layerId, axis);
     if (!isPropertyTrackActive(track) || track!.keys.length < 2) continue;
@@ -1430,7 +1437,7 @@ function segmentPaths(layerId: string, paramName: string): string[] {
       const y = bottom - ((values[i]! - min) / (max - min)) * (bottom - top);
       return `${x.toFixed(1)} ${y.toFixed(1)}`;
     });
-    paths.push(`M ${points.join(" L ")}`);
+    paths.push({ d: `M ${points.join(" L ")}`, color: AXIS_COLORS[axis] });
   }
   return paths;
 }
@@ -2927,12 +2934,11 @@ function selectAllLayers() {
                       <path
                         v-for="(seg, si) in segmentPaths(row.owner, row.def.name)"
                         :key="`s-${si}`"
-                        :d="seg"
-                        :opacity="si === 0 ? 1 : 0.5"
+                        :d="seg.d"
                         fill="none"
-                        :class="!row.color && 'stroke-accent/40'"
-                        :stroke="row.color"
-                        :stroke-opacity="row.color ? 0.6 : undefined"
+                        :class="!(seg.color || row.color) && 'stroke-accent/40'"
+                        :stroke="seg.color ?? row.color"
+                        :stroke-opacity="seg.color ? 0.75 : row.color ? 0.6 : undefined"
                         stroke-width="1.5"
                       />
                     </template>
@@ -3007,12 +3013,11 @@ function selectAllLayers() {
                             <path
                               v-for="(seg, si) in segmentPaths(row.owner, row.def.name)"
                               :key="`s-${si}`"
-                              :d="seg"
-                              :opacity="si === 0 ? 1 : 0.5"
+                              :d="seg.d"
                               fill="none"
-                              :class="!row.color && 'stroke-accent/40'"
-                              :stroke="row.color"
-                              :stroke-opacity="row.color ? 0.6 : undefined"
+                              :class="!(seg.color || row.color) && 'stroke-accent/40'"
+                              :stroke="seg.color ?? row.color"
+                              :stroke-opacity="seg.color ? 0.75 : row.color ? 0.6 : undefined"
                               stroke-width="1.5"
                             />
                           </template>
