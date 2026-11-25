@@ -14,6 +14,7 @@ const depthB = ref(-15);
 const blurMod = ref(6);
 const opMod = ref(50);
 const scaleMod = ref(150);
+const overMod = ref(85);
 const blurDepth = ref(8);
 let raf = 0;
 onMounted(() => {
@@ -70,7 +71,7 @@ function setDepth(id: string, d: number) {
         <StudioValue v-model="rot" :step="1" :precision="0" unit="°" />
       </div>
     </KitchenSection>
-    <KitchenSection title="Modulated (LFO)" description="Each LFO draws a 2px strip in its color from the base to base + depth. The bright line is the actual value right now. ⌥-drag changes the first LFO's depth.">
+    <KitchenSection title="Modulated (LFO)" description="Each LFO gets its own row above the box: the colored band is its range (base → base + depth), the bright line is where it is right now. Drag a row to set that LFO's depth. The box below stays the base value">
       <div class="grid w-full grid-cols-2 gap-[6px]">
         <StudioField label="Opacity · 1 LFO">
           <StudioValue v-model="opMod" :min="0" :max="100" :step="1" :precision="0" unit="%" :mods="[{ id: 'a', color: '#5fd0a8', depth: depthA, live: lfoA }]" @update:depth="setDepth" />
@@ -80,6 +81,9 @@ function setDepth(id: string, d: number) {
         </StudioField>
         <StudioField label="Blur · unipolar (0..1)">
           <StudioValue v-model="blurMod" :min="0" :max="20" :step="0.1" :precision="1" :mods="[{ id: 'blur', color: '#ffb35c', depth: blurDepth, live: lfoB }]" @update:depth="setDepth" />
+        </StudioField>
+        <StudioField label="Overflow (range past max)">
+          <StudioValue v-model="overMod" :min="0" :max="100" :step="1" :precision="0" unit="%" :mods="[{ id: 'over', color: '#5fd0a8', depth: 40, live: lfoA }]" />
         </StudioField>
         <StudioField label="Range only (not playing)">
           <StudioValue v-model="opMod" :min="0" :max="100" :step="1" :precision="0" unit="%" :mods="[{ id: 'a', color: '#5fd0a8', depth: depthA }]" @update:depth="setDepth" />
