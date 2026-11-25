@@ -750,7 +750,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           @highlight-end="endSelectPreview(row.select)"
         />
         <div v-else class="flex flex-col gap-1">
-          <span v-if="row.label" class="text-copy-sm text-secondary select-none">
+          <span v-if="row.label" class="select-none text-[var(--s-dim)]">
             {{ row.label }}
           </span>
           <div

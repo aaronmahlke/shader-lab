@@ -10,15 +10,16 @@ defineProps<{ title: string }>();
 </script>
 
 <template>
-  <section class="flex shrink-0 flex-col gap-2.5 border-b border-neutral p-3">
-    <div class="flex h-6 items-center justify-between gap-2">
-      <h3 class="text-copy-sm text-secondary select-none">
-        {{ title }}
-      </h3>
-      <div v-if="$slots.actions" class="flex shrink-0 items-center gap-0.5">
+  <!-- Studio device section: header band + content; sections are separated by the frame. -->
+  <section class="flex shrink-0 flex-col border-b-[var(--s-gap)] border-[var(--s-frame)]">
+    <div class="flex h-[var(--s-row)] items-center justify-between gap-2 bg-[var(--s-band)] pr-[2px] pl-[6px]">
+      <h3 class="select-none">{{ title }}</h3>
+      <div v-if="$slots.actions" class="flex shrink-0 items-center gap-[2px]">
         <slot name="actions" />
       </div>
     </div>
-    <slot />
+    <div class="flex flex-col gap-[6px] px-[6px] pt-[6px] pb-[8px]">
+      <slot />
+    </div>
   </section>
 </template>

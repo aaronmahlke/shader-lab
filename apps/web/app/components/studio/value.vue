@@ -52,6 +52,10 @@ const emit = defineEmits<{
 }>();
 
 const clamp = (v: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
+/** Ranges that cross 0 (rotation, position) fill from 0, not from min. */
+const zero = computed(() =>
+  min != null && max != null && min < 0 && max > 0 ? -min / (max - min) : 0,
+);
 const ratio = computed(() =>
   min != null && max != null && max > min ? (clamp(model.value) - min) / (max - min) : null,
 );
@@ -191,8 +195,8 @@ function reset() {
   >
     <div
       v-if="fill && ratio != null"
-      class="pointer-events-none absolute inset-y-px left-px bg-[var(--s-fill)]"
-      :style="{ width: `calc((100% - 2px) * ${ratio})` }"
+      class="pointer-events-none absolute inset-y-px bg-[var(--s-fill)]"
+      :style="{ left: `calc(1px + (100% - 2px) * ${Math.min(ratio, zero)})`, width: `calc((100% - 2px) * ${Math.abs(ratio - zero)})` }"
     />
     <span v-if="label" class="relative mr-auto pl-[5px] text-[var(--s-dim)]">{{ label }}</span>
     <input

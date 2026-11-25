@@ -45,41 +45,41 @@ const emit = defineEmits<Emits>();
 const model = defineModel<number>({ default: 0.5 });
 
 const hasModulation = computed(() => modColor != null && modDepth != null);
+/** One/two-letter labels (X, Y, Z, R) sit inside the box, like Live. */
+const shortLabel = computed(() => !!label && label.length <= 2);
+const precision = computed(() => (Number.isInteger(step) && step >= 1 ? 0 : step >= 0.1 ? 1 : 2));
+const keyState = computed(() =>
+  !animatable ? undefined : keyedAtPlayhead ? "on" : trackEnabled ? "animated" : "off",
+);
+const mods = computed(() =>
+  hasModulation.value ? [{ id: "mod", color: modColor!, depth: modDepth!, live: modLiveValue }] : undefined,
+);
+/** Keyframe button: not animated yet → stopwatch on (adds a key); otherwise toggle the key at the playhead. */
+function onToggleKey() {
+  if (trackEnabled) emit("toggle-keyframe");
+  else emit("toggle-track");
+}
 </script>
 
 <template>
-  <div class="overflow-hidden rounded-md">
-    <div
-      v-if="hasModulation"
-      class="min-h-0 overflow-hidden transition-[grid-template-rows] duration-200 ease-out-expo"
-    >
-      <UiModSlider
-        :base="model"
-        :depth="modDepth ?? 0"
-        :min="min"
-        :max="max"
-        :step="step"
-        :color="modColor!"
-        :live-value="modLiveValue"
-        @update:depth="emit('update:mod-depth', $event)"
-      />
-    </div>
-    <UiSlider
+  <!-- Studio value box (see /kitchen/value): label above, LFO rows, keyframe diamond. -->
+  <div
+    class="flex min-w-0 flex-col gap-[3px]"
+    :class="[isDropTarget && 'outline outline-1 outline-offset-1 outline-[var(--s-accent)]', disabled && 'pointer-events-none opacity-50']"
+  >
+    <span v-if="label && !shortLabel" class="truncate select-none">{{ label }}</span>
+    <StudioValue
+      :label="shortLabel ? label : undefined"
       v-model="model"
-      :name="name"
-      :label="label"
       :min="min"
       :max="max"
       :step="step"
-      :tick-step="tickStep"
-      :disabled="disabled"
-      :is-drop-target="isDropTarget"
+      :precision="precision"
       :unit="unit"
-      :animatable="animatable"
-      :track-enabled="trackEnabled"
-      :keyed-at-playhead="keyedAtPlayhead"
-      @toggle-track="emit('toggle-track')"
-      @toggle-keyframe="emit('toggle-keyframe')"
+      :mods="mods"
+      :keyframe="keyState"
+      @update:depth="(_id: string, d: number) => emit('update:mod-depth', d)"
+      @toggle-key="onToggleKey"
     />
   </div>
 </template>
