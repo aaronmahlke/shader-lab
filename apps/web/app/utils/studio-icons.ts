@@ -16,7 +16,7 @@ export const STUDIO_ICONS = {
   // transport
   play: { d: "M3 1.5v9l7.5-4.5z", fill: true },
   stop: { d: "M2.5 2.5h7v7h-7z", fill: true },
-  loop: { d: "M9.5 4.5h-7v4M2.5 7.5h7v-4M8 3l1.5 1.5L8 6M4 6 2.5 7.5 4 9" },
+  loop: { d: "M5.5 3.5h3a2 2 0 0 1 2 2v1a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-1a2 2 0 0 1 2-2", extra: [{ d: "M5 1.5v4l2.5-2z", fill: true }] },
   // triangles
   "tri-down": { d: "M2 4h8L6 8.5z", fill: true },
   "tri-right": { d: "M4 2v8l4.5-4z", fill: true },
@@ -29,7 +29,6 @@ export const STUDIO_ICONS = {
   pickwhip: { d: "M6.8 6.6a.75.75 0 0 1-1.5 0 1.5 1.5 0 0 1 3 0 2.25 2.25 0 0 1-4.5 0 3 3 0 0 1 6 0 3.75 3.75 0 0 1-7.5 0" },
   // tools
   cursor: { d: "M3.5 1.5v8l2-2 1.5 3 1.5-.7-1.5-3h3z" },
-  hand: { d: "M4 6.5V3a.75.75 0 0 1 1.5 0v3M5.5 5.5V2.25a.75.75 0 0 1 1.5 0V5.5M7 5.5V3a.75.75 0 0 1 1.5 0v3.5c0 2.2-1.3 4-3.5 4S2.5 9 2 7.5L1.5 6a.8.8 0 0 1 1.4-.6L4 6.5" },
   text: { d: "M2.5 2.5h7M6 2.5v8M4.5 10.5h3" },
   shape: { d: "M2.5 2.5h7v7h-7z" },
   // items
@@ -43,7 +42,7 @@ export const STUDIO_ICONS = {
   minus: { d: "M2 6h8" },
   close: { d: "M2.5 2.5l7 7M9.5 2.5l-7 7" },
   search: { d: "M5 8.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM7.5 7.5l3 3" },
-  magnet: { d: "M2.5 1.5v4.5a3.5 3.5 0 0 0 7 0V1.5M2.5 3.5h2M7.5 3.5h2M4.5 1.5v4.5a1.5 1.5 0 0 0 3 0V1.5" },
+  magnet: { d: "M2.5 3.5v2.5a3.5 3.5 0 0 0 7 0V3.5M4.5 3.5v2.5a1.5 1.5 0 0 0 3 0V3.5", extra: [{ d: "M2 1h3v2.5H2zM7 1h3v2.5H7z", fill: true }] },
   trash: { d: "M1.5 3h9M4.5 3V1.5h3V3M2.5 3l.5 7.5h6l.5-7.5" },
   dots: { d: "M2.5 6h1M5.5 6h1M8.5 6h1" },
   fit: { d: "M1.5 4V1.5H4M8 1.5h2.5V4M10.5 8v2.5H8M4 10.5H1.5V8" },
