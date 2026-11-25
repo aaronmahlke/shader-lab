@@ -758,6 +758,10 @@ export type RenderPassOptions = {
   disposeResources?: boolean;
   /** Reuse GPU programs, FBOs, and quad buffers across frames (live canvas). */
   pipelineCache?: RenderPipelineCache;
+  /** Render the output pass into this target instead of the screen (motion blur accumulation). */
+  outputTarget?: { framebuffer: WebGLFramebuffer; width: number; height: number };
+  /** Additively blend the output with this weight (sum of sub-frames = 1). */
+  outputWeight?: number;
 };
 
 export function renderPasses(
@@ -846,7 +850,11 @@ export function renderPasses(
     let targetWidth = width;
     let targetHeight = height;
     if (pass.isOutput) {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, options.outputTarget?.framebuffer ?? null);
+      if (options.outputTarget) {
+        targetWidth = options.outputTarget.width;
+        targetHeight = options.outputTarget.height;
+      }
     } else {
       const fbo = fbos.get(pass.layerId);
       if (fbo) {
@@ -890,7 +898,15 @@ export function renderPasses(
       inputHeight,
       auxTexture,
     });
+    const accumulate = pass.isOutput && options.outputWeight !== undefined;
+    if (accumulate) {
+      gl.enable(gl.BLEND);
+      gl.blendEquation(gl.FUNC_ADD);
+      gl.blendColor(0, 0, 0, options.outputWeight!);
+      gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    if (accumulate) gl.disable(gl.BLEND);
     if (mipmappedTexture) {
       // Back to plain sampling: other consumers must not read stale mips.
       gl.bindTexture(gl.TEXTURE_2D, mipmappedTexture);

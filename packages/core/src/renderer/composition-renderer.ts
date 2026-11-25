@@ -4,7 +4,8 @@ import type { ModulationFn } from "../compiler/compile-passes";
 import { STBN_TEXTURE_PATH } from "../modulation/stbn";
 import { GRADIENT_RESOLUTION } from "../shaders";
 import type { GlContext } from "./gl-utils";
-import { createGlContext } from "./gl-utils";
+import { createFBO, createFullscreenQuad, createGlContext, createProgram } from "./gl-utils";
+import { FRAG_SHADERS, RAW_VERT } from "../shaders";
 import {
   createRenderPipelineCache,
   disposeRenderPipelineCache,
@@ -12,6 +13,7 @@ import {
   type ComponentTextureEntry,
   type MediaTextureEntry,
   type RenderPipelineCache,
+  type RenderPassContext,
   type TextTextureEntry,
 } from "./render-passes";
 import type { ComponentSource, ComponentSourceInput, MediaSource } from "./component-source";
@@ -46,6 +48,9 @@ export class CompositionRenderer {
   private mediaSources = new Map<string, MediaSource>();
   private mediaTextures = new Map<string, MediaTextureEntry>();
   private pipelineCache: RenderPipelineCache = createRenderPipelineCache();
+  /** Motion blur: float accumulation target + a copy program to present it. */
+  private accum: { framebuffer: WebGLFramebuffer; texture: WebGLTexture; width: number; height: number } | null = null;
+  private present: { program: WebGLProgram; quad: WebGLBuffer } | null = null;
   private pixelRatio: number;
 
   constructor(canvas: HTMLCanvasElement, options: CompositionRendererOptions = {}) {
@@ -174,7 +179,92 @@ export class CompositionRenderer {
       return;
     }
 
-    renderPasses(passes, {
+    renderPasses(passes, this.passContext(time, modFn), { readPixels: false, pipelineCache: this.pipelineCache });
+  }
+
+  /**
+   * Motion blur: render the pass graph once per sub-frame time and average
+   * them (additive accumulation into a float target, then presented). `prepare`
+   * returns the modulation fn for a sub-frame time (and may update any
+   * per-time state such as nested comp resolvers). One time = plain render.
+   */
+  renderFrameSamples(
+    times: number[],
+    passes: RenderPass[],
+    prepare: (time: number) => ModulationFn | null | undefined,
+  ): void {
+    if (times.length <= 1 || passes.length === 0) {
+      const t = times[0] ?? 0;
+      this.renderFrame(t, passes, prepare(t));
+      return;
+    }
+    const gl = this.gl;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    const accum = this.ensureAccum(width, height);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, accum.framebuffer);
+    gl.viewport(0, 0, width, height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    const weight = 1 / times.length;
+    for (const t of times) {
+      renderPasses(passes, this.passContext(t, prepare(t)), {
+        readPixels: false,
+        pipelineCache: this.pipelineCache,
+        outputTarget: accum,
+        outputWeight: weight,
+      });
+    }
+
+    // Present the averaged frame.
+    const present = this.ensurePresent();
+    if (!present) return;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, width, height);
+    gl.useProgram(present.program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, present.quad);
+    const pos = gl.getAttribLocation(present.program, "aPosition");
+    const uv = gl.getAttribLocation(present.program, "aUV");
+    gl.enableVertexAttribArray(pos);
+    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 16, 0);
+    if (uv >= 0) {
+      gl.enableVertexAttribArray(uv);
+      gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, 16, 8);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, accum.texture);
+    gl.uniform1i(gl.getUniformLocation(present.program, "u_input"), 0);
+    gl.uniform2f(gl.getUniformLocation(present.program, "u_resolution"), width, height);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  private ensureAccum(width: number, height: number) {
+    if (this.accum && this.accum.width === width && this.accum.height === height) return this.accum;
+    if (this.accum) {
+      this.gl.deleteFramebuffer(this.accum.framebuffer);
+      this.gl.deleteTexture(this.accum.texture);
+    }
+    // Half-float when renderable (no banding across sub-frames), else RGBA8.
+    const { framebuffer, texture } = createFBO(this.gl, width, height, true, true);
+    this.accum = { framebuffer, texture, width, height };
+    return this.accum;
+  }
+
+  private ensurePresent() {
+    if (this.present) return this.present;
+    const program = createProgram(this.gl, RAW_VERT, FRAG_SHADERS.blit);
+    if (!program) return null;
+    this.present = { program, quad: createFullscreenQuad(this.gl, program) };
+    return this.present;
+  }
+
+  private passContext(time: number, modFn?: ModulationFn | null): RenderPassContext {
+    const gl = this.gl;
+    const width = this.canvas.width;
+    const height = this.canvas.height;
+    return {
       gl,
       width,
       height,
@@ -193,7 +283,7 @@ export class CompositionRenderer {
       contentScale: this.getContentScale(height),
       findLayer: this.options.findLayer,
       getModulatedValue: modFn ?? this.options.getModulatedValue ?? null,
-    }, { readPixels: false, pipelineCache: this.pipelineCache });
+    };
   }
 
   /** Buffer px per composition px (fixed buffers reference the comp height). */
@@ -284,6 +374,16 @@ export class CompositionRenderer {
 
   dispose(): void {
     disposeRenderPipelineCache(this.gl, this.pipelineCache);
+    if (this.accum) {
+      this.gl.deleteFramebuffer(this.accum.framebuffer);
+      this.gl.deleteTexture(this.accum.texture);
+      this.accum = null;
+    }
+    if (this.present) {
+      this.gl.deleteProgram(this.present.program);
+      this.gl.deleteBuffer(this.present.quad);
+      this.present = null;
+    }
     if (this.stbnTexture) {
       this.gl.deleteTexture(this.stbnTexture);
       this.stbnTexture = null;

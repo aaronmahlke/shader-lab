@@ -99,6 +99,11 @@ export function useModulationEngine(
 
   const modFn = computed(() => getModulatedValue);
 
+  /** Modulation fn at any time (motion blur sub-frames). */
+  function modFnAt(time: number) {
+    return createAnimatedModulationFn(time, options.tracks?.value ?? [], engine);
+  }
+
   if (!options.clockTime) {
     function tick() {
       sampleLfosAtTime((performance.now() - startTime) / 1000);
@@ -123,6 +128,7 @@ export function useModulationEngine(
     getModulatedValue,
     modFn,
     sampleLfosAtTime,
+    modFnAt,
     engine,
   };
 }

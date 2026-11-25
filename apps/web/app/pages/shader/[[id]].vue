@@ -29,6 +29,7 @@ import {
   buildKeyframePasteItems,
   pasteKeyframesAtTime,
   localFromWorld,
+  motionBlurSampleTimes,
   staticParamValue,
   PARENT_PARAMS,
   type WorldTransform,
@@ -251,7 +252,7 @@ const draggingLfoId = ref<string | null>(null);
 
 // --- Modulation Engine ---
 
-const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime } = useModulationEngine(
+const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime, modFnAt } = useModulationEngine(
   lfos,
   assignments,
   {
@@ -410,6 +411,9 @@ const {
   resolveComposition,
   sampleLfosAtTime,
   compositionTime: currentTime,
+  modFnAt,
+  // Cheaper while playing; full samples on still frames and export.
+  motionBlurTimes: (time) => motionBlurSampleTimes(time, settings.value, playing.value ? 3 : Infinity),
 });
 
 // --- Component layers: off-screen stage + DOM capture ---
@@ -2091,6 +2095,31 @@ registerKeyboard({
                   <span>{{ preset.label }}</span>
                   <span class="font-mono text-copy-2xs text-neutral-weak">{{ preset.width }}×{{ preset.height }}</span>
                 </button>
+              </div>
+              <div class="flex flex-col gap-1.5 border-t border-neutral px-1 pt-2">
+                <UiToggle
+                  label="Motion blur"
+                  :model-value="!!settings.motionBlur"
+                  @update:model-value="(v: boolean) => { settings.motionBlur = v; history.record(); }"
+                />
+                <template v-if="settings.motionBlur">
+                  <UiSliderField
+                    label="Shutter angle"
+                    :model-value="settings.shutterAngle ?? 180"
+                    :min="0"
+                    :max="720"
+                    :step="1"
+                    @update:model-value="(v: number) => (settings.shutterAngle = v)"
+                  />
+                  <UiSliderField
+                    label="Samples"
+                    :model-value="settings.motionBlurSamples ?? 8"
+                    :min="2"
+                    :max="32"
+                    :step="1"
+                    @update:model-value="(v: number) => (settings.motionBlurSamples = Math.round(v))"
+                  />
+                </template>
               </div>
             </div>
           </UiPopover>

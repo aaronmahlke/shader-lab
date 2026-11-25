@@ -26,6 +26,12 @@ export type CompositionSettings = {
   /** Composition size in pixels — the artboard in the editor and the export base. */
   width: number;
   height: number;
+  /** Camera-style motion blur: average sub-frame renders across the shutter. */
+  motionBlur?: boolean;
+  /** Shutter angle in degrees (180 = half the frame interval, AE default). */
+  shutterAngle?: number;
+  /** Sub-frame renders per frame (cost multiplier). */
+  motionBlurSamples?: number;
 };
 
 export const DEFAULT_COMPOSITION_SETTINGS: CompositionSettings = {

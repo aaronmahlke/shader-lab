@@ -8,6 +8,8 @@ import { buildLayerValues } from "./compiler/build-layer-values";
 import { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 import LAYER_TEMPLATES from "./compiler/layer-templates";
 import { resolveLayerById } from "./modulation/cloners";
+import { motionBlurSampleTimes } from "./renderer/motion-blur";
+import { DEFAULT_COMPOSITION_SETTINGS as DEFAULT_SETTINGS_FOR_DRAW } from "./types/animation";
 
 export type CompositionHandle = {
   play(): void;
@@ -45,7 +47,9 @@ export function createComposition(
 
   function draw(time: number) {
     const modFn = modulationAt(time);
-    renderer.renderFrame(time, compilePasses(currentConfig.layers, modFn), modFn);
+    const passes = compilePasses(currentConfig.layers, modFn);
+    const times = motionBlurSampleTimes(time, currentConfig.settings ?? DEFAULT_SETTINGS_FOR_DRAW);
+    renderer.renderFrameSamples(times, passes, (t) => (t === time ? modFn : modulationAt(t)));
   }
 
   function tick() {
@@ -268,6 +272,7 @@ export type { WorldTransform } from "./modulation/parenting";
 export { ATTACH_POINTS, attachPointsFor, attachPointOffset, estimateTextWidth } from "./modulation/attach-points";
 export type { AttachPoint, TextMeasure } from "./modulation/attach-points";
 export { layoutTextSpec, textFont } from "./renderer/text-raster";
+export { motionBlurSampleTimes } from "./renderer/motion-blur";
 export type { TextLayout, TextGlyph } from "./renderer/text-raster";
 export {
   applyEffectorInfluence,

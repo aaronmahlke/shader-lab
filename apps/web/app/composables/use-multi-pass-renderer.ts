@@ -26,6 +26,10 @@ type RendererOptions = {
   paused?: Ref<boolean>;
   /** When set, drives render time instead of internal clock. */
   compositionTime?: Ref<number>;
+  /** Motion blur: sub-frame times for a frame (just [time] when off). */
+  motionBlurTimes?: (time: number) => number[];
+  /** Modulation fn at an arbitrary time (motion blur sub-frames). */
+  modFnAt?: (time: number) => ModulationFn;
 };
 
 export function useMultiPassRenderer(
@@ -91,24 +95,29 @@ export function useMultiPassRenderer(
 
     sampleLfosAtTime?.(time);
 
-    // Fast path: without composition layers the plain findLayer/modFn work
-    // and there is nothing to resolve.
-    if (options.resolveComposition && layersRef?.value && hasCompositionLayers()) {
-      nestedResolvers = createNestedResolvers({
-        layers: layersRef.value,
-        parentModFn: getModulatedValue?.value ?? null,
-        resolveComposition: options.resolveComposition,
-        time,
-      });
-    } else {
-      nestedResolvers = null;
-    }
+    // Per (sub-)frame: the modulation fn at that time, plus nested comp
+    // resolvers when composition layers exist (findLayer reads them).
+    const prepare = (t: number): ModulationFn | null => {
+      const modFn = t === time || !options.modFnAt
+        ? getModulatedValue?.value ?? null
+        : options.modFnAt(t);
+      if (options.resolveComposition && layersRef?.value && hasCompositionLayers()) {
+        nestedResolvers = createNestedResolvers({
+          layers: layersRef.value,
+          parentModFn: modFn,
+          resolveComposition: options.resolveComposition,
+          time: t,
+        });
+      } else {
+        nestedResolvers = null;
+      }
+      return nestedResolvers?.modFn ?? modFn;
+    };
 
-    renderer.renderFrame(
-      time,
-      passes.value,
-      nestedResolvers?.modFn ?? getModulatedValue?.value ?? null,
-    );
+    const times = options.modFnAt && options.motionBlurTimes ? options.motionBlurTimes(time) : [time];
+    renderer.renderFrameSamples(times, passes.value, prepare);
+    // Leave the engine sampled at the frame time for UI reads.
+    if (times.length > 1) sampleLfosAtTime?.(time);
   }
 
   function animate() {

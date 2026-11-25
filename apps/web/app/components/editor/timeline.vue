@@ -92,6 +92,13 @@ import {
 
 /** Lucide magnet as a component so UiButton can take it as icon-left. */
 const MagnetIcon = () => h(UIcon, { name: "i-lucide-magnet" });
+/** Lucide "wind" for the motion blur switch (AE's motion blur toggle). */
+const MotionBlurIcon = () => h(UIcon, { name: "i-lucide-wind" });
+
+function toggleMotionBlur() {
+  settings.motionBlur = !settings.motionBlur;
+  history?.record();
+}
 
 type Emits = {
   "toggle-stopwatch": [layerId: string, paramName: string];
@@ -2240,6 +2247,14 @@ function selectAllLayers() {
           :icon-left="MagnetIcon"
           :title="snapping ? 'Snapping on (hold ⌥ to bypass)' : 'Snapping off'"
           @click="snapping = !snapping"
+        />
+        <UiButton
+          variant="option"
+          size="sm"
+          :active="!!settings.motionBlur"
+          :icon-left="MotionBlurIcon"
+          :title="settings.motionBlur ? 'Motion blur on' : 'Motion blur off'"
+          @click="toggleMotionBlur"
         />
         <UiButton variant="ghost" size="sm" title="Fit composition to view (⇧Z)" @click="fitTimeline">Fit</UiButton>
         <UiButton variant="ghost" size="sm" :icon-left="MinusIcon" title="Zoom out (⌥ scroll)" @click="zoomOut" />

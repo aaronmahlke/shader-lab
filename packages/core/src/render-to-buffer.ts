@@ -3,7 +3,14 @@ import { compilePasses } from "./compiler/compile-passes";
 import { createNestedResolvers } from "./compiler/nested";
 import { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 import { ModulationEngine } from "./modulation/engine";
-import { destroyGlContext, renderPasses } from "./renderer/render-passes";
+import {
+  createRenderPipelineCache,
+  destroyGlContext,
+  disposeRenderPipelineCache,
+  renderPasses,
+} from "./renderer/render-passes";
+import { motionBlurSampleTimes } from "./renderer/motion-blur";
+import { DEFAULT_COMPOSITION_SETTINGS } from "./types/animation";
 import { createHeadlessGlContext, loadHeadlessGl } from "./renderer/headless-gl";
 import {
   createNodeGradientData,
@@ -64,28 +71,50 @@ export async function renderCompositionToBuffer(
     const gradientTextures = new Map<string, WebGLTexture>();
     const stbnTexture = await createStbnGlTexture(gl, options.stbnPath);
 
-    const { pixels } = renderPasses(
-      passes,
-      {
-        gl,
-        width,
-        height,
-        time,
-        scaleUniform: 1.0,
-        gradientTextures,
-        stbnTexture,
-        createGradientData: createNodeGradientData,
-        textTextures: new Map(),
-        createTextImage: createNodeTextImage,
-        contentScale: height / (config.settings?.height ?? height),
-        findLayer: nested.findLayer,
-        getModulatedValue: nested.modFn,
-      },
-      { readPixels: true, disposeResources: true },
-    );
-
-    if (!pixels) return null;
-    return pixelsToPngBuffer(pixels, width, height);
+    const textTextures = new Map();
+    const pipelineCache = createRenderPipelineCache();
+    // Motion blur: average sub-frame renders (one render when off).
+    const times = motionBlurSampleTimes(time, config.settings ?? DEFAULT_COMPOSITION_SETTINGS);
+    let sum: Float32Array | null = null;
+    for (const t of times) {
+      const frameEngine = new ModulationEngine();
+      frameEngine.setConfig(config);
+      frameEngine.sampleAt(t);
+      const frameModFn = createAnimatedModulationFn(t, config.tracks ?? [], frameEngine);
+      const frameNested = createNestedResolvers({
+        layers: config.layers,
+        parentModFn: frameModFn,
+        resolveComposition,
+        time: t,
+      });
+      const { pixels } = renderPasses(
+        passes,
+        {
+          gl,
+          width,
+          height,
+          time: t,
+          scaleUniform: 1.0,
+          gradientTextures,
+          stbnTexture,
+          createGradientData: createNodeGradientData,
+          textTextures,
+          createTextImage: createNodeTextImage,
+          contentScale: height / (config.settings?.height ?? height),
+          findLayer: frameNested.findLayer,
+          getModulatedValue: frameNested.modFn,
+        },
+        { readPixels: true, pipelineCache },
+      );
+      if (!pixels) return null;
+      if (times.length === 1) return pixelsToPngBuffer(pixels, width, height);
+      sum ??= new Float32Array(pixels.length);
+      for (let i = 0; i < pixels.length; i++) sum[i]! += pixels[i]!;
+    }
+    disposeRenderPipelineCache(gl, pipelineCache);
+    const averaged = new Uint8Array(sum!.length);
+    for (let i = 0; i < sum!.length; i++) averaged[i] = Math.round(sum![i]! / times.length);
+    return pixelsToPngBuffer(averaged, width, height);
   } catch (e) {
     console.error("Composition render failed:", e);
     return null;

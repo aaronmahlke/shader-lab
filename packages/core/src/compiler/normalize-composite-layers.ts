@@ -159,6 +159,8 @@ export function normalizeComposition(config: CompositionConfig): void {
     config.settings = { ...DEFAULT_COMPOSITION_SETTINGS };
   } else {
     config.settings = {
+      // Keep optional settings (motion blur…) while filling required defaults.
+      ...config.settings,
       duration: config.settings.duration ?? DEFAULT_COMPOSITION_SETTINGS.duration,
       fps: config.settings.fps ?? DEFAULT_COMPOSITION_SETTINGS.fps,
       width: config.settings.width ?? DEFAULT_COMPOSITION_SETTINGS.width,
