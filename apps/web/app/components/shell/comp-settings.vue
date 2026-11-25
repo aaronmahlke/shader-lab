@@ -32,7 +32,8 @@ const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
 </script>
 
 <template>
-  <div class="flex flex-col">
+  <!-- data-global-shortcuts: ⌘Z etc. still reach the editor while a field has focus. -->
+  <div class="flex flex-col" data-global-shortcuts>
     <section class="flex flex-col gap-1 border-b border-neutral-subtle px-3 pt-3 pb-3">
       <h3 class="mb-1 text-xs font-medium text-neutral-subtle">Composition · {{ compName }}</h3>
       <div class="shell-row">

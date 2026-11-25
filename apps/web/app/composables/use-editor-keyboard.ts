@@ -34,8 +34,19 @@ export function isDeleteKey(e: KeyboardEvent): boolean {
   return e.code === "Backspace" || e.code === "Delete";
 }
 
+/**
+ * Fields that keep focus after use but have no text undo of their own
+ * (dropdowns, sliders, settings number fields marked data-global-shortcuts):
+ * let ⌘/Ctrl shortcuts (undo, redo, …) through to the editor.
+ */
+function allowsGlobalShortcut(e: KeyboardEvent): boolean {
+  if (!(e.metaKey || e.ctrlKey)) return false;
+  const el = e.target as HTMLElement | null;
+  return !!el?.closest?.("select, input[type='range'], [data-global-shortcuts]");
+}
+
 function dispatchKeydown(e: KeyboardEvent) {
-  if (isTypingTarget(e.target)) return;
+  if (isTypingTarget(e.target) && !allowsGlobalShortcut(e)) return;
 
   const sorted = [...handlers.values()].sort((a, b) => b.priority - a.priority);
   for (const handler of sorted) {
