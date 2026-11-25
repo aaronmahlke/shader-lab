@@ -41,39 +41,37 @@ function onMenuCloseAutoFocus(id: string, e: Event) {
   editors.get(id)?.startEditing();
 }
 
-const row = "mx-1.5 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs transition-colors";
 </script>
 
 <template>
-  <div class="flex h-full w-60 flex-col">
-    <div class="flex h-9 shrink-0 items-center pr-1.5 pl-3">
-      <span class="flex-1 text-xs font-medium text-neutral-subtle select-none">Project</span>
-      <d-tooltip content="New composition" side="bottom">
-        <d-button variant="ghost" size="sm" aria-label="New composition" :disabled="busy" @click="create()">
-          <template #leading><d-icon-plus /></template>
-        </d-button>
-      </d-tooltip>
+  <div class="flex h-full w-[220px] flex-col">
+    <div class="flex h-[var(--s-row)] shrink-0 items-center justify-between bg-[var(--s-band)] pr-[2px] pl-[6px]">
+      <span>Project</span>
+      <StudioButton variant="ghost" square aria-label="New composition" title="New composition" :disabled="busy" @click="create()">
+        <StudioIcon name="plus" />
+      </StudioButton>
     </div>
 
-    <div class="min-h-0 flex-1 overflow-y-auto pb-2">
+    <div class="min-h-0 flex-1 overflow-y-auto py-[3px]">
+      <div class="px-[6px] pt-[4px] pb-[3px] text-[var(--s-dim)]">Compositions</div>
       <d-context-menu v-for="comp in comps" :key="comp.id">
         <d-context-menu-trigger>
           <div
-            :class="[row, 'cursor-default', comp.id === activeCompId
-              ? 'bg-tint text-neutral-strong'
-              : 'text-neutral-subtle hover:bg-tint-subtle hover:text-neutral-strong']"
             draggable="true"
-            :title="`${comp.name} — drag into the timeline to nest, double-click to open`"
+            :title="`${comp.name}: drag into the timeline to nest, double-click to open`"
             @dragstart="onCompDragStart(comp, $event)"
             @dblclick.capture.stop="openComp(comp)"
           >
-            <d-icon-layers class="size-3.5 shrink-0 text-accent" />
-            <UiEditableText
-              :ref="(el: unknown) => (el ? editors.set(comp.id, el as EditableText) : editors.delete(comp.id))"
-              fill
-              :model-value="comp.name"
-              @update:model-value="rename(comp, $event)"
-            />
+            <StudioListRow :selected="comp.id === activeCompId">
+              <template #icon><StudioIcon name="comp" /></template>
+              <UiEditableText
+                :ref="(el: unknown) => (el ? editors.set(comp.id, el as EditableText) : editors.delete(comp.id))"
+                fill
+                :model-value="comp.name"
+                class="!text-[length:var(--s-fs)]"
+                @update:model-value="rename(comp, $event)"
+              />
+            </StudioListRow>
           </div>
         </d-context-menu-trigger>
         <d-context-menu-content @close-auto-focus="onMenuCloseAutoFocus(comp.id, $event)">
@@ -87,16 +85,18 @@ const row = "mx-1.5 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs transi
         </d-context-menu-content>
       </d-context-menu>
 
+      <div class="px-[6px] pt-[10px] pb-[3px] text-[var(--s-dim)]">Components</div>
       <div
         v-for="entry in STAGE_COMPONENT_ENTRIES"
         :key="entry.name"
-        :class="[row, 'cursor-default text-neutral-subtle hover:bg-tint-subtle hover:text-neutral-strong']"
-        :title="`${entry.label} — double-click to add`"
+        :title="`${entry.label}: double-click to add`"
         @dblclick="emit('add-component', entry.name)"
       >
-        <d-icon-code class="size-3.5 shrink-0 text-warn" />
-        <span class="min-w-0 flex-1 truncate">{{ entry.label }}</span>
-        <span class="text-xs text-neutral-weak">.vue</span>
+        <StudioListRow>
+          <template #icon><StudioIcon name="component" /></template>
+          {{ entry.label }}
+          <template #meta>vue</template>
+        </StudioListRow>
       </div>
     </div>
   </div>
