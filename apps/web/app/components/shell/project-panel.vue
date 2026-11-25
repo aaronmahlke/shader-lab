@@ -96,7 +96,7 @@ const row = "mx-1.5 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs transi
       >
         <d-icon-code class="size-3.5 shrink-0 text-warn" />
         <span class="min-w-0 flex-1 truncate">{{ entry.label }}</span>
-        <span class="text-[10px] text-neutral-weak">.vue</span>
+        <span class="text-xs text-neutral-weak">.vue</span>
       </div>
     </div>
   </div>

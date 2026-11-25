@@ -2527,7 +2527,7 @@ function selectAllLayers() {
               </button>
             </d-tooltip>
           </div>
-          <div class="flex h-6 items-center gap-0.5 px-1 text-[11px] text-neutral-weak select-none">
+          <div class="flex h-6 items-center gap-0.5 px-1 text-xs text-neutral-weak select-none">
             <span class="w-[60px] shrink-0" />
             <span class="min-w-0 flex-1 px-1">Layer</span>
             <span class="w-24 shrink-0 px-1">Parent</span>
@@ -2548,7 +2548,7 @@ function selectAllLayers() {
               >
                 <span
                   v-if="mark.kind === 'major'"
-                  class="pl-1 tabular-nums text-[10px] text-neutral-subtle"
+                  class="pl-1 tabular-nums text-xs text-neutral-subtle"
                 >
                   {{ formatRulerLabel(mark.time) }}
                 </span>
@@ -3204,7 +3204,7 @@ function selectAllLayers() {
           <d-tooltip content="Fit comp to width (⇧Z)">
             <button type="button" class="ml-1 rounded-md px-1.5 py-0.5 text-xs text-neutral-subtle hover:bg-tint hover:text-neutral-strong" @click="fitTimeline">Fit</button>
           </d-tooltip>
-          <span class="ml-auto text-[11px] text-neutral-weak tabular-nums">{{ formatTime(settings.duration) }} · {{ settings.fps }} fps</span>
+          <span class="ml-auto text-xs text-neutral-weak tabular-nums">{{ formatTime(settings.duration) }} · {{ settings.fps }} fps</span>
         </div>
       </div>
     </div>

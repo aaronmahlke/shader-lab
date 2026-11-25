@@ -179,10 +179,20 @@
    * TYPOGRAPHY
    * ═══════════════════════════════════════
    */
-  /* One size for the whole app (14px). Keep html at 16px so rem spacing stays stable. */
-  --text-ui: 14px;
+  /* One size for the whole app (13px). Keep html at 16px so rem spacing stays stable. */
+  --text-ui: 13px;
   --text-ui--font-weight: 400;
-  --text-ui--line-height: 1.25rem;
+  --text-ui--line-height: 1.125rem;
+
+  /* Dokedu UI (and Tailwind) sizes collapse to the same 13px. */
+  --text-xs: var(--text-ui);
+  --text-xs--line-height: var(--text-ui--line-height);
+  --text-sm: var(--text-ui);
+  --text-sm--line-height: var(--text-ui--line-height);
+  --text-base: var(--text-ui);
+  --text-base--line-height: var(--text-ui--line-height);
+  --text-lg: var(--text-ui);
+  --text-lg--line-height: var(--text-ui--line-height);
 
   --text-title-lg: var(--text-ui);
   --text-title-lg--font-weight: 400;
