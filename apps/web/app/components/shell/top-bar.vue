@@ -24,7 +24,7 @@ defineExpose({ refresh: () => tabsRef.value?.refresh() });
 </script>
 
 <template>
-  <header class="flex h-[18px] shrink-0 items-center gap-[2px]">
+  <header class="flex h-[32px] shrink-0 items-center gap-[2px] px-[2px]">
     <span class="flex h-[18px] w-[24px] items-center justify-center bg-[var(--s-tile)]" aria-hidden="true">
       <span class="flex h-[10px] w-[12px] gap-[2px]"><i class="flex-1 bg-[var(--s-accent)]" /><i class="flex-1 bg-[var(--s-accent)]" /></span>
     </span>
@@ -47,7 +47,7 @@ defineExpose({ refresh: () => tabsRef.value?.refresh() });
       {{ projectName ?? compName }}
     </span>
 
-    <span class="w-[10px] shrink-0" />
+    <span class="w-[18px] shrink-0" />
 
     <ShellCompTabs
       v-if="projectId"
@@ -60,10 +60,10 @@ defineExpose({ refresh: () => tabsRef.value?.refresh() });
     />
     <div v-else class="flex-1" />
 
-    <span class="w-[10px] shrink-0" />
+    <span class="w-[18px] shrink-0" />
 
     <slot name="tools" />
-    <span class="w-[10px] shrink-0" />
+    <span class="w-[18px] shrink-0" />
     <StudioButton variant="tile" class="!h-[18px]" title="Preview (full screen)" @click="emit('preview')">
       <StudioIcon name="play" /> Preview
     </StudioButton>

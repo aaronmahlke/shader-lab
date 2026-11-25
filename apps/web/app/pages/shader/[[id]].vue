@@ -387,6 +387,19 @@ const artboardSize = computed(() => ({
 }));
 const viewport = useViewport(viewportRef, artboardSize);
 
+/** Canvas footer zoom dropdown: Fit + common steps (+ the current zoom when it's in between). */
+const zoomOptions = computed(() => {
+  const steps = [25, 50, 100, 200, 400];
+  const current = viewport.zoomPercent.value;
+  const list = [{ value: "fit", label: "Fit" }, ...steps.map((p) => ({ value: String(p), label: `${p} %` }))];
+  if (!viewport.fitMode.value && !steps.includes(current)) list.push({ value: String(current), label: `${current} %` });
+  return list;
+});
+function setZoomChoice(v: string) {
+  if (v === "fit") viewport.fit();
+  else viewport.zoomAt(Number(v) / 100);
+}
+
 /** Render buffer follows the displayed size (crisp zoom), capped for VRAM. */
 const debouncedZoom = refDebounced(viewport.zoom, 150);
 const renderBufferSize = computed(() => {
@@ -1896,7 +1909,7 @@ registerKeyboard({
 
 <template>
   <!-- Studio UI: dark frame, panels as grey tiles with 6px gaps (see /kitchen). -->
-  <div data-ui="studio" class="flex h-dvh flex-col gap-[var(--s-gap)] overflow-hidden bg-[var(--s-frame)] p-[var(--s-gap)]" :class="previewing && '!gap-0 !p-0'">
+  <div data-ui="studio" class="flex h-dvh flex-col gap-[2px] overflow-hidden bg-[var(--s-frame)] px-[10px] pb-[10px]" :class="previewing && '!gap-0 !p-0'">
     <ShellTopBar
       v-show="!previewing"
       ref="topBarRef"
@@ -1938,7 +1951,8 @@ registerKeyboard({
           <div class="size-full min-h-0 select-none">
             <div
               ref="viewportRef"
-              class="absolute inset-0 overflow-hidden"
+              class="absolute inset-x-0 top-0 overflow-hidden"
+              :style="{ bottom: previewing ? '0' : '22px' }"
               :class="[previewing ? 'bg-black' : 'bg-[var(--s-tile)]', viewport.panning.value && 'cursor-default']"
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
@@ -2118,13 +2132,19 @@ registerKeyboard({
                 />
               </template>
 
-              <!-- Zoom controls -->
-              <div v-if="!previewing" class="absolute right-[6px] bottom-[6px] z-20 flex items-center gap-[2px] bg-[var(--s-band)] p-[2px] shadow-[0_0_0_1px_var(--s-edge)]">
-                <StudioButton :active="viewport.fitMode.value" title="Zoom to fit (⌘0)" @click="viewport.fit()"><StudioIcon name="fit" /> Fit</StudioButton>
-                <StudioButton square title="Zoom out (⌘−)" aria-label="Zoom out" @click="viewport.stepZoom(-1)"><StudioIcon name="minus" /></StudioButton>
-                <StudioButton class="min-w-[44px]" title="Zoom to 100% (⌘1)" @click="viewport.zoomTo100()"><span class="tabular-nums">{{ viewport.zoomPercent.value }}%</span></StudioButton>
-                <StudioButton square title="Zoom in (⌘+)" aria-label="Zoom in" @click="viewport.stepZoom(1)"><StudioIcon name="plus" /></StudioButton>
-              </div>
+            </div>
+
+            <!-- Canvas panel footer (AE-style viewer bar): zoom dropdown; split from the canvas by a 2px frame line. -->
+            <div
+              v-if="!previewing"
+              class="absolute inset-x-0 bottom-0 flex h-[20px] items-center justify-end gap-[2px] border-t-2 border-[var(--s-frame)] bg-[var(--s-tile)] px-[2px]"
+            >
+              <StudioSelect
+                class="w-[78px]"
+                :model-value="viewport.fitMode.value ? 'fit' : String(viewport.zoomPercent.value)"
+                :options="zoomOptions"
+                @update:model-value="setZoomChoice"
+              />
             </div>
           </div>
 

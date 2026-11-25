@@ -182,6 +182,7 @@ export function useViewport(
   });
 
   return {
+    zoomAt,
     zoom,
     pan,
     zoomPercent,
