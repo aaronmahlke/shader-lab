@@ -2486,8 +2486,7 @@ function selectAllLayers() {
             </d-tooltip>
           </div>
           <div class="flex h-6 items-center gap-0.5 px-1 text-[11px] text-neutral-weak select-none">
-            <span class="w-6 shrink-0" />
-            <span class="w-5 shrink-0" />
+            <span class="w-[60px] shrink-0" />
             <span class="min-w-0 flex-1 px-1">Layer</span>
             <span class="w-24 shrink-0 px-1">Parent</span>
           </div>
@@ -2580,16 +2579,20 @@ function selectAllLayers() {
                   @click="selectLayer(layer.id, $event)"
                   @dblclick.capture="onLayerRowDblClick(layer, $event)"
                 >
-                  <button
-                    type="button"
-                    data-drag-exclude
-                    class="flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-colors hover:bg-tint"
-                    :class="layer.enabled ? 'text-neutral-subtle hover:text-neutral-strong' : 'text-neutral-weak'"
-                    :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
-                    @click.stop="toggleLayerEnabled(layer)"
-                  >
-                    <component :is="layer.enabled ? EyeIcon : EyeSlashIcon" class="size-3.5" />
-                  </button>
+                  <!-- Same 60px block as the property rows' key navigator, so the
+                       chevrons and names line up as a tree. -->
+                  <div class="flex w-[60px] shrink-0 items-center">
+                    <button
+                      type="button"
+                      data-drag-exclude
+                      class="flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-colors hover:bg-tint"
+                      :class="layer.enabled ? 'text-neutral-subtle hover:text-neutral-strong' : 'text-neutral-weak'"
+                      :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
+                      @click.stop="toggleLayerEnabled(layer)"
+                    >
+                      <component :is="layer.enabled ? EyeIcon : EyeSlashIcon" class="size-3.5" />
+                    </button>
+                  </div>
                   <button
                     type="button"
                     data-drag-exclude
@@ -2674,7 +2677,7 @@ function selectAllLayers() {
                     ><ChevronRightIcon class="size-3" /></button>
                   </template>
                 </div>
-                <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1" :class="row.kind !== 'property' && 'pl-3'">
+                <div class="flex min-w-0 flex-1 items-center gap-0.5 pr-1 pl-5" :class="row.kind !== 'property' && 'pl-9'">
                   <UiStopwatchButton
                     v-if="row.kind !== 'axis'"
                     data-drag-exclude
@@ -2703,6 +2706,7 @@ function selectAllLayers() {
                   >
                     <ChevronRightIcon class="size-3 transition-transform" :class="axisRowsOpen.has(row.owner) && 'rotate-90'" />
                   </button>
+                  <span v-else-if="row.kind === 'property'" class="w-4 shrink-0" />
                   <span
                     class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle"
                     :style="row.kind === 'axis' ? { color: row.color } : undefined"
