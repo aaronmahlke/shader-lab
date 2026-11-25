@@ -276,6 +276,60 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         max: 180,
         step: 1,
       },
+      {
+        name: "animOffsetX",
+        type: "float",
+        label: "Anim slide",
+        default: 0,
+        min: -600,
+        max: 600,
+        step: 1,
+      },
+      {
+        name: "animBlur",
+        type: "float",
+        label: "Anim blur",
+        default: 0,
+        min: 0,
+        max: 80,
+        step: 0.5,
+      },
+      {
+        // Smooth: characters ease in (staggered). Typewriter: each character
+        // pops in at once, one after another.
+        name: "animStyle",
+        type: "select",
+        label: "Anim style",
+        default: 0,
+        options: [
+          { label: "Smooth", value: 0 },
+          { label: "Typewriter", value: 1 },
+        ],
+        keyframeable: false,
+      },
+      {
+        // Drawn after the last revealed character (follows typing).
+        name: "cursor",
+        type: "select",
+        label: "Cursor",
+        default: 0,
+        options: [
+          { label: "None", value: 0 },
+          { label: "Block", value: 1 },
+          { label: "Bar", value: 2 },
+        ],
+        keyframeable: false,
+      },
+      {
+        // Keyframe or put a square LFO on this to blink the cursor.
+        name: "cursorOpacity",
+        type: "float",
+        label: "Cursor opacity",
+        default: 1,
+        min: 0,
+        max: 1,
+        step: 0.01,
+      },
     ],
   },
 

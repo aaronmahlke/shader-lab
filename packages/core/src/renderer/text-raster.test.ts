@@ -131,3 +131,90 @@ describe("text animators", () => {
     expect(calls).toEqual([]); // every char at t=0 -> nothing drawn
   });
 });
+
+describe("text animator: typewriter, cursor, blur, slide", () => {
+  /** Records glyphs with their translate offsets, rects, and shadow state. */
+  function recordingCtx() {
+    const glyphs: { ch: string; tx: number; ty: number; blur: number; alpha: number }[] = [];
+    const rects: { x: number; y: number; w: number; h: number; alpha: number }[] = [];
+    let tx = 0;
+    let ty = 0;
+    const stack: [number, number, number][] = [];
+    const ctx = {
+      font: "",
+      fillStyle: "" as unknown,
+      textAlign: "",
+      textBaseline: "",
+      letterSpacing: "",
+      globalAlpha: 1,
+      shadowColor: "",
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      clearRect() {},
+      measureText: (t: string) => ({ width: 10 * t.length }),
+      save() {
+        stack.push([tx, ty, ctx.shadowBlur]);
+      },
+      restore() {
+        [tx, ty, ctx.shadowBlur] = stack.pop()!;
+        ctx.shadowOffsetX = 0;
+      },
+      translate(x: number, y: number) {
+        tx += x;
+        ty += y;
+      },
+      scale() {},
+      rotate() {},
+      fillText(ch: string, x: number) {
+        glyphs.push({ ch, tx: tx + x + ctx.shadowOffsetX, ty, blur: ctx.shadowBlur, alpha: ctx.globalAlpha });
+      },
+      fillRect(x: number, y: number, w: number, h: number) {
+        rects.push({ x, y, w, h, alpha: ctx.globalAlpha });
+      },
+    };
+    return { ctx, glyphs, rects };
+  }
+
+  const spec = (over: Record<string, unknown>) =>
+    textSpecFromValues({ ...buildLayerValues("text"), content: "abcd", textAlign: "left", tracking: 0, ...over });
+
+  it("typewriter pops in whole characters one by one", () => {
+    const { ctx, glyphs } = recordingCtx();
+    drawTextSpec(ctx, spec({ animStyle: 1, animProgress: 0.5 }), 400, 200, 1);
+    expect(glyphs.map((g) => g.ch)).toEqual(["a", "b"]);
+    expect(glyphs.every((g) => g.alpha === 1)).toBe(true);
+  });
+
+  it("draws the cursor after the last typed character, with its opacity", () => {
+    const { ctx, rects } = recordingCtx();
+    drawTextSpec(ctx, spec({ animStyle: 1, animProgress: 0.5, cursor: 1, cursorOpacity: 0.5 }), 400, 200, 1);
+    expect(rects.length).toBe(1);
+    const fontPx = 160;
+    const pad = Math.round(fontPx * 0.25);
+    expect(rects[0]!.x).toBeCloseTo(pad + 20 + fontPx * 0.06, 6); // after "ab" (10px each in the fake)
+    expect(rects[0]!.alpha).toBe(0.5);
+  });
+
+  it("keeps the cursor at the end once fully typed (and hides it at opacity 0)", () => {
+    const shown = recordingCtx();
+    drawTextSpec(shown.ctx, spec({ animStyle: 1, animProgress: 1, cursor: 2 }), 400, 200, 1);
+    expect(shown.glyphs.length).toBe(4);
+    expect(shown.rects.length).toBe(1);
+    const hidden = recordingCtx();
+    drawTextSpec(hidden.ctx, spec({ animStyle: 1, animProgress: 1, cursor: 2, cursorOpacity: 0 }), 400, 200, 1);
+    expect(hidden.rects.length).toBe(0);
+  });
+
+  it("blurs and slides arriving characters, sharp once in place", () => {
+    const { ctx, glyphs } = recordingCtx();
+    drawTextSpec(ctx, spec({ animProgress: 0.5, animStagger: 0, animBlur: 20, animOffsetX: 100, animFade: 0 }), 400, 200, 1);
+    // stagger 0: every char at the same progress (smoothstep(0.5) = 0.5)
+    expect(glyphs[0]!.blur).toBeCloseTo(10, 6);
+    const settled = recordingCtx();
+    drawTextSpec(settled.ctx, spec({ animProgress: 1, animStagger: 0, animBlur: 20, animOffsetX: 100, cursor: 1 }), 400, 200, 1);
+    expect(settled.glyphs[0]!.blur).toBe(0);
+    // 50 px of slide left at t = .5 → glyph sits 50 px right of its settled spot
+    expect(glyphs[0]!.tx - settled.glyphs[0]!.tx).toBeCloseTo(50, 6);
+  });
+});
