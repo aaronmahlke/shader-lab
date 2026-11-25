@@ -55,6 +55,8 @@ export function useModulationEngine(
     /** For links on the layer time base (offset by the layer in-point). */
     layers?: Ref<LayerInstance[]>;
     envelopes?: Ref<EnvelopeSource[]>;
+    /** Comp width / height (effector radii are round on screen). */
+    aspect?: Ref<number>;
   } = {},
 ) {
   const engine = new ModulationEngine();
@@ -70,6 +72,7 @@ export function useModulationEngine(
   watch(assignments, (v) => engine.setAssignments(v), { deep: true, immediate: true });
   if (options.layers) watch(options.layers, (v) => engine.setLayers(v), { deep: true, immediate: true });
   if (options.envelopes) watch(options.envelopes, (v) => engine.setEnvelopes(v), { deep: true, immediate: true });
+  if (options.aspect) watch(options.aspect, (v) => engine.setAspect(v), { immediate: true });
 
   function sampleLfosAtTime(clockSeconds: number) {
     sampledTime = clockSeconds;

@@ -30,11 +30,18 @@ import fullscreenVert from "./layers/fullscreen.vert";
 import type { RenderPassType } from "../types/editor";
 
 // camera expands into lens passes; object3d/light render inside 3D group
-// slots; composition layers expand into their nested comp's passes.
+// slots; composition layers expand into their nested comp's passes;
+// effectors never render (they act through the modulation fn).
 export const FRAG_SHADERS: Record<
-  Exclude<RenderPassType, "camera" | "object3d" | "light" | "composition">,
+  Exclude<RenderPassType, "camera" | "object3d" | "light" | "composition" | "effector">,
   string
-> & { camera?: undefined; object3d?: undefined; light?: undefined; composition?: undefined } = {
+> & {
+  camera?: undefined;
+  object3d?: undefined;
+  light?: undefined;
+  composition?: undefined;
+  effector?: undefined;
+} = {
   gradient: gradientFrag,
   mesh: meshFrag,
   solid: solidFrag,

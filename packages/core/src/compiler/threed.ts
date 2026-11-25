@@ -1,5 +1,5 @@
 import type { LayerInstance } from "../types/editor";
-import { isLayer3D } from "./universal-uniforms";
+import { isControlLayer, isLayer3D } from "./universal-uniforms";
 
 /**
  * 3D grouping (AE model): contiguous 3D layers share one depth-sorted space;
@@ -30,7 +30,7 @@ export function find3DRuns(layers: readonly RunLayer[]): ThreeDRun[] {
 
   for (let i = 0; i < layers.length; i++) {
     const layer = layers[i]!;
-    if (!layer.enabled) continue; // neutral: keeps an open run alive
+    if (!layer.enabled || isControlLayer(layer)) continue; // neutral: keeps an open run alive
     if (isLayer3D(layer)) {
       if (!current) current = { start: i, end: i + 1, layerIds: [] };
       current.end = i + 1;

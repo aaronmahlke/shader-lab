@@ -250,7 +250,12 @@ const draggingLfoId = ref<string | null>(null);
 const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime } = useModulationEngine(
   lfos,
   assignments,
-  { clockTime: currentTime, tracks, layers },
+  {
+    clockTime: currentTime,
+    tracks,
+    layers,
+    aspect: computed(() => settings.value.width / Math.max(settings.value.height, 1)),
+  },
 );
 
 provide("lfoValues", lfoValues);
@@ -1309,9 +1314,23 @@ const compositionAspect = computed(() => settings.value.width / settings.value.h
 // --- 3D gizmos: scene view + projected quads (must match the 3D render) ---
 
 /** Live view of the drive-3D camera piloting the layer's group (or identity). */
+/** Effectors aren't group members: borrow the view of the nearest 3D layer in the stack. */
+function viewAnchorLayerId(layerId: string): string {
+  const list = layers.value;
+  const index = list.findIndex((l) => l.id === layerId);
+  if (index < 0 || list[index]!.type !== "effector") return layerId;
+  for (let d = 1; d < list.length; d++) {
+    for (const j of [index + d, index - d]) {
+      const l = list[j];
+      if (l && l.enabled && l.type !== "effector" && isLayer3D(l)) return l.id;
+    }
+  }
+  return layerId;
+}
+
 function sceneViewForLayer(layerId: string): SceneView {
   return resolveSceneView(
-    drivingCameraIdFor(layers.value, layerId),
+    drivingCameraIdFor(layers.value, viewAnchorLayerId(layerId)),
     (id) => layers.value.find((l) => l.id === id),
     // Same modFn the renderer uses — keyframed/LFO camera params stay in sync.
     getModulatedValue,

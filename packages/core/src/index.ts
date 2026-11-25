@@ -194,6 +194,7 @@ export {
   isIdentityTransform,
   supports3D,
   isLayer3D,
+  isControlLayer,
 } from "./compiler/universal-uniforms";
 export {
   compositePassId,
@@ -242,6 +243,14 @@ export type {
 
 export { applyModulation, isZeroBaseDisabled } from "./modulation/modulation";
 export { evaluateEnvelope } from "./modulation/envelope";
+export {
+  applyEffectorInfluence,
+  computeEffectorInfluence,
+  effectorFalloff,
+  EFFECTOR_PARAMS,
+  staticParamValue,
+} from "./modulation/effectors";
+export type { EffectorInfluence } from "./modulation/effectors";
 export type { EnvelopeShape } from "./modulation/envelope";
 export { linkKey, linkTrackLayerId, linksFor, sourceTrackLayerId } from "./modulation/engine";
 export {

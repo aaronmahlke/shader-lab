@@ -6,6 +6,7 @@ import { evaluatePropertyTrack, findPropertyTrack, integrateKeyframes } from "..
 import { isZeroBaseDisabled } from "./modulation";
 import { evaluateLfoWave, getLfoWaveShape } from "./lfo-wave";
 import { evaluateEnvelope } from "./envelope";
+import { computeEffectorInfluence, type EffectorInfluence, type ParamReader } from "./effectors";
 
 /** Track `layerId` for a modulator's own params (LFO: rate, phase; envelope: attack, decay, sustain, gate, release). */
 export function sourceTrackLayerId(sourceId: string): string {
@@ -51,6 +52,11 @@ export class ModulationEngine {
   private assignments: ModulationAssignment[] = [];
   private tracks: PropertyTrack[] = [];
   private layerIn = new Map<string, number>();
+  private layersById = new Map<string, LayerInstance>();
+  private effectors: LayerInstance[] = [];
+  private aspect = 16 / 9;
+  /** Per-frame cache: target layer id → effector influence (null = untouched). */
+  private influenceCache = new Map<string, EffectorInfluence | null>();
   private lfoValues: Record<string, number> = {};
   private time = 0;
   private sampled = false;
@@ -81,15 +87,55 @@ export class ModulationEngine {
   /** Layers, for links on the "layer" time base (offset by the layer's in-point). */
   setLayers(layers: LayerInstance[]): void {
     this.layerIn = new Map(layers.map((l) => [l.id, l.timing?.in ?? 0]));
+    this.layersById = new Map(layers.map((l) => [l.id, l]));
+    this.effectors = layers.filter((l) => l.type === "effector");
+    this.influenceCache.clear();
+  }
+
+  /** Comp width / height, so effector radii are round on screen. */
+  setAspect(aspect: number): void {
+    if (!Number.isFinite(aspect) || aspect <= 0 || aspect === this.aspect) return;
+    this.aspect = aspect;
+    this.influenceCache.clear();
+  }
+
+  getLayer(id: string): LayerInstance | undefined {
+    return this.layersById.get(id);
+  }
+
+  hasEffectors(): boolean {
+    return this.effectors.length > 0;
+  }
+
+  /**
+   * Combined effector influence on a layer at the sampled time. `read` must
+   * return params after keyframes + links (not effectors), so effector
+   * positions can be animated without feeding back into themselves.
+   */
+  effectorInfluence(layerId: string, read: ParamReader): EffectorInfluence | null {
+    if (this.effectors.length === 0) return null;
+    const cached = this.influenceCache.get(layerId);
+    if (cached !== undefined) return cached;
+    const layer = this.layersById.get(layerId);
+    const influence = layer
+      ? computeEffectorInfluence(layer, this.effectors, read, this.aspect, this.time)
+      : null;
+    this.influenceCache.set(layerId, influence);
+    return influence;
   }
 
   /** Load everything modulation reads from a composition. */
-  setConfig(config: Pick<CompositionConfig, "layers" | "lfos" | "envelopes" | "assignments" | "tracks">): void {
+  setConfig(
+    config: Pick<CompositionConfig, "layers" | "lfos" | "envelopes" | "assignments" | "tracks"> &
+      Partial<Pick<CompositionConfig, "settings">>,
+  ): void {
     this.lfos = config.lfos ?? [];
     this.envelopes = config.envelopes ?? [];
     this.assignments = config.assignments ?? [];
     this.tracks = config.tracks ?? [];
     this.setLayers(config.layers ?? []);
+    const settings = config.settings;
+    if (settings && settings.height > 0) this.setAspect(settings.width / settings.height);
     this.invalidate();
   }
 
@@ -97,6 +143,7 @@ export class ModulationEngine {
     this.time = clockSeconds;
     this.sampled = true;
     this.cache.clear();
+    this.influenceCache.clear();
 
     const values: Record<string, number> = {};
     for (const lfo of this.lfos) values[lfo.id] = this.signal(lfo.id, clockSeconds);
@@ -192,6 +239,7 @@ export class ModulationEngine {
 
   private invalidate(): void {
     this.cache.clear();
+    this.influenceCache.clear();
     if (this.sampled) this.sampleAt(this.time);
   }
 }

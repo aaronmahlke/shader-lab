@@ -94,7 +94,12 @@ export function isUniversalParamName(name: string): boolean {
 }
 
 /** Layer types that live in 3D space unconditionally (no switch shown). */
-const ALWAYS_3D = new Set<LayerInstance["type"]>(["object3d", "light"]);
+const ALWAYS_3D = new Set<LayerInstance["type"]>(["object3d", "light", "effector"]);
+
+/** Layers that never render or join a 3D group (they act on other layers). */
+export function isControlLayer(layer: Pick<LayerInstance, "type">): boolean {
+  return layer.type === "effector";
+}
 
 /** True when the layer type supports the 3D SWITCH (generators; always-3D types excluded). */
 export function supports3D(layer: Pick<LayerInstance, "type">): boolean {
@@ -136,6 +141,10 @@ export function universalUniformsFor(
 ): LayerUniformDef[] {
   const template = LAYER_TEMPLATES[layer.type];
   if (template?.category !== "generator") return [OPACITY_UNIFORM];
+  // Effectors are a point in space: position only.
+  if (layer.type === "effector") {
+    return ["layerPositionX", "layerPositionY", "layerPositionZ"].map(findUniform);
+  }
   if (isLayer3D(layer)) {
     if (ALWAYS_3D.has(layer.type)) {
       return THREED_DISPLAY_ORDER.filter((def) => def.name !== "layerAcceptsLight");

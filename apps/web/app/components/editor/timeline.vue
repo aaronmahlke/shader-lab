@@ -29,6 +29,7 @@ import {
   PaintBrushIcon,
   BoltIcon,
   ViewfinderCircleIcon,
+  CursorArrowRaysIcon,
 } from "@heroicons/vue/16/solid";
 import { useEventListener } from "@vueuse/core";
 import {
@@ -570,6 +571,7 @@ const LAYER_TYPE_ICONS: Record<LayerInstance["type"], unknown> = {
   component: PuzzlePieceIcon,
   camera: VideoCameraIcon,
   light: SunIcon,
+  effector: CursorArrowRaysIcon,
   shape: StopIcon,
   object3d: CubeIcon,
   gradient: SwatchIcon,
@@ -925,7 +927,7 @@ const modulationCurves = computed(() => {
   if (targets.length === 0) return curves;
 
   const engine = new ModulationEngine();
-  engine.setConfig({ layers: layers.value, lfos, envelopes, assignments, tracks: tracks.value });
+  engine.setConfig({ layers: layers.value, lfos, envelopes, assignments, tracks: tracks.value, settings });
 
   const duration = Math.max(settings.duration, 1e-3);
   const samples = Math.max(32, Math.min(800, Math.round((duration * pxPerSecond.value) / 2)));
@@ -1142,7 +1144,7 @@ const sourceCurves = computed(() => {
   const curves = new Map<string, string>();
   if (modulatorEntries.value.length === 0) return curves;
   const engine = new ModulationEngine();
-  engine.setConfig({ layers: layers.value, lfos, envelopes, assignments, tracks: tracks.value });
+  engine.setConfig({ layers: layers.value, lfos, envelopes, assignments, tracks: tracks.value, settings });
   const duration = Math.max(settings.duration, 1e-3);
   const samples = Math.max(32, Math.min(800, Math.round((duration * pxPerSecond.value) / 2)));
   const top = 4;

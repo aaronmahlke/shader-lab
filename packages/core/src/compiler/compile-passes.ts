@@ -2,7 +2,7 @@ import type { CompositionConfig } from "../types/composition";
 import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
 import { expandMeshUniforms } from "./mesh-uniforms";
-import { buildUniversalUniforms, isLayer3D, layerOpacityValue } from "./universal-uniforms";
+import { buildUniversalUniforms, isControlLayer, isLayer3D, layerOpacityValue } from "./universal-uniforms";
 
 export type ModulationFn = (
   layerId: string,
@@ -224,7 +224,8 @@ function compileStack(
   modFn: ModulationFn | null,
   opts: CompileOptions | undefined,
 ): { passes: RenderPass[]; lastId: string | null } {
-  const enabled = [...layers].reverse().filter((l) => l.enabled);
+  // Effectors act through the modulation fn; they never render or split 3D groups.
+  const enabled = [...layers].reverse().filter((l) => l.enabled && !isControlLayer(l));
   if (enabled.length === 0) return { passes: [], lastId: null };
 
   const result: RenderPass[] = [];

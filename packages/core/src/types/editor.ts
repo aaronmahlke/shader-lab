@@ -15,6 +15,7 @@ export type LayerType =
   | "bandFill"
   | "object3d"
   | "light"
+  | "effector"
   | "composition"
   | "distortion"
   | "dither"

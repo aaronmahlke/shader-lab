@@ -537,6 +537,39 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     ],
   },
 
+  effector: {
+    type: "effector",
+    label: "Effector",
+    category: "generator",
+    description: "Pushes, rotates, scales or fades layers near it (renders nothing)",
+    uniforms: [
+      // Distances are in frame-height fractions (0.5 = half the frame height).
+      { name: "radius", type: "float", label: "Radius", default: 0.4, min: 0, max: 4, step: 0.001 },
+      { name: "innerRadius", type: "float", label: "Full-strength radius", default: 0.1, min: 0, max: 4, step: 0.001 },
+      {
+        name: "falloff",
+        type: "select",
+        label: "Falloff",
+        default: 1,
+        options: [
+          { label: "Linear", value: 0 },
+          { label: "Smooth", value: 1 },
+        ],
+        keyframeable: false,
+      },
+      { name: "strength", type: "float", label: "Strength", default: 100, min: 0, max: 100, step: 0.1 },
+      // Same units as the layer transform: X/Y in frame fractions, Z in frame-height fractions.
+      { name: "offsetX", type: "float", label: "Push X", default: 0, min: -1, max: 1, step: 0.001 },
+      { name: "offsetY", type: "float", label: "Push Y", default: 0, min: -1, max: 1, step: 0.001 },
+      { name: "offsetZ", type: "float", label: "Push Z", default: 0.15, min: -2, max: 2, step: 0.001 },
+      { name: "rotateX", type: "float", label: "Rotate X", default: 0, min: -360, max: 360, step: 0.1 },
+      { name: "rotateY", type: "float", label: "Rotate Y", default: 0, min: -360, max: 360, step: 0.1 },
+      { name: "rotateZ", type: "float", label: "Rotate Z", default: 0, min: -360, max: 360, step: 0.1 },
+      { name: "scale", type: "float", label: "Scale", default: 100, min: 0, max: 400, step: 0.1 },
+      { name: "opacity", type: "float", label: "Opacity", default: 100, min: 0, max: 100, step: 0.1 },
+    ],
+  },
+
   object3d: {
     type: "object3d",
     label: "3D Object",

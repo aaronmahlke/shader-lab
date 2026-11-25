@@ -52,6 +52,8 @@ type Vec2 = { x: number; y: number };
 type LightIcon = {
   id: string;
   isPoint: boolean;
+  /** Effector: radius rings (SVG paths) instead of a light icon. */
+  effector: { outer: string; inner: string; floor: string } | null;
   point: Vec2; // CSS px
   /** Directional only: arrow tail (CSS px), pointing toward the icon. */
   arrowFrom: Vec2 | null;
@@ -66,7 +68,7 @@ const lightIcons = computed<LightIcon[]>(() => {
   const out: LightIcon[] = [];
   if (width.value < 1 || height.value < 1) return out;
   for (const layer of props.layers) {
-    if (layer.type !== "light" || !layer.enabled) continue;
+    if ((layer.type !== "light" && layer.type !== "effector") || !layer.enabled) continue;
     const view = props.getView(layer.id);
     const posX = props.getParam(layer.id, "layerPositionX", 0);
     const posY = props.getParam(layer.id, "layerPositionY", 0);
@@ -74,6 +76,40 @@ const lightIcons = computed<LightIcon[]>(() => {
     const stage = lightStagePoint(posX, posY, posZ, aspect.value);
     const projected = projectStagePoint(stage, view, aspect.value);
     if (!projected) continue; // behind the camera
+
+    if (layer.type === "effector") {
+      const selected = props.selectedLayerIds.includes(layer.id);
+      // Radii are frame-height fractions; stage units are 2× that.
+      const ring = (radius: number, plane: "xy" | "xz") => {
+        const r = 2 * Math.max(0, radius);
+        const pts: string[] = [];
+        for (let i = 0; i <= 48; i++) {
+          const a = (i / 48) * Math.PI * 2;
+          const p = plane === "xy"
+            ? [stage[0] + r * Math.cos(a), stage[1] + r * Math.sin(a), stage[2]]
+            : [stage[0] + r * Math.cos(a), stage[1], stage[2] + r * Math.sin(a)];
+          const q = projectStagePoint(p as [number, number, number], view, aspect.value);
+          if (!q) return "";
+          const s = toScreen(q);
+          pts.push(`${s.x.toFixed(1)} ${s.y.toFixed(1)}`);
+        }
+        return `M ${pts.join(" L ")}`;
+      };
+      const radius = props.getParam(layer.id, "radius", 0.4);
+      out.push({
+        id: layer.id,
+        isPoint: true,
+        effector: {
+          outer: ring(radius, "xy"),
+          inner: ring(props.getParam(layer.id, "innerRadius", 0.1), "xy"),
+          floor: selected ? ring(radius, "xz") : "",
+        },
+        point: toScreen(projected),
+        arrowFrom: null,
+        selected,
+      });
+      continue;
+    }
 
     const isPoint = Number(layer.values.lightType ?? 0) === 1;
     let arrowFrom: Vec2 | null = null;
@@ -98,6 +134,7 @@ const lightIcons = computed<LightIcon[]>(() => {
     out.push({
       id: layer.id,
       isPoint,
+      effector: null,
       point: toScreen(projected),
       arrowFrom,
       selected: props.selectedLayerIds.includes(layer.id),
@@ -114,7 +151,9 @@ const triadLight = computed(() => {
   if (props.selectedLayerIds.length !== 1) return null;
   const id = props.selectedLayerIds[0]!;
   const layer = props.layers.find((l) => l.id === id);
-  if (!layer || layer.type !== "light" || !layer.enabled) return null;
+  if (!layer || !layer.enabled) return null;
+  if (layer.type === "effector") return layer;
+  if (layer.type !== "light") return null;
   if (Number(layer.values.lightType ?? 0) !== 1) return null; // point lights only
   return layer;
 });
@@ -266,8 +305,49 @@ onUnmounted(() => {
           <path :d="arrowHead(icon)" fill="currentColor" fill-opacity="0.9" class="pointer-events-none" />
         </template>
 
+        <!-- Effector: radius rings (outer dashed, inner faint, floor ring when selected) + target -->
+        <template v-if="icon.effector">
+          <path
+            v-if="icon.effector.floor"
+            :d="icon.effector.floor"
+            fill="none"
+            stroke="currentColor"
+            stroke-opacity="0.25"
+            :stroke-width="1 * gz"
+            class="pointer-events-none"
+          />
+          <path
+            :d="icon.effector.outer"
+            fill="none"
+            stroke="currentColor"
+            :stroke-opacity="icon.selected ? 0.7 : 0.35"
+            :stroke-width="1.25 * gz"
+            :stroke-dasharray="`${4 * gz} ${3 * gz}`"
+            class="pointer-events-none"
+          />
+          <path
+            :d="icon.effector.inner"
+            fill="currentColor"
+            :fill-opacity="icon.selected ? 0.08 : 0.04"
+            stroke="currentColor"
+            stroke-opacity="0.3"
+            :stroke-width="1 * gz"
+            class="pointer-events-none"
+          />
+          <circle
+            :cx="icon.point.x"
+            :cy="icon.point.y"
+            :r="5 * gz"
+            fill="none"
+            stroke="currentColor"
+            :stroke-width="1.5 * gz"
+            class="pointer-events-none"
+          />
+          <circle :cx="icon.point.x" :cy="icon.point.y" :r="1.75 * gz" fill="currentColor" class="pointer-events-none" />
+        </template>
+
         <!-- Point light: filled dot + subtle halo ring -->
-        <template v-if="icon.isPoint">
+        <template v-else-if="icon.isPoint">
           <circle
             :cx="icon.point.x"
             :cy="icon.point.y"
