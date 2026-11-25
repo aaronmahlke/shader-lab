@@ -63,27 +63,19 @@ function onPointerDown(e: PointerEvent) {
 <template>
   <div ref="rowRef">
     <UiContextMenu>
-      <UiHover :active="selected" full-width>
-        <div
-          class="flex h-9 cursor-default items-center gap-2 p-2 outline-none select-none"
-          :class="selected ? 'text-neutral-strong' : 'text-neutral-subtle group-hover/h:text-neutral-strong'"
-          @pointerdown="onPointerDown"
-        >
-          <span
-            class="flex size-5 shrink-0 items-center justify-center rounded-full"
-            :class="selected ? 'bg-tint' : 'bg-tint-subtle'"
-          >
-            <UiLfoSineIcon class="h-1.5 w-4 shrink-0" :style="{ color: lfo.color }" />
-          </span>
-          <UiEditableText
-            ref="editableRef"
-            v-model="label"
-            fill
-            class="min-w-0 flex-1 text-copy-sm"
-            :class="selected ? 'text-neutral-strong' : 'text-neutral'"
-          />
-        </div>
-      </UiHover>
+      <div
+        class="flex h-[var(--s-row)] cursor-default items-center gap-[6px] px-[6px] outline-none select-none"
+        :class="selected ? 'bg-[var(--s-select)] text-[var(--s-select-txt)]' : 'text-[var(--s-txt)] hover:bg-[var(--s-inset-hover)]'"
+        @pointerdown="onPointerDown"
+      >
+        <UiLfoSineIcon class="h-1.5 w-4 shrink-0" :style="{ color: lfo.color }" />
+        <UiEditableText
+          ref="editableRef"
+          v-model="label"
+          fill
+          class="min-w-0 flex-1 !text-[length:var(--s-fs)]"
+        />
+      </div>
 
       <template #menu>
         <UiContextMenuItem @click="editableRef?.startEditing()">Rename</UiContextMenuItem>

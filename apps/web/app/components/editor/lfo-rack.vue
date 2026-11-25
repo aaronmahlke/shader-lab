@@ -25,9 +25,9 @@ const emit = defineEmits<Emits>();
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-col border-t border-neutral bg-neutral-950/50">
-    <div class="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 pb-1.5">
-      <h3 class="text-copy-sm text-secondary select-none">LFOs</h3>
+  <div class="flex min-h-0 flex-col border-t-[var(--s-gap)] border-[var(--s-frame)]">
+    <div class="flex h-[var(--s-row)] shrink-0 items-center bg-[var(--s-band)] px-[6px]">
+      <h3 class="select-none">LFOs</h3>
     </div>
     <EditorLfoList
       v-model:lfos="lfos"

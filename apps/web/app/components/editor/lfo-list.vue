@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from "vue";
-import { PlusIcon } from "@heroicons/vue/16/solid";
 import type { LFOSource } from "@shader-lab/core";
 import { nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
@@ -147,7 +146,7 @@ function onDeleteLfo(id: string) {
 </script>
 
 <template>
-  <div class="flex shrink-0 flex-col gap-px p-1">
+  <div class="flex shrink-0 flex-col py-[3px]">
     <EditorLfoListRow
       v-for="lfo in lfos"
       :key="lfo.id"
@@ -160,17 +159,15 @@ function onDeleteLfo(id: string) {
       @clear-assignments="emit('clear-assignments', lfo.id)"
       @delete="onDeleteLfo(lfo.id)"
     />
-    <UiHover full-width>
-      <button
-        type="button"
-        class="flex h-9 w-full items-center gap-2 p-1 text-copy-sm text-neutral-subtle outline-none group-hover/h:text-neutral-strong"
-        title="Add LFO"
-        @click="addLfo"
-      >
-        <PlusIcon class="size-4 shrink-0" />
-        <span>Add LFO</span>
-      </button>
-    </UiHover>
+    <button
+      type="button"
+      class="flex h-[var(--s-row)] w-full cursor-default items-center gap-[6px] px-[6px] text-[var(--s-dim)] outline-none hover:bg-[var(--s-inset-hover)] hover:text-[var(--s-txt)]"
+      title="Add LFO"
+      @click="addLfo"
+    >
+      <StudioIcon name="plus" />
+      <span>Add LFO</span>
+    </button>
   </div>
 
   <Teleport to="body">

@@ -700,7 +700,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       </div>
       <div
         v-if="isGenerator && compositionAspect"
-        class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"
+        class="flex items-center gap-[2px]"
       >
         <UiTooltip
           v-for="align in ALIGNMENTS"
@@ -710,10 +710,10 @@ function isUniformVisible(def: LayerUniformDef): boolean {
         >
           <button
             type="button"
-            class="flex h-7 flex-1 items-center justify-center rounded-md text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+            class="flex h-[var(--s-ctl)] flex-1 cursor-default items-center justify-center bg-[var(--s-inset)] text-[var(--s-txt)] shadow-[inset_0_0_0_1px_var(--s-edge)] hover:bg-[var(--s-inset-hover)] hover:text-[var(--s-bright)]"
             @click="alignLayer(align.id)"
           >
-            <svg viewBox="0 0 14 14" class="size-3.5">
+            <svg viewBox="0 0 14 14" class="size-3">
               <line
                 :x1="align.edge.x1"
                 :y1="align.edge.y1"
