@@ -22,6 +22,7 @@ import {
   layerBoundsInCompUv,
   type LayerTransformValues,
 } from "#shared/editor/layer-transform";
+import { linkedParams } from "#shared/editor/position-group";
 import { ArrowRightCircleIcon, EyeIcon, EyeSlashIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import { stageComponentOptions } from "~/utils/stage-components";
 import { mediaSrcFileName, uploadMediaFile, type MediaUploadKind } from "~/utils/media-upload";
@@ -136,8 +137,11 @@ function getModulatedFloat(paramName: string, fallback: number): number {
   return value;
 }
 
+/** Animated? Linked position axes count as one property (AE). */
 function isTrackEnabled(paramName: string): boolean {
-  return isPropertyTrackActive(findPropertyTrack(tracks, layer.id, paramName));
+  return linkedParams(layer, paramName).some((p) =>
+    isPropertyTrackActive(findPropertyTrack(tracks, layer.id, p)),
+  );
 }
 
 function isKeyedAtPlayhead(paramName: string): boolean {

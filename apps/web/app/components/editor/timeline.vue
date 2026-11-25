@@ -60,6 +60,7 @@ import {
   upsertKeyframe,
   type CompositionSettings,
   type CubicBezierEase,
+  type Keyframe,
   type EnvelopeSource,
   type LFOSource,
   type ModulationAssignment,
@@ -70,6 +71,7 @@ import {
 } from "@shader-lab/core";
 import { dataTransferHasComp, readCompDragPayload } from "#shared/editor/comp-drag";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
+import { POSITION_GROUP, positionAxes } from "#shared/editor/position-group";
 import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
   clampGroupBarMoveDelta,
@@ -510,15 +512,17 @@ function collectKeyframeHits(): KeyframeHit[] {
 
   const pushRowHits = (row: TimelineRow) => {
     const centerY = y + PROP_ROW_H / 2;
-    const track = findPropertyTrack(tracks.value, row.owner, row.def.name);
-    for (const key of track?.keys ?? []) {
-      hits.push({
-        layerId: row.owner,
-        paramName: row.def.name,
-        time: key.time,
-        x: timeToX(key.time),
-        y: centerY,
-      });
+    for (const axis of axesFor(row.owner, row.def.name)) {
+      const track = findPropertyTrack(tracks.value, row.owner, axis);
+      for (const key of track?.keys ?? []) {
+        hits.push({
+          layerId: row.owner,
+          paramName: axis,
+          time: key.time,
+          x: timeToX(key.time),
+          y: centerY,
+        });
+      }
     }
   };
 
@@ -793,13 +797,99 @@ function enabledTracksForLayer(layerId: string): PropertyTrack[] {
   return tracks.value.filter((t) => t.layerId === layerId && isPropertyTrackActive(t));
 }
 
-function keyframeableUniforms(layer: LayerInstance) {
+/** Every keyframeable param (position as separate X/Y/Z). */
+function rawKeyframeableUniforms(layer: LayerInstance) {
   const template = LAYER_TEMPLATES[layer.type];
   if (!template) return [];
   return [
     ...universalUniformsFor(layer).filter(isKeyframeableUniform),
     ...template.uniforms.filter(isKeyframeableUniform),
   ];
+}
+
+const POSITION_GROUP_DEF: LayerUniformDef = { name: POSITION_GROUP, label: "Position", type: "float", default: 0 };
+
+/** Timeline properties: X/Y/Z collapse into one linked Position unless separated. */
+function keyframeableUniforms(layer: LayerInstance) {
+  const raw = rawKeyframeableUniforms(layer);
+  if (layer.separateDimensions) return raw;
+  const axes = new Set(positionAxes(layer));
+  if (axes.size === 0) return raw;
+  const out: LayerUniformDef[] = [];
+  for (const def of raw) {
+    if (!axes.has(def.name)) out.push(def);
+    else if (!out.includes(POSITION_GROUP_DEF)) out.push(POSITION_GROUP_DEF);
+  }
+  return out;
+}
+
+/** Track params behind a row param (the linked Position row → its axes). */
+function axesFor(owner: string, paramName: string): string[] {
+  if (paramName !== POSITION_GROUP) return [paramName];
+  const layer = layers.value.find((l) => l.id === owner);
+  return layer ? positionAxes(layer) : [];
+}
+
+function isPositionRowParam(paramName: string): boolean {
+  return paramName === POSITION_GROUP || paramName.startsWith("layerPosition");
+}
+
+/** Keys of a row: the union over its axes (one diamond per time). */
+function rowKeys(owner: string, paramName: string): Keyframe[] {
+  const axes = axesFor(owner, paramName);
+  if (axes.length === 1) return findPropertyTrack(tracks.value, owner, axes[0]!)?.keys ?? [];
+  const byTime = new Map<number, Keyframe>();
+  for (const axis of axes) {
+    for (const key of findPropertyTrack(tracks.value, owner, axis)?.keys ?? []) {
+      const t = Math.round(key.time * 1e6) / 1e6;
+      if (!byTime.has(t)) byTime.set(t, key);
+    }
+  }
+  return [...byTime.values()].sort((a, b) => a.time - b.time);
+}
+
+/** Axis keys at a time, as selection refs. */
+function axisRefsAt(owner: string, paramName: string, time: number): KeyframeSelection[] {
+  return axesFor(owner, paramName)
+    .filter((axis) => hasKeyframeAt(findPropertyTrack(tracks.value, owner, axis), time))
+    .map((axis) => ({ layerId: owner, paramName: axis, time }));
+}
+
+/** Separate dimensions: X/Y/Z rows, keys stay as they are. */
+function separateDimensions(layer: LayerInstance) {
+  layer.separateDimensions = true;
+  history?.record();
+}
+
+/**
+ * Link dimensions (AE): every axis gets a key wherever any axis has one,
+ * holding that axis's value there, so the merged Position reads the same.
+ */
+function linkDimensions(layer: LayerInstance) {
+  const axes = positionAxes(layer);
+  const active = axes.filter((a) => trackEnabled(layer.id, a));
+  if (active.length > 0) {
+    const times = [...new Set(
+      active.flatMap((a) => findPropertyTrack(tracks.value, layer.id, a)!.keys.map((k) => k.time)),
+    )];
+    let next = tracks.value;
+    for (const axis of axes) {
+      const staticValue = typeof layer.values[axis] === "number" ? (layer.values[axis] as number) : 0;
+      const track = findPropertyTrack(next, layer.id, axis);
+      const valueAt = (t: number) => evaluatePropertyTrack(track, t, staticValue);
+      if (!isPropertyTrackActive(track)) {
+        next = setTrackEnabled(next, layer.id, axis, true, staticValue, times[0] ?? 0);
+      }
+      for (const t of times) {
+        if (!hasKeyframeAt(findPropertyTrack(next, layer.id, axis), t)) {
+          next = upsertKeyframe(next, layer.id, axis, t, valueAt(t));
+        }
+      }
+    }
+    tracks.value = next;
+  }
+  delete layer.separateDimensions;
+  history?.record();
 }
 
 function visibleProperties(layer: LayerInstance) {
@@ -812,16 +902,17 @@ function visibleProperties(layer: LayerInstance) {
 function showPropertyRow(layer: LayerInstance, paramName: string): boolean {
   if (isExpanded(layer.id)) return true;
   if (!isKeyframesRevealed(layer.id)) return false;
-  const track = findPropertyTrack(tracks.value, layer.id, paramName);
   return (
-    isPropertyTrackActive(track) ||
+    trackEnabled(layer.id, paramName) ||
     isModulated(layer.id, paramName) ||
     isPinnedInUView(layer.id, paramName)
   );
 }
 
 function trackEnabled(layerId: string, paramName: string): boolean {
-  return isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, paramName));
+  return axesFor(layerId, paramName).some((axis) =>
+    isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, axis)),
+  );
 }
 
 watch(
@@ -838,16 +929,14 @@ watch(
         if (key.startsWith(prefix)) nextPins.add(key);
       }
       for (const def of keyframeableUniforms(layer)) {
-        const track = findPropertyTrack(tracks.value, layer.id, def.name);
-        if (isPropertyTrackActive(track)) {
+        if (trackEnabled(layer.id, def.name)) {
           nextPins.add(uViewPropertyKey(layer.id, def.name));
         }
       }
 
       const hasRows = keyframeableUniforms(layer).some((def) => {
-        const track = findPropertyTrack(tracks.value, layer.id, def.name);
         return (
-          isPropertyTrackActive(track) ||
+          trackEnabled(layer.id, def.name) ||
           isModulated(layer.id, def.name) ||
           nextPins.has(uViewPropertyKey(layer.id, def.name))
         );
@@ -880,7 +969,9 @@ const modSources = computed(
 );
 
 function propertyLinks(layerId: string, paramName: string): ModulationAssignment[] {
-  return linksFor(assignments, layerId, paramName).filter((a) => modSources.value.has(a.sourceId));
+  return axesFor(layerId, paramName)
+    .flatMap((axis) => linksFor(assignments, layerId, axis))
+    .filter((a) => modSources.value.has(a.sourceId));
 }
 
 function isModulated(layerId: string, paramName: string): boolean {
@@ -902,7 +993,7 @@ function propertyModSources(layerId: string, paramName: string): ModSource[] {
 
 /** Modulators driving any timeline property of the layer (for the collapsed bar). */
 function layerModSources(layer: LayerInstance): ModSource[] {
-  const names = new Set(keyframeableUniforms(layer).map((d) => d.name));
+  const names = new Set(rawKeyframeableUniforms(layer).map((d) => d.name));
   return uniqueSources(assignments.filter((a) => a.layerId === layer.id && names.has(a.paramName)));
 }
 
@@ -924,7 +1015,7 @@ const modulationCurves = computed(() => {
   type Target = { layer: LayerInstance; paramName: string; staticBase: number; color: string };
   const targets: Target[] = [];
   for (const layer of layers.value) {
-    for (const def of keyframeableUniforms(layer)) {
+    for (const def of rawKeyframeableUniforms(layer)) {
       const sources = propertyModSources(layer.id, def.name);
       if (sources.length === 0) continue;
       const raw = layer.values[def.name];
@@ -1007,6 +1098,15 @@ type TimelineRow = {
   setBase: (v: number) => void;
 };
 
+/** Per-axis rows behind a linked Position row (value scrub/edit per axis). */
+function positionAxisRows(row: TimelineRow): TimelineRow[] {
+  if (!row.layer) return [];
+  const axes = new Set(positionAxes(row.layer));
+  return rawKeyframeableUniforms(row.layer)
+    .filter((d) => axes.has(d.name))
+    .map((d) => propertyRow(row.layer!, d));
+}
+
 function propertyRow(layer: LayerInstance, def: LayerUniformDef): TimelineRow {
   return {
     key: `${layer.id}:${def.name}`,
@@ -1044,6 +1144,10 @@ function toggleLinkRows(layerId: string, paramName: string) {
 }
 
 function linkRows(layer: LayerInstance, def: LayerUniformDef): TimelineRow[] {
+  if (def.name === POSITION_GROUP) {
+    const axes = new Set(positionAxes(layer));
+    return rawKeyframeableUniforms(layer).filter((d) => axes.has(d.name)).flatMap((d) => linkRows(layer, d));
+  }
   const span =
     def.min !== undefined && def.max !== undefined ? def.max - def.min : undefined;
   return propertyLinks(layer.id, def.name).flatMap((link) => {
@@ -1223,9 +1327,9 @@ function formatRowValue(row: TimelineRow): string {
   return v.toFixed(2);
 }
 
-/** Bool rows step: every key holds. */
-function holdTrackKeys(owner: string, paramName: string) {
-  tracks.value = tracks.value.map((t) =>
+/** Bool rows step: every key holds. Pure (tracks is a v-model, reads stale after a write). */
+function holdKeys(list: PropertyTrack[], owner: string, paramName: string): PropertyTrack[] {
+  return list.map((t) =>
     t.layerId === owner && t.paramName === paramName
       ? { ...t, keys: t.keys.map(({ curve: _curve, ...k }) => ({ ...k, ease: "hold" as const })) }
       : t,
@@ -1245,8 +1349,8 @@ function onRowStopwatch(row: TimelineRow) {
       (k) => !(k.layerId === owner && k.paramName === name),
     );
   } else {
-    tracks.value = setTrackEnabled(tracks.value, owner, name, true, row.base(), snapTime(currentTime.value));
-    if (row.def.type === "bool") holdTrackKeys(owner, name);
+    const next = setTrackEnabled(tracks.value, owner, name, true, row.base(), snapTime(currentTime.value));
+    tracks.value = row.def.type === "bool" ? holdKeys(next, owner, name) : next;
   }
   history?.record();
 }
@@ -1267,8 +1371,8 @@ function onRowKeyframe(row: TimelineRow) {
       (k) => !(k.layerId === owner && k.paramName === name && Math.abs(k.time - time) < 1e-6),
     );
   } else {
-    tracks.value = upsertKeyframe(tracks.value, owner, name, time, rowValue(row));
-    if (row.def.type === "bool") holdTrackKeys(owner, name);
+    const next = upsertKeyframe(tracks.value, owner, name, time, rowValue(row));
+    tracks.value = row.def.type === "bool" ? holdKeys(next, owner, name) : next;
   }
   history?.record();
 }
@@ -1282,16 +1386,20 @@ function applyKeyframeEasing(
   time: number,
   easing: KeyframeEasing | CubicBezierEase,
 ) {
-  const refs = isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)
+  const refs = isKeyframeSelected(layerId, paramName, time)
     ? selectedKeyframes.value
-    : [{ layerId, paramName, time }];
+    : axisRefsAt(layerId, paramName, time);
   tracks.value = setKeyframesEasing(tracks.value, refs, easing);
   history?.record();
 }
 
 /** Mini value curves drawn between adjacent keys in a property row. */
 function segmentPaths(layerId: string, paramName: string): string[] {
-  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  // Linked Position: draw the first animated axis.
+  const axis =
+    axesFor(layerId, paramName).find((a) => isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, a))) ??
+    paramName;
+  const track = findPropertyTrack(tracks.value, layerId, axis);
   if (!track || track.keys.length < 2) return [];
 
   const keys = [...track.keys].sort((a, b) => a.time - b.time);
@@ -1333,7 +1441,8 @@ function segmentPaths(layerId: string, paramName: string): string[] {
 
 /** Current easing id of a key: named ease, preset id, or "custom". */
 function keyframeEasingId(layerId: string, paramName: string, time: number): string {
-  const track = findPropertyTrack(tracks.value, layerId, paramName);
+  const ref = axisRefsAt(layerId, paramName, time)[0];
+  const track = ref ? findPropertyTrack(tracks.value, layerId, ref.paramName) : undefined;
   const key = track?.keys.find((k) => Math.abs(k.time - time) < 1e-6);
   if (!key) return "linear";
   if (key.curve) return matchEasingPreset(key.curve) ?? "custom";
@@ -1368,8 +1477,19 @@ function writeParamValue(row: TimelineRow, value: number) {
   const { def, owner } = row;
   const v = def.type === "bool" ? (value >= 0.5 ? 1 : 0) : clampToDef(def, value);
   if (trackEnabled(owner, def.name)) {
-    tracks.value = upsertKeyframe(tracks.value, owner, def.name, snapTime(currentTime.value), v);
-    if (def.type === "bool") holdTrackKeys(owner, def.name);
+    const time = snapTime(currentTime.value);
+    // One write: `tracks` is a v-model, so it reads stale until the parent updates.
+    let next = tracks.value;
+    // Linked Position: one keyframe holds every axis (AE).
+    if (row.kind === "property" && row.layer && !row.layer.separateDimensions && def.name.startsWith("layerPosition")) {
+      for (const axis of positionAxes(row.layer)) {
+        if (axis === def.name) continue;
+        const axisRow = positionAxisRows({ ...row, def: POSITION_GROUP_DEF }).find((r) => r.def.name === axis);
+        if (axisRow) next = upsertKeyframe(next, owner, axis, time, rowValue(axisRow));
+      }
+    }
+    next = upsertKeyframe(next, owner, def.name, time, v);
+    tracks.value = def.type === "bool" ? holdKeys(next, owner, def.name) : next;
   } else {
     row.setBase(v);
   }
@@ -1606,10 +1726,13 @@ function onKeyframePointerDown(
   time: number,
   e: PointerEvent,
 ) {
+  // A linked Position diamond stands for every axis key at that time.
+  const clickedKeys = axisRefsAt(layerId, paramName, time);
+  if (clickedKeys.length === 0) clickedKeys.push({ layerId, paramName, time });
   if (e.button !== 0) {
     // Right-click: make sure the key is selected so easing applies to it.
-    if (!isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)) {
-      selectedKeyframes.value = [{ layerId, paramName, time }];
+    if (!isKeyframeSelected(layerId, paramName, time)) {
+      selectedKeyframes.value = clickedKeys;
       selectLayerForOwner(layerId);
     }
     return;
@@ -1618,23 +1741,22 @@ function onKeyframePointerDown(
   e.stopPropagation();
   playing.value = false;
 
-  const clickedKey: KeyframeSelection = { layerId, paramName, time };
-  const wasInSelection = isKeyframeInSelection(
-    selectedKeyframes.value,
-    layerId,
-    paramName,
-    time,
-  );
+  const wasInSelection = isKeyframeSelected(layerId, paramName, time);
 
   if (e.shiftKey) {
-    selectedKeyframes.value = toggleKeyframeInSelection(selectedKeyframes.value, clickedKey);
+    let next = selectedKeyframes.value;
+    for (const key of clickedKeys) {
+      const has = isKeyframeInSelection(next, key.layerId, key.paramName, key.time);
+      if (has === wasInSelection) next = toggleKeyframeInSelection(next, key);
+    }
+    selectedKeyframes.value = next;
     selectLayerForOwner(layerId);
     history?.record();
     return;
   }
 
   if (!wasInSelection) {
-    selectedKeyframes.value = [clickedKey];
+    selectedKeyframes.value = clickedKeys;
   }
 
   selectLayerForOwner(layerId);
@@ -1652,7 +1774,7 @@ function onKeyframePointerDown(
       history?.beginGesture();
       dragKeys = wasInSelection
         ? selectedKeyframes.value.map((k) => ({ ...k }))
-        : [{ ...clickedKey }];
+        : clickedKeys.map((k) => ({ ...k }));
     }
 
     const pointerTime = snapTime(timeFromPointerEvent(ev));
@@ -1752,7 +1874,9 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
 }
 
 function isKeyframeSelected(layerId: string, paramName: string, time: number): boolean {
-  return isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time);
+  return axesFor(layerId, paramName).some((axis) =>
+    isKeyframeInSelection(selectedKeyframes.value, layerId, axis, time),
+  );
 }
 
 function isKeyframeAtPlayhead(time: number): boolean {
@@ -1760,8 +1884,9 @@ function isKeyframeAtPlayhead(time: number): boolean {
 }
 
 function isKeyedAtPlayhead(layerId: string, paramName: string): boolean {
-  const track = findPropertyTrack(tracks.value, layerId, paramName);
-  return hasKeyframeAt(track, currentTime.value);
+  return axesFor(layerId, paramName).some((axis) =>
+    hasKeyframeAt(findPropertyTrack(tracks.value, layerId, axis), currentTime.value),
+  );
 }
 
 function keyLeft(time: number): string {
@@ -1838,7 +1963,7 @@ registerKeyboard({
 /** AE-style property reveal shortcuts on the selected layer(s).
  * 3D-only params are filtered per layer below, so 2D layers keep the classic set. */
 const PROPERTY_SHORTCUT_PARAMS: Record<string, string[]> = {
-  p: ["layerPositionX", "layerPositionY", "layerPositionZ"],
+  p: [POSITION_GROUP, "layerPositionX", "layerPositionY", "layerPositionZ"],
   s: ["layerScale"],
   r: ["layerRotation", "layerRotationX", "layerRotationY"],
   t: ["layerOpacity"],
@@ -1864,7 +1989,7 @@ function toggleUniversalPropertyReveal(params: string[]): boolean {
   for (const id of ids) {
     const layer = layers.value.find((l) => l.id === id);
     if (!layer) continue;
-    const names = new Set(universalUniformsFor(layer).map((d) => d.name));
+    const names = new Set(keyframeableUniforms(layer).map((d) => d.name));
     for (const param of params) {
       if (names.has(param)) targets.push([id, param]);
     }
@@ -2488,7 +2613,23 @@ function selectAllLayers() {
                   >
                     <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
                   </button>
-                  <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
+                  <UiContextMenu v-if="row.kind === 'property' && row.layer && isPositionRowParam(row.def.name)">
+                    <span
+                      class="block min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle"
+                      :title="row.def.name === POSITION_GROUP ? 'Right-click to separate dimensions' : 'Right-click to link dimensions'"
+                    >
+                      {{ row.def.label }}
+                    </span>
+                    <template #menu>
+                      <UiContextMenuItem v-if="row.def.name === POSITION_GROUP" @click="separateDimensions(row.layer!)">
+                        Separate Dimensions
+                      </UiContextMenuItem>
+                      <UiContextMenuItem v-else @click="linkDimensions(row.layer!)">
+                        Link Dimensions
+                      </UiContextMenuItem>
+                    </template>
+                  </UiContextMenu>
+                  <span v-else class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
                     {{ row.def.label }}
                   </span>
                   <button
@@ -2509,8 +2650,36 @@ function selectAllLayers() {
                     />
                   </button>
                 </div>
+                <!-- Linked Position: one scrubbable number per axis (AE style). -->
+                <div v-if="row.def.name === POSITION_GROUP" class="flex shrink-0 items-center">
+                  <template v-for="(axis, ai) in positionAxisRows(row)" :key="axis.key">
+                    <span v-if="ai > 0" class="text-copy-xs text-neutral-subtle/50">,</span>
+                    <input
+                      v-if="isEditingValue(axis.owner, axis.def.name)"
+                      :ref="focusValueInput"
+                      v-model="editingValue!.text"
+                      data-drag-exclude
+                      class="w-12 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                      spellcheck="false"
+                      @keydown.enter.stop.prevent="commitValueEditor(axis)"
+                      @keydown.esc.stop.prevent="cancelValueEditor"
+                      @keydown.stop
+                      @blur="commitValueEditor(axis)"
+                      @pointerdown.stop
+                    />
+                    <span
+                      v-else
+                      data-drag-exclude
+                      class="shrink-0 cursor-ew-resize rounded-sm px-0.5 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                      :title="`${axis.def.label}: drag to scrub, click to type (⇧ fine)`"
+                      @pointerdown.stop.prevent="onValuePointerDown(axis, $event)"
+                    >
+                      {{ formatRowValue(axis) }}
+                    </span>
+                  </template>
+                </div>
                 <input
-                  v-if="isEditingValue(row.owner, row.def.name)"
+                  v-else-if="isEditingValue(row.owner, row.def.name)"
                   :ref="focusValueInput"
                   v-model="editingValue!.text"
                   data-drag-exclude
@@ -2772,7 +2941,7 @@ function selectAllLayers() {
                     </template>
                   </svg>
                   <EditorTimelineKeyStrip
-                    :keys="findPropertyTrack(tracks, row.owner, row.def.name)?.keys ?? []"
+                    :keys="rowKeys(row.owner, row.def.name)"
                     :label="row.prefix ? `${row.prefix} ${row.def.label}` : row.def.label"
                     :left="keyLeft"
                     :is-selected="(t: number) => isKeyframeSelected(row.owner, row.def.name, t)"
@@ -2851,7 +3020,7 @@ function selectAllLayers() {
                           </template>
                         </svg>
                         <EditorTimelineKeyStrip
-                          :keys="findPropertyTrack(tracks, row.owner, row.def.name)?.keys ?? []"
+                          :keys="rowKeys(row.owner, row.def.name)"
                           :label="row.prefix ? `${row.prefix} ${row.def.label}` : row.def.label"
                           :left="keyLeft"
                           :is-selected="(t: number) => isKeyframeSelected(row.owner, row.def.name, t)"

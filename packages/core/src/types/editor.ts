@@ -66,6 +66,11 @@ export type LayerInstance = {
   values: Record<string, unknown>;
   /** In/out points; layer contributes nothing outside this window. */
   timing?: LayerTiming;
+  /**
+   * AE "Separate Dimensions": position X/Y/Z get their own timeline rows and
+   * keyframes. Off (default) = one linked Position property.
+   */
+  separateDimensions?: boolean;
   /** Parent layer id (AE parenting): this layer's transform is relative to it. */
   parent?: string;
   /** Attach to a named point on the parent instead of its anchor (e.g. "textEnd"). */

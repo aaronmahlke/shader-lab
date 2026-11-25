@@ -56,6 +56,7 @@ import {
 import { projectGizmoQuad, type ThreeDGizmoData } from "#shared/editor/threed-gizmo";
 import { collectSnapTargets } from "#shared/editor/snapping";
 import { cloneEditorSnapshot, type EditorSnapshot } from "#shared/editor/editor-history";
+import { linkedParams } from "#shared/editor/position-group";
 import { createUniqueLayerId, syncLayerIdCounter } from "#shared/editor/layer-ids";
 import type { CanvasTool, TextEditIntent } from "#shared/editor/canvas-tool";
 import { provideEditorHistory, useUndoHistory } from "~/composables/use-undo-history";
@@ -583,58 +584,65 @@ function paramValue(layerId: string, paramName: string, fallback: number): numbe
   return evaluatePropertyTrack(track, currentTime.value, base);
 }
 
+/** Params an edit applies to: all position axes while Position is linked (AE). */
+function linkedParamsFor(layerId: string, paramName: string): string[] {
+  return linkedParams(layers.value.find((l) => l.id === layerId), paramName);
+}
+
+function paramFallback(layerId: string, paramName: string): number {
+  const layer = layers.value.find((l) => l.id === layerId);
+  const def = layer ? findLayerParamDef(layer, paramName) : undefined;
+  return (def?.default as number) ?? 0;
+}
+
 function toggleStopwatch(layerId: string, paramName: string) {
-  const track = findPropertyTrack(tracks.value, layerId, paramName);
-  if (isPropertyTrackActive(track)) {
-    tracks.value = setTrackEnabled(tracks.value, layerId, paramName, false);
+  const params = linkedParamsFor(layerId, paramName);
+  const anyActive = params.some((p) => isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, p)));
+  if (anyActive) {
+    for (const p of params) tracks.value = setTrackEnabled(tracks.value, layerId, p, false);
     selectedKeyframes.value = selectedKeyframes.value.filter(
-      (k) => !(k.layerId === layerId && k.paramName === paramName),
+      (k) => !(k.layerId === layerId && params.includes(k.paramName)),
     );
     history.record();
     return;
   }
-  const layer = layers.value.find((l) => l.id === layerId);
-  const def = layer ? findLayerParamDef(layer, paramName) : undefined;
-  const fallback = (def?.default as number) ?? 0;
-  const value = paramValue(layerId, paramName, fallback);
-  tracks.value = setTrackEnabled(
-    tracks.value,
-    layerId,
-    paramName,
-    true,
-    value,
-    currentTime.value,
-  );
+  for (const p of params) {
+    const value = paramValue(layerId, p, paramFallback(layerId, p));
+    tracks.value = setTrackEnabled(tracks.value, layerId, p, true, value, currentTime.value);
+  }
   timelineRef.value?.revealLayerTracks(layerId);
   history.record();
 }
 
+/**
+ * Key the playhead. Linked position: the other axes get keyed too (and their
+ * stopwatch switched on), so the whole position is always captured.
+ */
 function setAnimatedValue(layerId: string, paramName: string, value: number) {
-  tracks.value = upsertKeyframe(
-    tracks.value,
-    layerId,
-    paramName,
-    currentTime.value,
-    value,
-  );
+  for (const p of linkedParamsFor(layerId, paramName)) {
+    const v = p === paramName ? value : paramValue(layerId, p, paramFallback(layerId, p));
+    if (!isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, p))) {
+      tracks.value = setTrackEnabled(tracks.value, layerId, p, true, v, currentTime.value);
+    }
+    tracks.value = upsertKeyframe(tracks.value, layerId, p, currentTime.value, v);
+  }
 }
 
 function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
-  const track = findPropertyTrack(tracks.value, layerId, paramName);
-  if (!track?.enabled) return;
+  const params = linkedParamsFor(layerId, paramName);
+  const active = params.filter((p) => findPropertyTrack(tracks.value, layerId, p)?.enabled);
+  if (active.length === 0) return;
 
-  if (hasKeyframeAt(track, currentTime.value)) {
-    tracks.value = removeKeyframeAt(
-      tracks.value,
-      layerId,
-      paramName,
-      currentTime.value,
-    );
+  const keyed = active.some((p) => hasKeyframeAt(findPropertyTrack(tracks.value, layerId, p), currentTime.value));
+  if (keyed) {
+    for (const p of active) {
+      tracks.value = removeKeyframeAt(tracks.value, layerId, p, currentTime.value);
+    }
     selectedKeyframes.value = selectedKeyframes.value.filter(
       (k) =>
         !(
           k.layerId === layerId &&
-          k.paramName === paramName &&
+          params.includes(k.paramName) &&
           Math.abs(k.time - currentTime.value) < 1e-6
         ),
     );
@@ -642,17 +650,8 @@ function toggleKeyframeAtPlayhead(layerId: string, paramName: string) {
     return;
   }
 
-  const layer = layers.value.find((l) => l.id === layerId);
-  const def = layer ? findLayerParamDef(layer, paramName) : undefined;
-  const fallback = (def?.default as number) ?? 0;
-  const value = paramValue(layerId, paramName, fallback);
-  tracks.value = upsertKeyframe(
-    tracks.value,
-    layerId,
-    paramName,
-    currentTime.value,
-    value,
-  );
+  const p0 = params[0]!;
+  setAnimatedValue(layerId, p0, paramValue(layerId, p0, paramFallback(layerId, p0)));
   history.record();
 }
 
@@ -1217,7 +1216,9 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
       ? (Math.abs(world) > 1e-9 ? value * (own / world) : own)
       : value - (world - own);
   }
-  if (isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, paramName))) {
+  // Animated (any linked axis keyed): key the playhead — linked axes together.
+  const linked = linkedParams(layer, paramName);
+  if (linked.some((p) => isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, p)))) {
     setAnimatedValue(layer.id, paramName, value);
     return;
   }
