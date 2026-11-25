@@ -3,6 +3,7 @@ import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
 import { expandMeshUniforms } from "./mesh-uniforms";
 import { buildUniversalUniforms, isControlLayer, isLayer3D, layerOpacityValue } from "./universal-uniforms";
+import { cloneContentPassId, expandCloners } from "../modulation/cloners";
 
 export type ModulationFn = (
   layerId: string,
@@ -224,8 +225,10 @@ function compileStack(
   modFn: ModulationFn | null,
   opts: CompileOptions | undefined,
 ): { passes: RenderPass[]; lastId: string | null } {
-  // Effectors act through the modulation fn; they never render or split 3D groups.
-  const enabled = [...layers].reverse().filter((l) => l.enabled && !isControlLayer(l));
+  // Cloners expand into their copies (sources used by a cloner drop out);
+  // effectors act through the modulation fn and never render or split 3D groups.
+  const stack = expandCloners(layers).renderLayers;
+  const enabled = [...stack].reverse().filter((l) => l.enabled && !isControlLayer(l));
   if (enabled.length === 0) return { passes: [], lastId: null };
 
   const result: RenderPass[] = [];
@@ -381,13 +384,22 @@ function compileStack(
       const groupKey = memberIds[0]!;
       const cameraSourceLayerId = findDrivingCameraId(enabled, runEnd);
 
+      // Content passes. Cloner copies of the same source share one content
+      // pass (their content is identical; only the composite transform differs).
+      const contentIdFor = (member: LayerInstance) =>
+        member.clone ? cloneContentPassId(member.clone.clonerId, member.clone.sourceId) : member.id;
+      const emittedContent = new Set<string>();
       for (const member of members) {
         if (member.type === "object3d" || member.type === "composition") continue; // no content pass
+        const contentId = contentIdFor(member);
+        if (emittedContent.has(contentId)) continue;
+        emittedContent.add(contentId);
         result.push({
-          layerId: member.id,
+          layerId: contentId,
           layerType: member.type,
           uniforms: buildLayerUniforms(member, modFn),
           inputLayerId: null,
+          sourceLayerId: member.clone ? member.id : undefined,
           isOutput: false,
         });
       }
@@ -401,7 +413,7 @@ function compileStack(
           layerType: "layerComposite3d",
           uniforms: buildUniversalUniforms(member, modFn),
           inputLayerId: slot === 0 ? previousLayerId : threeDSlotPassId(groupKey, slot - 1),
-          colorSourceLayerId: member.type === "object3d" ? null : member.id,
+          colorSourceLayerId: member.type === "object3d" ? null : contentIdFor(member),
           sourceLayerId: member.id,
           threeDGroup: { key: groupKey, memberIds, slot, lightIds },
           cameraSourceLayerId,

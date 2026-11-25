@@ -1,4 +1,5 @@
 import type { LayerInstance, RenderPass } from "../types/editor";
+import { cloneContentPassId } from "../modulation/cloners";
 import type { ModulationFn } from "../compiler/compile-passes";
 
 /**
@@ -7,7 +8,7 @@ import type { ModulationFn } from "../compiler/compile-passes";
  */
 export const SCENE_FOV_DEG = 45;
 
-type GetLayer = (id: string) => Pick<LayerInstance, "type" | "values"> | undefined;
+type GetLayer = (id: string) => Pick<LayerInstance, "type" | "values" | "clone"> | undefined;
 
 function readParam(
   getLayer: GetLayer,
@@ -142,11 +143,16 @@ export function assignThreeDSlots(
 
     const member = order[group.slot];
     if (!member || member === pass.sourceLayerId) return pass;
-    const isObject = getLayer(member)?.type === "object3d";
+    const memberLayer = getLayer(member);
+    const isObject = memberLayer?.type === "object3d";
+    // Cloner copies draw their source's shared content pass.
+    const contentId = memberLayer?.clone
+      ? cloneContentPassId(memberLayer.clone.clonerId, memberLayer.clone.sourceId)
+      : member;
     return {
       ...pass,
       sourceLayerId: member,
-      colorSourceLayerId: isObject ? null : member,
+      colorSourceLayerId: isObject ? null : contentId,
     };
   });
 }

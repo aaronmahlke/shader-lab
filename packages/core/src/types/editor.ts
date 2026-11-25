@@ -16,6 +16,7 @@ export type LayerType =
   | "object3d"
   | "light"
   | "effector"
+  | "cloner"
   | "composition"
   | "distortion"
   | "dither"
@@ -27,7 +28,7 @@ export type LayerType =
 
 export type LayerUniformDef = {
   name: string;
-  type: "float" | "int" | "color" | "vec2" | "gradient" | "meshPoints" | "bool" | "select" | "text";
+  type: "float" | "int" | "color" | "vec2" | "gradient" | "meshPoints" | "bool" | "select" | "text" | "layerRefs";
   label: string;
   default: unknown;
   min?: number;
@@ -65,6 +66,19 @@ export type LayerInstance = {
   values: Record<string, unknown>;
   /** In/out points; layer contributes nothing outside this window. */
   timing?: LayerTiming;
+  /** Set on virtual cloner copies only (never persisted). */
+  clone?: CloneInfo;
+};
+
+/** Where a virtual cloner copy sits in its cloner's layout. */
+export type CloneInfo = {
+  clonerId: string;
+  sourceId: string;
+  index: number;
+  /** Grid layout: centered cell coordinates (x, y, z). */
+  grid: [number, number, number];
+  /** Radial layout: angle on the ring (radians), else null. */
+  angle: number | null;
 };
 
 /** Synthetic pass kinds the camera layer compiles into (plus the shared blit/resolve/composite ones). */

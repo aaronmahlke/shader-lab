@@ -261,6 +261,7 @@ const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime } = useModulationE
 provide("lfoValues", lfoValues);
 // Modulator editors (LFO config) read/write keyframed params (mod:<id> tracks).
 provide("editorTracks", tracks);
+provide("editorLayers", layers);
 provide("editorTime", currentTime);
 
 // --- Playback ---

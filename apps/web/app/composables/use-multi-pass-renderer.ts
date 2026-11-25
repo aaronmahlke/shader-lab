@@ -1,6 +1,7 @@
 import {
   CompositionRenderer,
   createNestedResolvers,
+  resolveLayerById,
   type ComponentSourceInput,
   type CompositionConfig,
   type MediaSource,
@@ -75,8 +76,8 @@ export function useMultiPassRenderer(
   function findLayerForPass(pass: RenderPass): LayerInstance | undefined {
     if (nestedResolvers) return nestedResolvers.findLayer(pass);
     if (!layersRef?.value) return undefined;
-    const id = pass.sourceLayerId ?? pass.layerId;
-    return layersRef.value.find((l) => l.id === id);
+    // Includes cloner copies (virtual layers).
+    return resolveLayerById(layersRef.value, pass.sourceLayerId ?? pass.layerId);
   }
 
   function hasCompositionLayers(): boolean {

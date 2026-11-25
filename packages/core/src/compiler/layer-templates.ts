@@ -570,6 +570,63 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     ],
   },
 
+  cloner: {
+    type: "cloner",
+    label: "Cloner",
+    category: "generator",
+    description: "Lays out copies of source layers as a grid or ring (effectors act on each copy)",
+    uniforms: [
+      { name: "sources", type: "layerRefs", label: "Sources", default: [], keyframeable: false },
+      {
+        name: "layout",
+        type: "select",
+        label: "Layout",
+        default: 0,
+        options: [
+          { label: "Grid", value: 0 },
+          { label: "Ring", value: 1 },
+        ],
+        keyframeable: false,
+      },
+      { name: "countX", type: "int", label: "Count X", default: 5, min: 1, max: 60, step: 1, keyframeable: false },
+      { name: "countY", type: "int", label: "Count Y", default: 1, min: 1, max: 60, step: 1, keyframeable: false },
+      { name: "countZ", type: "int", label: "Count Z", default: 1, min: 1, max: 60, step: 1, keyframeable: false },
+      // Spacing / radius in frame-height fractions (same unit on every axis).
+      { name: "spacingX", type: "float", label: "Spacing X", default: 0.2, min: 0, max: 2, step: 0.001 },
+      { name: "spacingY", type: "float", label: "Spacing Y", default: 0.2, min: 0, max: 2, step: 0.001 },
+      { name: "spacingZ", type: "float", label: "Spacing Z", default: 0.2, min: 0, max: 2, step: 0.001 },
+      { name: "radialCount", type: "int", label: "Ring count", default: 8, min: 1, max: 120, step: 1, keyframeable: false },
+      { name: "radialRadius", type: "float", label: "Ring radius", default: 0.35, min: 0, max: 3, step: 0.001 },
+      {
+        name: "radialPlane",
+        type: "select",
+        label: "Ring plane",
+        default: 0,
+        options: [
+          { label: "Facing camera (XY)", value: 0 },
+          { label: "Floor (XZ)", value: 1 },
+        ],
+        keyframeable: false,
+      },
+      {
+        name: "order",
+        type: "select",
+        label: "Source order",
+        default: 0,
+        options: [
+          { label: "In order", value: 0 },
+          { label: "Random", value: 1 },
+        ],
+        keyframeable: false,
+      },
+      { name: "seed", type: "int", label: "Seed", default: 1, min: 0, max: 999, step: 1, keyframeable: false },
+      // Added to every copy's rotation (e.g. Rotate X 90 lays tiles flat as a floor).
+      { name: "cloneRotateX", type: "float", label: "Copy rotate X", default: 0, min: -360, max: 360, step: 0.1 },
+      { name: "cloneRotateY", type: "float", label: "Copy rotate Y", default: 0, min: -360, max: 360, step: 0.1 },
+      { name: "cloneRotateZ", type: "float", label: "Copy rotate Z", default: 0, min: -360, max: 360, step: 0.1 },
+    ],
+  },
+
   object3d: {
     type: "object3d",
     label: "3D Object",

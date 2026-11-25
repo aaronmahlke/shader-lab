@@ -16,6 +16,8 @@ export function buildLayerValues(type: LayerType): Record<string, unknown> {
   for (const def of template.uniforms) {
     if (def.type === "gradient" && Array.isArray(def.default)) {
       values[def.name] = (def.default as GradientStop[]).map((stop) => ({ ...stop }));
+    } else if (def.type === "layerRefs" && Array.isArray(def.default)) {
+      values[def.name] = [...def.default];
     } else if (def.type === "meshPoints" && Array.isArray(def.default)) {
       values[def.name] = (def.default as MeshPoint[]).map((point) => ({ ...point }));
     } else {

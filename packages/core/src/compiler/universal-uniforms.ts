@@ -94,7 +94,7 @@ export function isUniversalParamName(name: string): boolean {
 }
 
 /** Layer types that live in 3D space unconditionally (no switch shown). */
-const ALWAYS_3D = new Set<LayerInstance["type"]>(["object3d", "light", "effector"]);
+const ALWAYS_3D = new Set<LayerInstance["type"]>(["object3d", "light", "effector", "cloner"]);
 
 /** Layers that never render or join a 3D group (they act on other layers). */
 export function isControlLayer(layer: Pick<LayerInstance, "type">): boolean {

@@ -7,6 +7,7 @@ import type { CompositionRendererOptions } from "./renderer/composition-renderer
 import { buildLayerValues } from "./compiler/build-layer-values";
 import { createAnimatedModulationFn } from "./animation/create-modulation-fn";
 import LAYER_TEMPLATES from "./compiler/layer-templates";
+import { resolveLayerById } from "./modulation/cloners";
 
 export type CompositionHandle = {
   play(): void;
@@ -32,8 +33,7 @@ export function createComposition(
 
   const renderer = new CompositionRenderer(canvas, {
     ...options,
-    findLayer: (pass) =>
-      currentConfig.layers.find((l) => l.id === (pass.sourceLayerId ?? pass.layerId)),
+    findLayer: (pass) => resolveLayerById(currentConfig.layers, pass.sourceLayerId ?? pass.layerId),
     getModulatedValue: engine.getModulatedValue,
   });
 
@@ -172,6 +172,7 @@ export type {
   LayerTemplate,
   RenderPass,
   LFOSource,
+  CloneInfo,
   EnvelopeSource,
   ModulationAssignment,
   ModulationTimeBase,
@@ -243,6 +244,17 @@ export type {
 
 export { applyModulation, isZeroBaseDisabled } from "./modulation/modulation";
 export { evaluateEnvelope } from "./modulation/envelope";
+export {
+  cloneContentPassId,
+  cloneId,
+  cloneTransformValue,
+  clonerSourceIds,
+  expandCloners,
+  resolveLayerById,
+  CLONE_SEP,
+  MAX_CLONES,
+} from "./modulation/cloners";
+export type { ClonerExpansion } from "./modulation/cloners";
 export {
   applyEffectorInfluence,
   computeEffectorInfluence,

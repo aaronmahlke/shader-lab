@@ -7,6 +7,7 @@ import { isZeroBaseDisabled } from "./modulation";
 import { evaluateLfoWave, getLfoWaveShape } from "./lfo-wave";
 import { evaluateEnvelope } from "./envelope";
 import { computeEffectorInfluence, type EffectorInfluence, type ParamReader } from "./effectors";
+import { expandCloners } from "./cloners";
 
 /** Track `layerId` for a modulator's own params (LFO: rate, phase; envelope: attack, decay, sustain, gate, release). */
 export function sourceTrackLayerId(sourceId: string): string {
@@ -54,6 +55,7 @@ export class ModulationEngine {
   private layerIn = new Map<string, number>();
   private layersById = new Map<string, LayerInstance>();
   private effectors: LayerInstance[] = [];
+  private hasClones = false;
   private aspect = 16 / 9;
   /** Per-frame cache: target layer id → effector influence (null = untouched). */
   private influenceCache = new Map<string, EffectorInfluence | null>();
@@ -86,10 +88,21 @@ export class ModulationEngine {
 
   /** Layers, for links on the "layer" time base (offset by the layer's in-point). */
   setLayers(layers: LayerInstance[]): void {
-    this.layerIn = new Map(layers.map((l) => [l.id, l.timing?.in ?? 0]));
-    this.layersById = new Map(layers.map((l) => [l.id, l]));
+    // Cloner copies are addressable like real layers (effectors, links, timing).
+    this.layersById = expandCloners(layers).byId;
+    this.layerIn = new Map([...this.layersById.values()].map((l) => [l.id, l.timing?.in ?? 0]));
     this.effectors = layers.filter((l) => l.type === "effector");
+    this.hasClones = layers.some((l) => l.type === "cloner");
     this.influenceCache.clear();
+  }
+
+  /** True when any cloner exists (copies need transform routing). */
+  hasCloners(): boolean {
+    return this.hasClones;
+  }
+
+  getAspect(): number {
+    return this.aspect;
   }
 
   /** Comp width / height, so effector radii are round on screen. */

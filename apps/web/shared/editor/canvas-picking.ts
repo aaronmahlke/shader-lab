@@ -1,4 +1,4 @@
-import { pointInProjectedQuad, type LayerInstance, type ProjectedPoint } from "@shader-lab/core";
+import { clonerSourceIds, pointInProjectedQuad, type LayerInstance, type ProjectedPoint } from "@shader-lab/core";
 import {
   isPointInLayer,
   type ContentExtent,
@@ -48,8 +48,13 @@ export function topLayerAt(
 ): LayerInstance | null {
   type Hit = { layer: LayerInstance; depth: number | null };
   const hits: Hit[] = [];
+  // Cloner sources don't render on their own, so they can't be clicked either.
+  const byId = new Map(layers.map((l) => [l.id, l]));
+  const clonerSources = new Set(
+    layers.filter((l) => l.type === "cloner" && l.enabled).flatMap((l) => clonerSourceIds(l, byId)),
+  );
   for (const layer of layers) {
-    if (!layer.enabled || !PICKABLE_LAYER_TYPES.has(layer.type)) continue;
+    if (!layer.enabled || !PICKABLE_LAYER_TYPES.has(layer.type) || clonerSources.has(layer.id)) continue;
     const projection = getProjection?.(layer);
     if (projection) {
       const quad = projection.quad;

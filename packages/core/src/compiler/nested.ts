@@ -4,6 +4,7 @@ import type { ModulationFn } from "./compile-passes";
 import { NESTED_SEP } from "./compile-passes";
 import { ModulationEngine } from "../modulation/engine";
 import { createAnimatedModulationFn } from "../animation/create-modulation-fn";
+import { expandCloners } from "../modulation/cloners";
 
 /**
  * Per-frame resolvers that make nested composition passes work through the
@@ -39,7 +40,8 @@ export function createNestedResolvers(opts: NestedResolverOptions): {
   findLayer: (pass: RenderPass) => LayerInstance | undefined;
   modFn: ModulationFn;
 } {
-  const rootById = new Map(opts.layers.map((l) => [l.id, l]));
+  // Includes cloner copies so their passes resolve like real layers.
+  const rootById = expandCloners(opts.layers).byId;
   const instances = new Map<string, Instance | null>();
 
   /** Resolve (and cache) the instance for a host path like "h1::h2". */
@@ -61,7 +63,7 @@ export function createNestedResolvers(opts: NestedResolverOptions): {
       }
       timeShift += host.timing?.in ?? 0;
       config = resolved;
-      layersById = new Map(config.layers.map((l) => [l.id, l]));
+      layersById = expandCloners(config.layers).byId;
     }
 
     if (!config) {

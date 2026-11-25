@@ -258,6 +258,14 @@ function ensureTextTexture(
   return texture;
 }
 
+/**
+ * Key for host-pushed sources/textures: the layer id, except cloner copies
+ * (shared content passes) which use their source layer's id.
+ */
+function sourceKeyFor(pass: RenderPass, ctx: RenderPassContext): string {
+  return ctx.findLayer?.(pass)?.clone?.sourceId ?? pass.layerId;
+}
+
 /** Upload (or reuse) the host-pushed capture for a component layer pass. */
 function ensureComponentTexture(
   pass: RenderPass,
@@ -266,10 +274,11 @@ function ensureComponentTexture(
   const { gl, componentSources, componentTextures } = ctx;
   if (!componentSources || !componentTextures) return null;
 
-  const source = componentSources.get(pass.layerId);
+  const key = sourceKeyFor(pass, ctx);
+  const source = componentSources.get(key);
   if (!source) return null;
 
-  const cached = componentTextures.get(pass.layerId);
+  const cached = componentTextures.get(key);
   if (cached && cached.version === source.version) {
     return { texture: cached.texture, source };
   }
@@ -302,7 +311,7 @@ function ensureComponentTexture(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-  componentTextures.set(pass.layerId, { version: source.version, texture });
+  componentTextures.set(key, { version: source.version, texture });
   return { texture, source };
 }
 
@@ -314,10 +323,11 @@ function ensureMediaTexture(
   const { gl, mediaSources, mediaTextures } = ctx;
   if (!mediaSources || !mediaTextures) return null;
 
-  const source = mediaSources.get(pass.layerId);
+  const key = sourceKeyFor(pass, ctx);
+  const source = mediaSources.get(key);
   if (!source) return null;
 
-  const cached = mediaTextures.get(pass.layerId);
+  const cached = mediaTextures.get(key);
   if (cached && cached.version === source.version) {
     return { texture: cached.texture, source };
   }
@@ -351,7 +361,7 @@ function ensureMediaTexture(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-  mediaTextures.set(pass.layerId, { version: source.version, texture });
+  mediaTextures.set(key, { version: source.version, texture });
   return { texture, source };
 }
 

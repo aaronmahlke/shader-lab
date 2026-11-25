@@ -572,6 +572,7 @@ const LAYER_TYPE_ICONS: Record<LayerInstance["type"], unknown> = {
   camera: VideoCameraIcon,
   light: SunIcon,
   effector: CursorArrowRaysIcon,
+  cloner: Squares2X2Icon,
   shape: StopIcon,
   object3d: CubeIcon,
   gradient: SwatchIcon,

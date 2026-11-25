@@ -580,7 +580,17 @@ const currentWaveType = computed(() => (layer.values.waveType as number) ?? 0);
 const currentCoordMode = computed(() => (layer.values.coordMode as number) ?? 0);
 const currentCaMode = computed(() => (layer.values.mode as number) ?? 0);
 
+const CLONER_GRID_PARAMS = new Set(["countX", "countY", "countZ", "spacingX", "spacingY", "spacingZ"]);
+const CLONER_RING_PARAMS = new Set(["radialCount", "radialRadius", "radialPlane"]);
+
 function isUniformVisible(def: LayerUniformDef): boolean {
+  if (layer.type === "cloner") {
+    const ring = Number(layer.values.layout ?? 0) === 1;
+    if (CLONER_GRID_PARAMS.has(def.name)) return !ring;
+    if (CLONER_RING_PARAMS.has(def.name)) return ring;
+    if (def.name === "seed") return Number(layer.values.order ?? 0) === 1;
+    return true;
+  }
   if (isDistortion.value) {
     if (def.name === "sharpness" || def.name === "pulseWidth") return currentWaveType.value === 1;
     if (def.name === "skew") return currentWaveType.value === 2;
@@ -784,8 +794,15 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     <EditorInspectorSection :title="template.label">
       <template v-for="def in template.uniforms" :key="def.name">
         <template v-if="isUniformVisible(def)">
+          <EditorLayerRefsField
+            v-if="def.type === 'layerRefs'"
+            :model-value="Array.isArray(layer.values[def.name]) ? (layer.values[def.name] as string[]) : []"
+            :label="def.label"
+            :owner-id="layer.id"
+            @update:model-value="layer.values[def.name] = $event"
+          />
           <UiSelect
-            v-if="layer.type === 'component' && def.name === 'componentName'"
+            v-else-if="layer.type === 'component' && def.name === 'componentName'"
             :model-value="getText(def, layer.values)"
             :options="componentPickerOptions"
             :label="def.label"
