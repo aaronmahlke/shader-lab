@@ -13,6 +13,7 @@ type Emits = {
 };
 
 const emit = defineEmits<Emits>();
+const { variant = "inset" } = defineProps<{ variant?: "inset" | "tile" }>();
 
 const open = ref(false);
 
@@ -43,7 +44,10 @@ defineExpose({ open, openPanel });
       <d-tooltip content="Add layer">
         <ComboboxAnchor as-child>
           <ComboboxTrigger
-            class="flex size-[var(--s-ctl)] cursor-default items-center justify-center bg-[var(--s-inset)] text-[var(--s-txt)] shadow-[inset_0_0_0_1px_var(--s-edge)] outline-none hover:bg-[var(--s-inset-hover)] hover:text-[var(--s-bright)] data-[state=open]:bg-[var(--s-accent)] data-[state=open]:text-[var(--s-on-txt)]"
+            class="flex cursor-default items-center justify-center text-[var(--s-txt)] outline-none hover:text-[var(--s-bright)] data-[state=open]:bg-[var(--s-accent)] data-[state=open]:text-[var(--s-on-txt)]"
+            :class="variant === 'tile'
+              ? 'size-[18px] bg-[var(--s-tile)] hover:bg-[var(--s-hover)]'
+              : 'size-[var(--s-ctl)] bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)] hover:bg-[var(--s-inset-hover)]'"
             aria-label="Add layer"
           >
             <StudioIcon name="plus" />

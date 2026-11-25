@@ -34,7 +34,7 @@
   --s-ctl: 16px;
   --s-row: 19px;
   --s-gap: 6px;
-  --s-r: 0px; /* tiles: square by default */
+  --s-r: 4px; /* tiles (panels): slight rounding */
   --s-r-ctl: 0px; /* controls: square */
 
   font: 500 var(--s-fs) / 1 "Inter", system-ui, sans-serif;

@@ -1909,13 +1909,17 @@ registerKeyboard({
       @toggle-project-panel="toggleProjectPanel"
       @preview="startPreview"
       @export="exportOpen = true"
-    />
+    >
+      <template #tools>
+        <ShellToolDock ref="toolDockRef" v-model:tool="activeTool" @add-layer="addLayer" />
+      </template>
+    </ShellTopBar>
 
     <div ref="editorSplitRef" class="flex min-h-0 flex-1 flex-col">
       <div class="flex min-h-0 flex-1 gap-[var(--s-gap)]">
         <aside
           v-if="projectId && projectPanelOpen && !previewing"
-          class="shrink-0 overflow-hidden bg-[var(--s-tile)]"
+          class="shrink-0 overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)]"
         >
           <ShellProjectPanel
             :project-id="projectId"
@@ -1926,7 +1930,7 @@ registerKeyboard({
         </aside>
 
         <main
-          class="min-w-0 flex-1 overflow-hidden bg-[var(--s-tile)]"
+          class="min-w-0 flex-1 overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)]"
           :class="previewing ? 'fixed inset-0 z-[100] bg-black' : 'relative'"
           @click="previewing && stopPreview()"
         >
@@ -2112,12 +2116,6 @@ registerKeyboard({
                   :names="compNames"
                   :current-time="currentTime"
                 />
-                <ShellToolDock
-                  ref="toolDockRef"
-                  v-model:tool="activeTool"
-                  class="absolute bottom-[6px] left-1/2 z-20 -translate-x-1/2"
-                  @add-layer="addLayer"
-                />
               </template>
 
               <!-- Zoom controls -->
@@ -2136,7 +2134,7 @@ registerKeyboard({
 
         <aside
           v-show="!previewing"
-          class="flex w-editor-panel shrink-0 flex-col overflow-hidden bg-[var(--s-tile)]"
+          class="flex w-editor-panel shrink-0 flex-col overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)]"
         >
           <EditorEasingPanel
             v-if="selectedKeyframes.length > 0"
@@ -2194,7 +2192,7 @@ registerKeyboard({
             @pointerdown="onTimelineResizePointerDown"
           />
         </div>
-        <div class="flex shrink-0 flex-col overflow-hidden bg-[var(--s-tile)]" :style="{ height: `${timelineHeight}px` }">
+        <div class="flex shrink-0 flex-col overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)]" :style="{ height: `${timelineHeight}px` }">
           <div class="min-h-0 flex-1">
           <EditorTimeline
             ref="timelineRef"

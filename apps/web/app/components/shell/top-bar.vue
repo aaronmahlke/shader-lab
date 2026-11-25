@@ -62,6 +62,8 @@ defineExpose({ refresh: () => tabsRef.value?.refresh() });
 
     <span class="w-[10px] shrink-0" />
 
+    <slot name="tools" />
+    <span class="w-[10px] shrink-0" />
     <StudioButton variant="tile" class="!h-[18px]" title="Preview (full screen)" @click="emit('preview')">
       <StudioIcon name="play" /> Preview
     </StudioButton>

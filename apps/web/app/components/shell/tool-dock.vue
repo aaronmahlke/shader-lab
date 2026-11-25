@@ -28,15 +28,14 @@ register({
 </script>
 
 <template>
-  <!-- Studio: a band-colored strip of buttons; active tool in accent. -->
-  <div class="flex items-center gap-[2px] bg-[var(--s-band)] p-[2px] shadow-[0_0_0_1px_var(--s-edge)]">
-    <StudioButton square :active="tool === 'select'" aria-label="Select" title="Select (V)" @pointerdown.prevent @click="tool = 'select'">
+  <!-- Tools in the top bar (Live keeps tools in its control bar): tile buttons on the frame. -->
+  <div class="flex items-center gap-[2px]">
+    <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" :active="tool === 'select'" aria-label="Select" title="Select (V)" @pointerdown.prevent @click="tool = 'select'">
       <StudioIcon name="cursor" />
     </StudioButton>
-    <StudioButton square :active="tool === 'text'" aria-label="Text" title="Text (T)" @pointerdown.prevent @click="tool = 'text'">
+    <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" :active="tool === 'text'" aria-label="Text" title="Text (T)" @pointerdown.prevent @click="tool = 'text'">
       <StudioIcon name="text" />
     </StudioButton>
-    <span class="mx-[2px] h-[12px] w-px bg-[var(--s-edge)]" />
-    <EditorLayerAddBar ref="addBarRef" @select="emit('add-layer', $event)" />
+    <EditorLayerAddBar ref="addBarRef" variant="tile" @select="emit('add-layer', $event)" />
   </div>
 </template>

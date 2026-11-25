@@ -127,8 +127,7 @@ const keyframesRevealed = ref<Set<string>>(new Set());
 const pinnedUViewProperties = ref<Set<string>>(new Set());
 const labelWidth = 360;
 
-const PLAYHEAD_HEAD =
-  "M0.31938 3.08047C-0.535142 1.74938 0.420642 0 2.00241 0H7.68118C9.26295 0 10.2187 1.74938 9.36421 3.08047L5.95419 8.39224C5.71104 8.77099 5.29188 9 4.8418 9C4.39171 9 3.97256 8.77099 3.72941 8.39224L0.31938 3.08047Z";
+const PLAYHEAD_HEAD = "M0 0H10L5 9Z";
 
 const DEFAULT_PX_PER_SECOND = 96;
 const MIN_PX_PER_SECOND = 16;
@@ -3014,7 +3013,7 @@ function selectAllLayers() {
               >
                 <div class="relative h-7 border-b border-[var(--s-frame)] bg-[var(--s-inset)]">
                   <div
-                    class="group/bar absolute inset-y-[5px] cursor-default rounded-none ring-1 ring-inset transition-colors"
+                    class="group/bar absolute inset-y-px cursor-default rounded-none ring-1 ring-inset transition-colors"
                     :class="selectedLayerIds.has(layer.id)
                       ? 'bg-[var(--s-fill)] ring-[var(--s-select)]'
                       : 'bg-[var(--s-raise)] ring-black/30 hover:bg-[#56565c]'"
@@ -3237,15 +3236,7 @@ function selectAllLayers() {
         <div class="shrink-0 border-r border-[var(--s-frame)]" :style="{ width: `${labelWidth}px` }" />
         <div class="flex min-w-0 flex-1 items-center gap-1 px-2">
           <StudioButton variant="ghost" square aria-label="Zoom out" @click="zoomOut"><StudioIcon name="minus" /></StudioButton>
-          <input
-            v-model.number="zoomSlider"
-            type="range"
-            min="0"
-            max="1"
-            step="0.001"
-            class="h-1 w-32 cursor-default accent-[var(--s-txt)]"
-            aria-label="Timeline zoom"
-          />
+          <StudioSlider v-model="zoomSlider" :min="0" :max="1" class="w-[120px]" aria-label="Timeline zoom" />
           <StudioButton variant="ghost" square aria-label="Zoom in" @click="zoomIn"><StudioIcon name="plus" /></StudioButton>
           <StudioButton title="Fit comp to width (⇧Z)" @click="fitTimeline"><StudioIcon name="fit" /> Fit</StudioButton>
           <span class="ml-auto text-xs text-neutral-weak tabular-nums">{{ formatTime(settings.duration) }} · {{ settings.fps }} fps</span>
