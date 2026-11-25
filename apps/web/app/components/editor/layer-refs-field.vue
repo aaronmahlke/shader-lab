@@ -56,7 +56,7 @@ function toggle(id: string) {
           <CheckIcon v-if="model?.includes(layer.id)" class="size-3 text-white" />
         </span>
         <span class="min-w-0 flex-1 truncate">{{ layerName(layer) }}</span>
-        <span v-if="model?.includes(layer.id)" class="font-mono text-copy-xs text-neutral-subtle">
+        <span v-if="model?.includes(layer.id)" class="tabular-nums text-copy-xs text-neutral-subtle">
           {{ model.indexOf(layer.id) + 1 }}
         </span>
       </button>

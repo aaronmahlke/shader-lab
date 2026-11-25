@@ -2375,7 +2375,54 @@ function layerRowBlockRole(index: number) {
  * Returns the resulting selection so pointerdown handlers can use it right
  * away: the selection models are defineModel and only sync back next tick.
  */
+// --- Property row selection (AE: click a property = select it + all its keys) ---
+
+/** Selected property rows (row keys). Cleared when layers/keys are picked elsewhere. */
+const selectedRowKeys = ref<Set<string>>(new Set());
+
+function rowKeySelections(row: TimelineRow): KeyframeSelection[] {
+  return axesFor(row.owner, row.def.name).flatMap((axis) =>
+    (findPropertyTrack(tracks.value, row.owner, axis)?.keys ?? []).map((k) => ({
+      layerId: row.owner,
+      paramName: axis,
+      time: k.time,
+    })),
+  );
+}
+
+function onPropertyRowClick(row: TimelineRow, e: MouseEvent) {
+  const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+  const next = new Set(additive ? selectedRowKeys.value : []);
+  if (additive && next.has(row.key)) next.delete(row.key);
+  else next.add(row.key);
+  selectedRowKeys.value = next;
+
+  // Keep the owning layer selected (inspector follows), keys of every picked row.
+  selectLayerForOwner(row.owner);
+  const layerId = selectedLayerId.value;
+  if (layerId && !selectedLayerIds.value.has(layerId)) selectedLayerIds.value = new Set([layerId]);
+  const rows = layers.value.flatMap((l) => rowsForLayer(l)).filter((r) => next.has(r.key));
+  selectedKeyframes.value = rows.flatMap(rowKeySelections);
+}
+
+function isRowSelected(row: TimelineRow): boolean {
+  return selectedRowKeys.value.has(row.key);
+}
+
+// Any other selection change (layer click, key click, marquee) drops row selection.
+watch(selectedKeyframes, (keys) => {
+  if (selectedRowKeys.value.size === 0) return;
+  const expected = layers.value
+    .flatMap((l) => rowsForLayer(l))
+    .filter((r) => selectedRowKeys.value.has(r.key))
+    .flatMap(rowKeySelections);
+  const same = keys.length === expected.length
+    && expected.every((x) => keys.some((k) => k.layerId === x.layerId && k.paramName === x.paramName && Math.abs(k.time - x.time) < 1e-6));
+  if (!same) selectedRowKeys.value = new Set();
+});
+
 function selectLayer(id: string, e?: MouseEvent): Set<string> | null {
+  selectedRowKeys.value = new Set();
   const index = layerIndex(id);
   if (index === -1) return null;
 
@@ -2446,7 +2493,7 @@ function selectAllLayers() {
         >
           <div class="flex h-9 items-center gap-1.5 px-2">
             <span
-              class="w-16 shrink-0 font-mono text-sm font-semibold text-accent tabular-nums"
+              class="w-16 shrink-0 tabular-nums text-sm font-semibold text-accent "
               :title="`${formatTime(currentTime)} / ${formatTime(settings.duration)} · ${settings.fps} fps`"
             >{{ formatTime(currentTime) }}</span>
             <div class="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-md bg-tint-subtle px-1.5 focus-within:ring-1 focus-within:ring-focus">
@@ -2506,7 +2553,7 @@ function selectAllLayers() {
               >
                 <span
                   v-if="mark.kind === 'major'"
-                  class="pl-1 font-mono text-[10px] text-neutral-subtle"
+                  class="pl-1 tabular-nums text-[10px] text-neutral-subtle"
                 >
                   {{ formatRulerLabel(mark.time) }}
                 </span>
@@ -2649,8 +2696,9 @@ function selectAllLayers() {
               <div
                 v-for="row in rowsForLayer(layer)"
                 :key="row.key"
-                class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
-                :class="row.kind !== 'property' && 'bg-layer-1/40'"
+                class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none transition-colors"
+                :class="isRowSelected(row) ? 'bg-tint' : row.kind !== 'property' ? 'bg-layer-1/40 hover:bg-tint-subtle' : 'hover:bg-tint-subtle'"
+                @click="onPropertyRowClick(row, $event)"
               >
                 <!-- AE keyframe navigator: ◂ previous · ◆ add/remove · next ▸ -->
                 <div class="flex w-[60px] shrink-0 items-center justify-center" data-drag-exclude>
@@ -2677,7 +2725,21 @@ function selectAllLayers() {
                     ><ChevronRightIcon class="size-3" /></button>
                   </template>
                 </div>
-                <div class="flex min-w-0 flex-1 items-center gap-0.5 pr-1 pl-5" :class="row.kind !== 'property' && 'pl-9'">
+                <!-- Tree indent: one chevron width (20px) per level, AE-style:
+                     layer chevron → property chevron → stopwatch / axis label. -->
+                <div class="flex min-w-0 flex-1 items-center gap-0.5 pr-1" :class="row.kind === 'property' ? 'pl-5' : 'pl-10'">
+                  <button
+                    v-if="row.kind === 'property' && row.def.name === POSITION_GROUP"
+                    type="button"
+                    data-drag-exclude
+                    class="flex size-5 shrink-0 items-center justify-center rounded-sm text-neutral-subtle transition-colors hover:text-neutral-strong"
+                    :title="axisRowsOpen.has(row.owner) ? 'Hide X / Y' : 'Show X / Y separately'"
+                    @pointerdown.stop
+                    @click.stop="toggleAxisRows(row.owner)"
+                  >
+                    <ChevronRightIcon class="size-3 transition-transform" :class="axisRowsOpen.has(row.owner) && 'rotate-90'" />
+                  </button>
+                  <span v-else-if="row.kind === 'property'" class="w-5 shrink-0" />
                   <UiStopwatchButton
                     v-if="row.kind !== 'axis'"
                     data-drag-exclude
@@ -2695,18 +2757,6 @@ function selectAllLayers() {
                   >
                     <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
                   </button>
-                  <button
-                    v-if="row.kind === 'property' && row.def.name === POSITION_GROUP"
-                    type="button"
-                    data-drag-exclude
-                    class="flex size-4 shrink-0 items-center justify-center rounded-sm text-neutral-subtle transition-colors hover:text-neutral-strong"
-                    :title="axisRowsOpen.has(row.owner) ? 'Hide X / Y' : 'Show X / Y separately'"
-                    @pointerdown.stop
-                    @click.stop="toggleAxisRows(row.owner)"
-                  >
-                    <ChevronRightIcon class="size-3 transition-transform" :class="axisRowsOpen.has(row.owner) && 'rotate-90'" />
-                  </button>
-                  <span v-else-if="row.kind === 'property'" class="w-4 shrink-0" />
                   <span
                     class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle"
                     :style="row.kind === 'axis' ? { color: row.color } : undefined"
@@ -2740,7 +2790,7 @@ function selectAllLayers() {
                       :ref="focusValueInput"
                       v-model="editingValue!.text"
                       data-drag-exclude
-                      class="w-12 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                      class="w-12 shrink-0 rounded-sm bg-control px-1 text-right tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                       spellcheck="false"
                       @keydown.enter.stop.prevent="commitValueEditor(axis)"
                       @keydown.esc.stop.prevent="cancelValueEditor"
@@ -2751,7 +2801,7 @@ function selectAllLayers() {
                     <span
                       v-else
                       data-drag-exclude
-                      class="shrink-0 cursor-ew-resize rounded-sm px-0.5 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                      class="shrink-0 cursor-ew-resize rounded-sm px-0.5 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
                       :title="`${axis.def.label}: drag to scrub, click to type (⇧ fine)`"
                       @pointerdown.stop.prevent="onValuePointerDown(axis, $event)"
                     >
@@ -2764,7 +2814,7 @@ function selectAllLayers() {
                   :ref="focusValueInput"
                   v-model="editingValue!.text"
                   data-drag-exclude
-                  class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                  class="w-16 shrink-0 rounded-sm bg-control px-1 text-right tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                   spellcheck="false"
                   @keydown.enter.stop.prevent="commitValueEditor(row)"
                   @keydown.esc.stop.prevent="cancelValueEditor"
@@ -2775,7 +2825,7 @@ function selectAllLayers() {
                 <span
                   v-else
                   data-drag-exclude
-                  class="shrink-0 rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
                   :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
                   :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
                   @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
@@ -2888,7 +2938,7 @@ function selectAllLayers() {
                         :ref="focusValueInput"
                         v-model="editingValue!.text"
                         data-drag-exclude
-                        class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                        class="w-16 shrink-0 rounded-sm bg-control px-1 text-right tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                         spellcheck="false"
                         @keydown.enter.stop.prevent="commitValueEditor(row)"
                         @keydown.esc.stop.prevent="cancelValueEditor"
@@ -2899,7 +2949,7 @@ function selectAllLayers() {
                       <span
                         v-else
                         data-drag-exclude
-                        class="shrink-0 rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                        class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
                         :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
                         :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
                         @pointerdown.stop.prevent="onValuePointerDown(row, $event)"

@@ -2134,7 +2134,7 @@ registerKeyboard({
                 </button>
                 <button
                   type="button"
-                  class="rounded-md px-1.5 py-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  class="rounded-md px-1.5 py-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
                   title="Zoom out (⌘−)"
                   @click="viewport.stepZoom(-1)"
                 >
@@ -2142,7 +2142,7 @@ registerKeyboard({
                 </button>
                 <button
                   type="button"
-                  class="min-w-12 rounded-md px-1 py-1 text-center font-mono text-copy-xs text-neutral-strong transition-colors hover:bg-control"
+                  class="min-w-12 rounded-md px-1 py-1 text-center tabular-nums text-copy-xs text-neutral-strong transition-colors hover:bg-control"
                   title="Zoom to 100% (⌘1)"
                   @click="viewport.zoomTo100()"
                 >
@@ -2150,7 +2150,7 @@ registerKeyboard({
                 </button>
                 <button
                   type="button"
-                  class="rounded-md px-1.5 py-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  class="rounded-md px-1.5 py-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
                   title="Zoom in (⌘+)"
                   @click="viewport.stepZoom(1)"
                 >

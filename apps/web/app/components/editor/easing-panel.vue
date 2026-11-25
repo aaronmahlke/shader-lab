@@ -158,7 +158,7 @@ function presetPath(curve: CubicBezierEase): string {
       <span class="text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
         Easing
       </span>
-      <span class="font-mono text-copy-2xs text-neutral-weak">
+      <span class="tabular-nums text-copy-2xs text-neutral-weak">
         {{ selection.length }} key{{ selection.length === 1 ? "" : "s" }}
       </span>
     </div>

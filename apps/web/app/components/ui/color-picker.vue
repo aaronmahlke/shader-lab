@@ -168,7 +168,7 @@ function commitHex(e: Event) {
         ref="hexInputRef"
         :value="hexValue"
         type="text"
-        class="h-6 w-full rounded-md bg-surface-1 px-2 font-mono text-copy-sm text-primary uppercase outline-none ring-1 ring-edge focus:ring-edge-strong"
+        class="h-6 w-full rounded-md bg-surface-1 px-2 tabular-nums text-copy-sm text-primary uppercase outline-none ring-1 ring-edge focus:ring-edge-strong"
         @change="commitHex"
         @keydown.enter="($event.target as HTMLInputElement).blur()"
       />

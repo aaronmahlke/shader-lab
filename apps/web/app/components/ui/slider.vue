@@ -232,7 +232,7 @@ function onPointerEnd() {
             ref="inputRef"
             v-model="editText"
             type="text"
-            class="w-12 rounded bg-tint-subtle px-1 text-right font-mono text-copy-sm text-neutral-strong outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+            class="w-12 rounded bg-tint-subtle px-1 text-right tabular-nums text-copy-sm text-neutral-strong outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
             @blur="commitValue"
             @keydown.enter="($event.target as HTMLInputElement).blur()"
             @keydown.escape="isEditing = false"
@@ -240,7 +240,7 @@ function onPointerEnd() {
           <button
             v-else
             type="button"
-            class="cursor-text rounded px-1 font-mono text-copy-sm tabular-nums text-neutral-subtle transition-colors hover:text-neutral-strong"
+            class="cursor-text rounded px-1 tabular-nums text-copy-sm  text-neutral-subtle transition-colors hover:text-neutral-strong"
             @click.stop="startEdit"
           >
             {{ displayValue }}{{ unit }}

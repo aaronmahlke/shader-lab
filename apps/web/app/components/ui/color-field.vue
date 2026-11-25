@@ -28,7 +28,7 @@ const open = ref(false);
             class="size-4 rounded border border-edge-subtle"
             :style="{ backgroundColor: model }"
           />
-          <span class="font-mono text-copy-sm text-tertiary uppercase group-hover:text-secondary">
+          <span class="tabular-nums text-copy-sm text-tertiary uppercase group-hover:text-secondary">
             {{ model }}
           </span>
         </button>
