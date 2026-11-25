@@ -30,15 +30,15 @@ export type StoredComposition = {
   updatedAt: Date;
 };
 
-export type CompositionMeta = Omit<StoredComposition, "data" | "projectId">;
+export type StoredCompositionMeta = Omit<StoredComposition, "data" | "projectId">;
 
 export type CompWithProject = { project: StoredProject; comp: StoredComposition };
 
 export interface ProjectStore {
   /** Projects of a user (newest first) with composition metadata (sorted). */
-  listProjects(userId: string): Promise<(StoredProject & { compositions: CompositionMeta[] })[]>;
+  listProjects(userId: string): Promise<(StoredProject & { compositions: StoredCompositionMeta[] })[]>;
   getProject(id: string): Promise<StoredProject | null>;
-  listCompositionMeta(projectId: string): Promise<CompositionMeta[]>;
+  listCompositionMeta(projectId: string): Promise<StoredCompositionMeta[]>;
   createProject(
     userId: string,
     input: { name?: string; isPublic?: boolean; compositionName?: string; data?: unknown },

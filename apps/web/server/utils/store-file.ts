@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { uuidv7 } from "uuidv7";
-import type { CompositionMeta, ProjectStore, StoredComposition, StoredProject } from "./store";
+import type { StoredCompositionMeta, ProjectStore, StoredComposition, StoredProject } from "./store";
 
 /**
  * Local storage: every project is a folder.
@@ -169,7 +169,7 @@ function thumbUrl(c: ManifestComp) {
   return c.thumbnailUpdatedAt ? `/api/shaders/${c.id}/thumbnail?v=${new Date(c.thumbnailUpdatedAt).getTime()}` : null;
 }
 
-function toMeta(c: ManifestComp): CompositionMeta {
+function toMeta(c: ManifestComp): StoredCompositionMeta {
   return {
     id: c.id,
     name: c.name,

@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq } from "drizzle-orm";
 import { compositions, projects } from "../database/schema";
-import type { CompositionMeta, ProjectStore, StoredComposition, StoredProject } from "./store";
+import type { StoredCompositionMeta, ProjectStore, StoredComposition, StoredProject } from "./store";
 
 const MEDIA_KEY_RE = /^uploads\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 
@@ -26,7 +26,7 @@ export function createDbStore(): ProjectStore {
         .innerJoin(compositions, eq(compositions.projectId, projects.id))
         .where(eq(projects.userId, userId))
         .orderBy(desc(projects.updatedAt), asc(compositions.sortIndex), asc(compositions.createdAt));
-      const byProject = new Map<string, StoredProject & { compositions: CompositionMeta[] }>();
+      const byProject = new Map<string, StoredProject & { compositions: StoredCompositionMeta[] }>();
       for (const row of rows) {
         let entry = byProject.get(row.project.id);
         if (!entry) {
