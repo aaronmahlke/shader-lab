@@ -2623,17 +2623,14 @@ function selectAllLayers() {
                 draggingIndices.has(i) && 'z-50 scale-[1.01] shadow-lg',
               ]"
             >
-              <UiHover
-                solid
-                :active="isLayerSelected(layer.id) || draggingIndices.has(i)"
-                radius="rounded-none"
-                class-name="bg-[var(--s-tile)] group-hover/h:bg-[var(--s-hover)]/40"
-                active-class-name="bg-[var(--s-raise)]"
-                full-width
+              <!-- No hover (Live): rows are split by a dark line; selected = raised. -->
+              <div
+                class="w-full"
+                :class="isLayerSelected(layer.id) || draggingIndices.has(i) ? 'bg-[var(--s-raise)]' : 'bg-[var(--s-tile)]'"
               >
                 <div
                   data-drag-handle
-                  class="flex h-7 w-full cursor-default items-center gap-0.5 px-1 select-none"
+                  class="flex h-7 w-full cursor-default items-center gap-0.5 border-b border-[var(--s-frame)] px-1 select-none"
                   :data-layer-id="layer.id"
                   :class="pickWhip && pickWhipTargetId === layer.id && 'ring-1 ring-inset ring-accent'"
                   :title="layer.type === 'composition' ? 'Double-click to open the composition' : undefined"
@@ -2713,7 +2710,7 @@ function selectAllLayers() {
                     </div>
                   </div>
                 </div>
-              </UiHover>
+              </div>
 
               <div
                 v-for="row in rowsForLayer(layer)"
