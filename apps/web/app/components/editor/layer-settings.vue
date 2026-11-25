@@ -2,7 +2,9 @@
 import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource, PropertyTrack } from "@shader-lab/core";
 import type { GradientStop, MeshPoint } from "@shader-lab/core";
 import {
-  applyModulation,
+  isZeroBaseDisabled,
+  linkTrackLayerId,
+  upsertKeyframe,
   evaluatePropertyTrack,
   findPropertyTrack,
   hasKeyframeAt,
@@ -99,17 +101,33 @@ function getLiveValue(def: LayerUniformDef): number | undefined {
   return lfoValues.value[assignment.sourceId];
 }
 
+/** Link amount at the playhead (keyframed `link:<key>` depth track, else the static depth). */
+function linkDepth(assignment: ModulationAssignment): number {
+  const track = findPropertyTrack(tracks, linkTrackLayerId(assignment), "depth");
+  return evaluatePropertyTrack(track, currentTime, assignment.depth);
+}
+
+function linkOn(assignment: ModulationAssignment): boolean {
+  const track = findPropertyTrack(tracks, linkTrackLayerId(assignment), "enabled");
+  return evaluatePropertyTrack(track, currentTime, assignment.enabled === false ? 0 : 1) >= 0.5;
+}
+
+/** Keyframes set the base, links stack on top (same as the renderer). */
 function getModulatedFloat(paramName: string, fallback: number): number {
   const track = findPropertyTrack(tracks, layer.id, paramName);
-  if (isPropertyTrackActive(track)) {
-    const base = (layer.values[paramName] as number) ?? fallback;
-    return evaluatePropertyTrack(track, currentTime, base);
+  const staticBase = (layer.values[paramName] as number) ?? fallback;
+  const base = isPropertyTrackActive(track)
+    ? evaluatePropertyTrack(track, currentTime, staticBase)
+    : staticBase;
+  const links = assignments.filter((a) => a.layerId === layer.id && a.paramName === paramName);
+  if (links.length === 0) return base;
+  if (isZeroBaseDisabled(paramName, base)) return 0;
+  let value = base;
+  for (const link of links) {
+    if (!linkOn(link)) continue;
+    value += (lfoValues.value[link.sourceId] ?? 0) * linkDepth(link);
   }
-  const base = (layer.values[paramName] as number) ?? fallback;
-  const assignment = getAssignment(paramName);
-  if (!assignment) return base;
-  const lfoValue = lfoValues.value[assignment.sourceId] ?? 0;
-  return applyModulation(base, paramName, lfoValue, assignment.depth);
+  return value;
 }
 
 function isTrackEnabled(paramName: string): boolean {
@@ -129,12 +147,20 @@ function getModInfo(def: LayerUniformDef): { color: string; depth: number } | nu
   if (!assignment) return null;
   const color = getLfoColor(assignment.sourceId);
   if (!color) return null;
-  return { color, depth: assignment.depth };
+  return { color, depth: linkDepth(assignment) };
 }
 
+const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
+
+/** Animated amount (stopwatch on in the timeline): key the playhead instead of the static depth. */
 function onDepthUpdate(def: LayerUniformDef, depth: number) {
   const assignment = getAssignment(def.name);
   if (!assignment) return;
+  const owner = linkTrackLayerId(assignment);
+  if (editorTracks && isPropertyTrackActive(findPropertyTrack(tracks, owner, "depth"))) {
+    editorTracks.value = upsertKeyframe(editorTracks.value, owner, "depth", currentTime, depth);
+    return;
+  }
   emit("update-depth", assignment.sourceId, def.name, depth);
 }
 
@@ -667,9 +693,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
                   :min="field.def.min"
                   :max="field.def.max"
                   :step="field.def.step ?? 0.01"
-                  :mod-color="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.color"
-                  :mod-depth="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.depth"
-                  :mod-live-value="isTrackEnabled(field.def.name) ? undefined : getLiveValue(field.def)"
+                  :mod-color="getModInfo(field.def)?.color"
+                  :mod-depth="getModInfo(field.def)?.depth"
+                  :mod-live-value="getLiveValue(field.def)"
                   :is-drop-target="draggingLfoId !== null && !isTrackEnabled(field.def.name)"
                   :animatable="isKeyframeableUniform(field.def)"
                   :track-enabled="isTrackEnabled(field.def.name)"
@@ -727,9 +753,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
                   :min="field.def.min"
                   :max="field.def.max"
                   :step="field.def.step ?? 0.01"
-                  :mod-color="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.color"
-                  :mod-depth="isTrackEnabled(field.def.name) ? undefined : getModInfo(field.def)?.depth"
-                  :mod-live-value="isTrackEnabled(field.def.name) ? undefined : getLiveValue(field.def)"
+                  :mod-color="getModInfo(field.def)?.color"
+                  :mod-depth="getModInfo(field.def)?.depth"
+                  :mod-live-value="getLiveValue(field.def)"
                   :is-drop-target="draggingLfoId !== null && !isTrackEnabled(field.def.name)"
                   :animatable="isKeyframeableUniform(field.def)"
                   :track-enabled="isTrackEnabled(field.def.name)"
@@ -855,9 +881,9 @@ function isUniformVisible(def: LayerUniformDef): boolean {
                 :min="def.min"
                 :max="def.max"
                 :step="def.step ?? (def.type === 'int' ? 1 : 0.01)"
-                :mod-color="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.color"
-                :mod-depth="isTrackEnabled(def.name) ? undefined : getModInfo(def)?.depth"
-                :mod-live-value="isTrackEnabled(def.name) ? undefined : getLiveValue(def)"
+                :mod-color="getModInfo(def)?.color"
+                :mod-depth="getModInfo(def)?.depth"
+                :mod-live-value="getLiveValue(def)"
                 :is-drop-target="draggingLfoId !== null && !isTrackEnabled(def.name)"
                 :animatable="isKeyframeableUniform(def)"
                 :track-enabled="isTrackEnabled(def.name)"
