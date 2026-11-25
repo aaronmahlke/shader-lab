@@ -61,7 +61,7 @@ const ranges = computed<MeshGizmoRanges>(() => ({
 
 const stageCursor = computed(() => {
   if (!dragTarget.value) return "";
-  return dragTarget.value.kind === "move" ? "cursor-grabbing" : "cursor-grab";
+  return dragTarget.value.kind === "move" ? "cursor-default" : "cursor-default";
 });
 
 function pointCenterStyle(point: MeshPoint) {

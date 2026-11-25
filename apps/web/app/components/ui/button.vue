@@ -174,7 +174,7 @@ const hoverShellClass = computed(() => [
       :class="[
         sizeClass,
         textClass,
-        isDisabled ? 'cursor-not-allowed' : 'cursor-pointer',
+        isDisabled ? 'cursor-not-allowed' : 'cursor-default',
         fullWidth && 'w-full',
         to && isDisabled && 'pointer-events-none opacity-50',
       ]"

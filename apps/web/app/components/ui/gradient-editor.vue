@@ -159,7 +159,7 @@ useFocusedKeyboardScope(rootRef, {
           :key="index"
           :class="[
             'group absolute top-0 flex -translate-x-1/2 flex-col items-center',
-            draggingIndex === index ? 'cursor-grabbing' : 'cursor-grab',
+            draggingIndex === index ? 'cursor-default' : 'cursor-default',
           ]"
           :style="{ left: `${stop.position * 100}%` }"
           @pointerdown="onStopPointerDown($event, index)"

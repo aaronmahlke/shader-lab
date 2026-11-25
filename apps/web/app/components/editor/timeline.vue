@@ -2716,7 +2716,7 @@ function selectAllLayers() {
                     <!-- AE pick-whip: drag onto another layer row to parent. -->
                     <button
                       type="button"
-                      class="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-neutral-weak transition-colors hover:text-neutral-strong"
+                      class="flex size-5 shrink-0 cursor-default items-center justify-center rounded text-neutral-weak transition-colors hover:text-neutral-strong"
                       :class="pickWhip?.childId === layer.id && 'text-accent'"
                       aria-label="Pick whip: drag onto a layer to parent"
                       title="Drag onto a layer to parent"
@@ -2726,7 +2726,7 @@ function selectAllLayers() {
                     </button>
                     <div class="relative min-w-0 flex-1">
                       <select
-                        class="h-6 w-full cursor-pointer appearance-none truncate rounded-md bg-transparent py-0 pr-5 pl-1.5 text-xs outline-none transition-colors hover:bg-tint"
+                        class="h-6 w-full cursor-default appearance-none truncate rounded-md bg-transparent py-0 pr-5 pl-1.5 text-xs outline-none transition-colors hover:bg-tint"
                         :class="layer.parent ? 'text-neutral-strong' : 'text-neutral-weak'"
                         :value="layer.parent ?? ''"
                         @change="emit('set-parent', layer.id, ($event.target as HTMLSelectElement).value || null); ($event.target as HTMLSelectElement).blur()"
@@ -2874,7 +2874,7 @@ function selectAllLayers() {
                   v-else
                   data-drag-exclude
                   class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-accent transition-colors hover:bg-control hover:text-accent-strong"
-                  :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
+                  :class="row.def.type === 'bool' ? 'cursor-default' : 'cursor-ew-resize'"
                   :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
                   @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
                 >
@@ -3000,7 +3000,7 @@ function selectAllLayers() {
                         v-else
                         data-drag-exclude
                         class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-accent transition-colors hover:bg-control hover:text-accent-strong"
-                        :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
+                        :class="row.def.type === 'bool' ? 'cursor-default' : 'cursor-ew-resize'"
                         :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
                         @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
                       >
@@ -3037,7 +3037,7 @@ function selectAllLayers() {
               >
                 <div class="relative h-7 border-b border-neutral/40 bg-layer-1/50">
                   <div
-                    class="group/bar absolute inset-y-[5px] cursor-grab rounded-[5px] ring-1 ring-inset transition-colors"
+                    class="group/bar absolute inset-y-[5px] cursor-default rounded-[5px] ring-1 ring-inset transition-colors"
                     :class="selectedLayerIds.has(layer.id)
                       ? 'bg-accent/35 ring-accent/60 hover:bg-accent/45'
                       : 'bg-neutral-700/70 ring-white/10 hover:bg-neutral-600/70'"
@@ -3268,7 +3268,7 @@ function selectAllLayers() {
             min="0"
             max="1"
             step="0.001"
-            class="h-1 w-32 cursor-pointer accent-neutral-500"
+            class="h-1 w-32 cursor-default accent-neutral-500"
             aria-label="Timeline zoom"
           />
           <button type="button" class="flex size-6 items-center justify-center rounded-md text-neutral-subtle hover:bg-tint hover:text-neutral-strong" aria-label="Zoom in" @click="zoomIn">

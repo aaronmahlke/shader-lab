@@ -31,7 +31,7 @@ const gradientCSS = computed(() => {
     <PopoverRoot v-model:open="open">
       <PopoverTrigger as-child>
         <button
-          class="h-7 w-full cursor-pointer rounded-lg transition-all hover:ring-1 hover:ring-edge"
+          class="h-7 w-full cursor-default rounded-lg transition-all hover:ring-1 hover:ring-edge"
           :style="{ background: gradientCSS }"
         />
       </PopoverTrigger>

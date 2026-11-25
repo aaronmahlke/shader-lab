@@ -189,7 +189,7 @@ function presetPath(curve: CubicBezierEase): string {
         :cx="h1.x"
         :cy="h1.y"
         r="5"
-        class="cursor-grab fill-white stroke-accent"
+        class="cursor-default fill-white stroke-accent"
         stroke-width="1.5"
         @pointerdown="onHandlePointerDown(0, $event)"
       />
@@ -197,7 +197,7 @@ function presetPath(curve: CubicBezierEase): string {
         :cx="h2.x"
         :cy="h2.y"
         r="5"
-        class="cursor-grab fill-white stroke-accent"
+        class="cursor-default fill-white stroke-accent"
         stroke-width="1.5"
         @pointerdown="onHandlePointerDown(1, $event)"
       />

@@ -81,14 +81,14 @@ const handleStyles = computed(() => ({
 }));
 
 const DRAG_CURSOR: Record<BandDragMode, string> = {
-  move: "cursor-grab",
+  move: "cursor-default",
   n: "cursor-ns-resize",
   s: "cursor-ns-resize",
 };
 
 const stageCursor = computed(() => {
   if (!dragMode.value) return "";
-  return dragMode.value === "move" ? "cursor-grabbing" : DRAG_CURSOR[dragMode.value];
+  return dragMode.value === "move" ? "cursor-default" : DRAG_CURSOR[dragMode.value];
 });
 
 function emitValues(next: BandGizmoValues) {

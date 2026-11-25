@@ -575,7 +575,7 @@ export function useDragReorder<T>(
           onReorderGestureStart?.();
         }
         draggingIndices.value = new Set(dragIndices);
-        document.body.style.cursor = "grabbing";
+        document.body.style.cursor = "";
         document.body.style.userSelect = "none";
         beginDrag();
       }

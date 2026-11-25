@@ -43,7 +43,7 @@ defineExpose({ open, openPanel });
       <d-tooltip content="Add layer">
         <ComboboxAnchor as-child>
           <ComboboxTrigger
-            class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-neutral-subtle outline-none transition-colors hover:bg-tint hover:text-neutral-strong data-[state=open]:bg-tint data-[state=open]:text-neutral-strong"
+            class="flex size-8 cursor-default items-center justify-center rounded-lg text-neutral-subtle outline-none transition-colors hover:bg-tint hover:text-neutral-strong data-[state=open]:bg-tint data-[state=open]:text-neutral-strong"
             aria-label="Add layer"
           >
             <d-icon-plus class="size-4 shrink-0" aria-hidden="true" />

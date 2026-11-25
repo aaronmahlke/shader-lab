@@ -133,7 +133,7 @@ const handleStyles = computed(() => ({
 }));
 
 const DRAG_CURSOR: Record<DragMode, string> = {
-  move: "cursor-grab",
+  move: "cursor-default",
   n: "cursor-ns-resize",
   s: "cursor-ns-resize",
   e: "cursor-ew-resize",
@@ -141,8 +141,8 @@ const DRAG_CURSOR: Record<DragMode, string> = {
 };
 
 const stageCursor = computed(() => {
-  if (!dragMode.value) return "cursor-grab";
-  return dragMode.value === "move" ? "cursor-grabbing" : DRAG_CURSOR[dragMode.value];
+  if (!dragMode.value) return "cursor-default";
+  return dragMode.value === "move" ? "cursor-default" : DRAG_CURSOR[dragMode.value];
 });
 
 function emitValues(next: WaveGizmoValues) {

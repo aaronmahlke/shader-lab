@@ -24,7 +24,7 @@ const model = defineModel<boolean>({ default: false });
         model
           ? 'border-edge bg-inverse'
           : 'border-edge bg-surface-1',
-        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-default',
       ]"
       @click="model = !model"
     >

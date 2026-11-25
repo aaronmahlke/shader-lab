@@ -207,7 +207,7 @@ function onAxisPointerDown(axis: AxisKey, degenerate: boolean, e: PointerEvent) 
   dragStartPointer = uv;
   dragStartValue = valueFor(axis);
   history?.beginGesture();
-  document.body.style.cursor = "pointer";
+  document.body.style.cursor = "";
   window.addEventListener("pointermove", onWindowPointerMove);
   window.addEventListener("pointerup", onWindowPointerUp);
 }
@@ -292,7 +292,7 @@ function axisActive(axis: AxisKey): boolean {
             :cx="anchorPx.x"
             :cy="anchorPx.y"
             :r="9 * gz"
-            class="pointer-events-auto cursor-pointer fill-transparent"
+            class="pointer-events-auto cursor-default fill-transparent"
             :aria-label="`Move along ${axis.key.toUpperCase()} axis`"
             @pointerdown="onAxisPointerDown(axis.key, true, $event)"
             @pointerenter="hoveredAxis = axis.key"
@@ -322,7 +322,7 @@ function axisActive(axis: AxisKey): boolean {
             stroke="transparent"
             :stroke-width="12 * gz"
             stroke-linecap="round"
-            class="pointer-events-auto cursor-pointer"
+            class="pointer-events-auto cursor-default"
             :style="{ pointerEvents: 'stroke' }"
             :aria-label="`Move along ${axis.key.toUpperCase()} axis`"
             @pointerdown="onAxisPointerDown(axis.key, false, $event)"

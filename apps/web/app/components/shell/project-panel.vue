@@ -59,7 +59,7 @@ const row = "mx-1.5 flex h-7 items-center gap-2 rounded-md px-1.5 text-xs transi
       <d-context-menu v-for="comp in comps" :key="comp.id">
         <d-context-menu-trigger>
           <div
-            :class="[row, 'cursor-grab', comp.id === activeCompId
+            :class="[row, 'cursor-default', comp.id === activeCompId
               ? 'bg-tint text-neutral-strong'
               : 'text-neutral-subtle hover:bg-tint-subtle hover:text-neutral-strong']"
             draggable="true"

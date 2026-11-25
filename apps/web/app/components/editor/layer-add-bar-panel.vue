@@ -137,7 +137,7 @@ function onItemLeave() {
                 :key="entry.type"
                 :value="entry.type"
                 :text-value="entry.searchText"
-                class="group flex cursor-pointer items-center gap-3 rounded-lg p-1.5 outline-none transition-colors duration-150 select-none data-[highlighted]:bg-surface-1"
+                class="group flex cursor-default items-center gap-3 rounded-lg p-1.5 outline-none transition-colors duration-150 select-none data-[highlighted]:bg-surface-1"
                 @pointerenter="onItemHover(entry)"
                 @pointerleave="onItemLeave"
               >

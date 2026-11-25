@@ -188,7 +188,7 @@ const specularNarrow = computed(() => {
         <!-- Outer hover wrapper (stable hover zone + scale) -->
         <div
           ref="cardRef"
-          class="cursor-pointer transition-transform duration-300 ease-out-expo"
+          class="cursor-default transition-transform duration-300 ease-out-expo"
           :style="{ transform: wrapperTransform }"
           @pointerenter="onPointerEnter"
           @pointermove="onPointerMove"

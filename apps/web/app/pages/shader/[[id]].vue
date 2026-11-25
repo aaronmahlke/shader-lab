@@ -1934,7 +1934,7 @@ registerKeyboard({
             <div
               ref="viewportRef"
               class="absolute inset-0 overflow-hidden"
-              :class="[previewing ? 'bg-black' : 'bg-layer-0', viewport.panning.value && 'cursor-grabbing']"
+              :class="[previewing ? 'bg-black' : 'bg-layer-0', viewport.panning.value && 'cursor-default']"
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
               @pointerdown.self="onPasteboardPointerDown"
