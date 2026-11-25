@@ -11,15 +11,15 @@ const lfoA = ref(0);
 const lfoB = ref(0);
 const depthA = ref(30);
 const depthB = ref(-15);
-const blurMod = ref(6);
+const blurMod = ref(10);
 const opMod = ref(50);
 const scaleMod = ref(150);
 const overMod = ref(85);
-const blurDepth = ref(8);
+const blurDepth = ref(-4);
 let raf = 0;
 onMounted(() => {
   const tick = (t: number) => {
-    lfoA.value = Math.sin(t / 600);
+    lfoA.value = (Math.sin(t / 600) + 1) / 2;
     lfoB.value = (Math.sin(t / 230) + 1) / 2;
     raf = requestAnimationFrame(tick);
   };
@@ -79,7 +79,7 @@ function setDepth(id: string, d: number) {
         <StudioField label="Scale · 2 LFOs">
           <StudioValue v-model="scaleMod" :min="0" :max="400" :step="1" :precision="0" unit="%" :mods="[{ id: 'a', color: '#5fd0a8', depth: depthA * 3, live: lfoA }, { id: 'b', color: '#c98bff', depth: depthB * 4, live: lfoB }]" @update:depth="setDepth" />
         </StudioField>
-        <StudioField label="Blur · unipolar (0..1)">
+        <StudioField label="Blur · negative depth (downward)">
           <StudioValue v-model="blurMod" :min="0" :max="20" :step="0.1" :precision="1" :mods="[{ id: 'blur', color: '#ffb35c', depth: blurDepth, live: lfoB }]" @update:depth="setDepth" />
         </StudioField>
         <StudioField label="Overflow (range past max)">

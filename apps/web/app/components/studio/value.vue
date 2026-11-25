@@ -29,7 +29,8 @@ const {
   align?: "center" | "left";
   /**
    * LFO modulation on this value: each moves it from the base toward
-   * base + depth; `live` is the LFO's current output (-1..1 or 0..1).
+   * base + depth (negative depth = downward); `live` is the LFO's current
+   * output, 0..1 like the engine.
    * Each gets its own row above the box: range band, endpoint, live marker.
    */
   mods?: { id: string; color: string; depth: number; live?: number }[];
@@ -134,7 +135,8 @@ const modRows = computed(() =>
     const a = pct(model.value);
     const b = pct(model.value + m.depth);
     if (a == null || b == null) return null;
-    const live = m.live == null ? null : pct(clamp(model.value + m.live * m.depth));
+    // LFO output is unipolar (0..1, like the engine): base → base + depth, never past either end.
+    const live = m.live == null ? null : pct(clamp(model.value + Math.min(1, Math.max(0, m.live)) * m.depth));
     const target = model.value + m.depth;
     return {
       id: m.id, color: m.color, base: a, end: b, left: Math.min(a, b), width: Math.abs(b - a), live,
