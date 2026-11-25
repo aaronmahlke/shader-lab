@@ -4,6 +4,7 @@ export default defineNuxtRouteMiddleware((to) => {
   if (to.path.startsWith("/c/")) return;
   if (to.path.startsWith("/gradient-dither")) return;
   if (to.path.startsWith("/lab/")) return;
+  if (to.path.startsWith("/kitchen")) return;
 
   const { loggedIn } = useUserSession();
 
