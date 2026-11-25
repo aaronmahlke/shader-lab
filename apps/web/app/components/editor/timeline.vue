@@ -2716,13 +2716,15 @@ function selectAllLayers() {
                     <!-- AE pick-whip: drag onto another layer row to parent. -->
                     <button
                       type="button"
-                      class="flex size-5 shrink-0 cursor-default items-center justify-center rounded text-neutral-weak transition-colors hover:text-neutral-strong"
-                      :class="pickWhip?.childId === layer.id && 'text-accent'"
+                      class="flex size-5 shrink-0 cursor-default items-center justify-center rounded-md transition-colors"
+                      :class="pickWhip?.childId === layer.id
+                        ? 'bg-accent text-on-accent'
+                        : 'bg-tint-subtle text-neutral-subtle hover:bg-tint hover:text-neutral-strong'"
                       aria-label="Pick whip: drag onto a layer to parent"
                       title="Drag onto a layer to parent"
                       @pointerdown.stop.prevent="startPickWhip(layer.id, $event)"
                     >
-                      <UIcon name="i-lucide-spline" class="size-3.5" />
+                      <UiPickWhipIcon class="size-3.5" />
                     </button>
                     <div class="relative min-w-0 flex-1">
                       <select
