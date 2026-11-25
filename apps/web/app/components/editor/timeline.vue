@@ -2719,7 +2719,7 @@ function selectAllLayers() {
                       class="flex size-5 shrink-0 cursor-default items-center justify-center rounded-md transition-colors"
                       :class="pickWhip?.childId === layer.id
                         ? 'bg-accent text-on-accent'
-                        : 'bg-tint-subtle text-neutral-subtle hover:bg-tint hover:text-neutral-strong'"
+                        : 'text-neutral-subtle hover:bg-tint hover:text-neutral-strong'"
                       aria-label="Pick whip: drag onto a layer to parent"
                       title="Drag onto a layer to parent"
                       @pointerdown.stop.prevent="startPickWhip(layer.id, $event)"
