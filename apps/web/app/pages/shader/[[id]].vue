@@ -1304,7 +1304,7 @@ function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
 
 // --- Universal transform gizmo (generators without a specialized gizmo) ---
 
-const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape", "image", "video", "object3d"]);
+const TRANSFORM_GIZMO_TYPES = new Set<LayerType>(["gradient", "solid", "noise", "text", "component", "shape", "image", "video", "object3d", "composition"]);
 
 const showTransformGizmo = computed(
   () =>

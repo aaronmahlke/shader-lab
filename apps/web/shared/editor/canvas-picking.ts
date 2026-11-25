@@ -21,6 +21,7 @@ export const PICKABLE_LAYER_TYPES = new Set<LayerInstance["type"]>([
   "bandFill",
   "mesh",
   "object3d",
+  "composition",
 ]);
 
 /**
