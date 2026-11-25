@@ -19,7 +19,7 @@ if (route.path === "/kitchen" || route.path === "/kitchen/") await navigateTo("/
           :key="page.slug"
           :to="`/kitchen/${page.slug}`"
           class="flex h-[var(--s-row)] cursor-default items-center rounded-[var(--s-r-ctl)] px-[8px]"
-          :class="slug === page.slug ? 'bg-[var(--s-sel)] text-[var(--s-bright)]' : 'text-[var(--s-txt)] hover:bg-[var(--s-hover)]'"
+          :class="slug === page.slug ? 'bg-[var(--s-select)] text-[var(--s-select-txt)]' : 'text-[var(--s-txt)] hover:bg-[var(--s-inset-hover)]'"
         >{{ page.title }}</NuxtLink>
       </template>
     </nav>

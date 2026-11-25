@@ -2,10 +2,9 @@
 /** Dropdown: inset trigger with a solid triangle; flat grey menu. reka-ui handles keyboard/focus. */
 import { SelectContent, SelectItem, SelectItemText, SelectPortal, SelectRoot, SelectTrigger, SelectViewport } from "reka-ui";
 
-const { options, placeholder = "Select", size = "md", variant = "inset" } = defineProps<{
+const { options, placeholder = "Select", variant = "inset" } = defineProps<{
   options: { value: T; label: string; disabled?: boolean }[];
   placeholder?: string;
-  size?: "md" | "sm";
   variant?: "inset" | "tile";
 }>();
 const model = defineModel<T>();
@@ -15,10 +14,10 @@ const current = computed(() => options.find((o) => o.value === model.value)?.lab
 <template>
   <SelectRoot v-model="model as any">
     <SelectTrigger
-      class="flex min-w-0 cursor-default items-center justify-between gap-2 rounded-[var(--s-r-ctl)] pr-[5px] pl-[5px] text-[var(--s-txt)] outline-none select-none focus-visible:ring-1 focus-visible:ring-[var(--s-accent)] data-[placeholder]:text-[var(--s-dim)]"
+      class="flex min-w-0 cursor-default items-center justify-between gap-2 rounded-[var(--s-r-ctl)] pr-[5px] pl-[5px] text-[var(--s-txt)] outline-none select-none focus-visible:shadow-[inset_0_0_0_1px_var(--s-ring)] data-[state=open]:shadow-[inset_0_0_0_1px_var(--s-ring)] data-[placeholder]:text-[var(--s-dim)]"
       :class="[
-        size === 'md' ? 'h-[var(--s-ctl)]' : 'h-[var(--s-ctl-sm)]',
-        variant === 'inset' ? 'bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)]' : 'bg-[var(--s-tile)] px-[7px] hover:bg-[var(--s-hover)]',
+        'h-[var(--s-ctl)]',
+        variant === 'inset' ? 'bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)] hover:bg-[var(--s-inset-hover)]' : 'bg-[var(--s-tile)] px-[7px] hover:bg-[var(--s-hover)]',
       ]"
     >
       <span class="min-w-0 truncate" :class="current == null && 'text-[var(--s-dim)]'">{{ current ?? placeholder }}</span>
@@ -37,7 +36,7 @@ const current = computed(() => options.find((o) => o.value === model.value)?.lab
             :key="String(opt.value)"
             :value="opt.value"
             :disabled="opt.disabled"
-            class="flex h-[var(--s-row)] cursor-default items-center rounded-[1px] px-[6px] text-[var(--s-txt)] outline-none select-none data-[disabled]:text-[var(--s-off)] data-[highlighted]:bg-[var(--s-sel)] data-[highlighted]:text-[var(--s-bright)] data-[state=checked]:text-[var(--s-accent)]"
+            class="flex h-[var(--s-row)] cursor-default items-center rounded-[1px] px-[6px] text-[var(--s-txt)] outline-none select-none data-[disabled]:text-[var(--s-off)] data-[state=checked]:text-[var(--s-accent)] data-[highlighted]:bg-[var(--s-select)] data-[highlighted]:text-[var(--s-select-txt)]"
           >
             <SelectItemText>{{ opt.label }}</SelectItemText>
           </SelectItem>

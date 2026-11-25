@@ -25,7 +25,7 @@ const depth = ref(0.62);
     <KitchenSection title="With LED + actions" align="start">
       <div class="w-[260px] overflow-hidden rounded-[var(--s-r)]">
         <StudioSection v-model:enabled="fx" title="Blur">
-          <template #actions><StudioButton variant="ghost" size="sm" square aria-label="More"><d-icon-dots /></StudioButton></template>
+          <template #actions><StudioButton variant="ghost" square aria-label="More"><d-icon-dots /></StudioButton></template>
           <div class="grid grid-cols-2 gap-[5px_6px]">
             <StudioField label="Amount"><StudioValue v-model="blur" :min="0" :max="20" :step="0.1" :precision="1" /></StudioField>
             <StudioField label="Quality"><StudioSegmented v-model="quality" :options="[{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }]" /></StudioField>
@@ -37,10 +37,10 @@ const depth = ref(0.62);
     <KitchenSection title="Collapsible" align="start">
       <div class="w-[260px] overflow-hidden rounded-[var(--s-r)]">
         <StudioSection v-model:enabled="lfo" v-model:open="open" title="LFO 1" collapsible>
-          <template #actions><StudioSegmented v-model="wave" size="sm" :options="[{ value: 'sine', label: 'Sine' }, { value: 'saw', label: 'Saw' }]" /></template>
-          <div class="flex gap-[6px]">
-            <StudioKnob v-model="rate" label="Rate" :min="0" :max="4" unit="Hz" />
-            <StudioKnob v-model="depth" label="Depth" :min="0" :max="1" />
+          <template #actions><StudioSegmented v-model="wave" :options="[{ value: 'sine', label: 'Sine' }, { value: 'saw', label: 'Saw' }]" /></template>
+          <div class="grid grid-cols-2 gap-[5px_6px]">
+            <StudioField label="Rate"><StudioValue v-model="rate" :min="0" :max="4" unit="Hz" /></StudioField>
+            <StudioField label="Depth"><StudioValue v-model="depth" :min="0" :max="1" /></StudioField>
           </div>
         </StudioSection>
       </div>

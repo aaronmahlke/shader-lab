@@ -39,8 +39,11 @@ const y = ref(-0.04);
       </div>
     </KitchenSection>
 
-    <KitchenSection title="Small">
-      <div class="w-[100px]"><StudioValue v-model="opacity" size="sm" :min="0" :max="100" :step="1" :precision="0" unit="%" /></div>
+    <KitchenSection title="States" description="Hover lightens. Focused (clicked, or Tab) gets a light-grey outline, like Live. Typing shows the same outline.">
+      <div class="grid w-[300px] grid-cols-2 gap-[6px]">
+        <StudioValue v-model="opacity" :min="0" :max="100" :step="1" :precision="0" unit="%" />
+        <StudioValue v-model="rot" :step="1" :precision="0" unit="°" />
+      </div>
     </KitchenSection>
   </KitchenPage>
 </template>

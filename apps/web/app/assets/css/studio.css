@@ -2,7 +2,7 @@
  * Studio UI: Ableton-style structure (dark frame, grey tiles, dark insets),
  * our own palette. Scoped to [data-ui="studio"] while we build it.
  *
- * Rules: one text size (--s-fs); controls are --s-ctl tall; rows --s-row;
+ * Rules: one text size (--s-fs); one control height (--s-ctl); rows --s-row;
  * tiles separated by --s-gap of frame; areas inside a tile by 2px lines.
  */
 [data-ui="studio"] {
@@ -12,7 +12,8 @@
   --s-raise: #45454a;
   --s-inset: #1b1b1d;
   --s-edge: #0d0d0e;
-  --s-hover: #39393d;
+  --s-hover: #66666b; /* hover on tile-colored controls (Live: #6a6a6a) */
+  --s-inset-hover: #2a2a2d; /* hover on dark insets */
 
   --s-txt: #c2c2c6;
   --s-dim: #7d7d83;
@@ -24,16 +25,17 @@
   --s-fill: #2e6c7b; /* value bars */
   --s-fill-txt: #dcf1f5;
   --s-value: #8fc4ff; /* numbers in rows */
-  --s-sel: #4b6370; /* selected rows */
+  --s-select: #b9dce9; /* selected rows + focused items (Live) */
+  --s-select-txt: #000000;
+  --s-ring: #929296; /* keyboard/edit focus outline on controls (Live: #919191) */
   --s-danger: #e5544b;
 
   --s-fs: 12px;
   --s-ctl: 16px;
-  --s-ctl-sm: 14px;
   --s-row: 19px;
   --s-gap: 6px;
-  --s-r: 3px; /* tiles */
-  --s-r-ctl: 2px; /* controls */
+  --s-r: 0px; /* tiles: square by default */
+  --s-r-ctl: 0px; /* controls: square */
 
   font: 500 var(--s-fs) / 1 "Inter", system-ui, sans-serif;
   color: var(--s-txt);

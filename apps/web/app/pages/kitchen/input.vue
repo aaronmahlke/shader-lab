@@ -11,8 +11,5 @@ const name = ref("Deploy card");
     <KitchenSection title="Plain">
       <div class="w-[260px]"><StudioInput v-model="name" placeholder="Layer name" /></div>
     </KitchenSection>
-    <KitchenSection title="Small">
-      <div class="w-[200px]"><StudioInput size="sm" placeholder="Small" /></div>
-    </KitchenSection>
   </KitchenPage>
 </template>

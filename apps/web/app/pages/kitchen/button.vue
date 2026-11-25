@@ -38,11 +38,14 @@ const snap = ref(true);
       <StudioButton variant="ghost" square aria-label="More"><d-icon-dots /></StudioButton>
     </KitchenSection>
 
-    <KitchenSection title="Sizes" description="md 16px (default), sm 14px for dense rows.">
-      <StudioButton>Medium</StudioButton>
-      <StudioButton size="sm">Small</StudioButton>
-      <StudioButton size="sm" active>S</StudioButton>
-      <StudioButton size="sm" square aria-label="Add"><d-icon-plus /></StudioButton>
+    <KitchenSection title="States" description="Hover lightens (insets slightly, tile buttons to #66666b). Keyboard focus: 1px light-grey outline. Try Tab.">
+      <StudioButton>Hover me</StudioButton>
+      <StudioButton variant="ghost">Ghost hover</StudioButton>
+    </KitchenSection>
+    <KitchenSection title="States on the frame" on="frame">
+      <StudioButton variant="tile">Key</StudioButton>
+      <StudioButton variant="tile">MIDI</StudioButton>
+      <StudioButton variant="tile">44.1 kHz</StudioButton>
     </KitchenSection>
   </KitchenPage>
 </template>

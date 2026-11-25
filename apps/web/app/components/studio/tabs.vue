@@ -16,7 +16,7 @@ const emit = defineEmits<{ close: [id: string]; add: [] }>();
       role="tab"
       :aria-selected="model === tab.id"
       class="group flex h-[18px] shrink-0 cursor-default items-center gap-[4px] rounded-[var(--s-r-ctl)] pr-[3px] pl-[7px] select-none"
-      :class="model === tab.id ? 'bg-[var(--s-raise)] text-[var(--s-bright)]' : 'bg-[var(--s-tile)] text-[var(--s-dim)] hover:text-[var(--s-txt)]'"
+      :class="model === tab.id ? 'bg-[var(--s-raise)] text-[var(--s-bright)]' : 'bg-[var(--s-tile)] text-[var(--s-dim)] hover:bg-[var(--s-hover)] hover:text-[var(--s-txt)]'"
       @click="model = tab.id"
       @pointerdown.middle.prevent="closable && emit('close', tab.id)"
     >
@@ -32,7 +32,7 @@ const emit = defineEmits<{ close: [id: string]; add: [] }>();
         <svg width="7" height="7" viewBox="0 0 7 7" aria-hidden="true"><path d="M1 1l5 5M6 1 1 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" /></svg>
       </button>
     </div>
-    <StudioButton variant="tile" square size="md" class="!h-[18px] !w-[18px]" aria-label="New tab" @click="emit('add')">
+    <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" aria-label="New tab" @click="emit('add')">
       <d-icon-plus />
     </StudioButton>
   </div>

@@ -13,7 +13,6 @@ const {
   label,
   fill = true,
   defaultValue,
-  size = "md",
   align = "center",
 } = defineProps<{
   min?: number;
@@ -26,7 +25,6 @@ const {
   /** Show the fill bar when min/max are set */
   fill?: boolean;
   defaultValue?: number;
-  size?: "md" | "sm";
   align?: "center" | "left";
 }>();
 const model = defineModel<number>({ required: true });
@@ -94,8 +92,8 @@ function reset() {
 
 <template>
   <div
-    class="s-num relative flex min-w-0 touch-none items-center overflow-hidden rounded-[var(--s-r-ctl)] bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)] outline-none select-none focus-visible:ring-1 focus-visible:ring-[var(--s-accent)]"
-    :class="[size === 'md' ? 'h-[var(--s-ctl)]' : 'h-[var(--s-ctl-sm)]', align === 'center' ? 'justify-center' : 'justify-start px-[5px]']"
+    class="s-num relative flex min-w-0 touch-none items-center overflow-hidden rounded-[var(--s-r-ctl)] bg-[var(--s-inset)] h-[var(--s-ctl)] shadow-[inset_0_0_0_1px_var(--s-edge)] outline-none select-none hover:bg-[var(--s-inset-hover)] focus:shadow-[inset_0_0_0_1px_var(--s-ring)]"
+    :class="[editing && 'shadow-[inset_0_0_0_1px_var(--s-ring)]', align === 'center' ? 'justify-center' : 'justify-start px-[5px]']"
     tabindex="0"
     role="spinbutton"
     :aria-valuenow="model"

@@ -7,8 +7,8 @@ const groups = [
     ["raise", "--s-raise", "Active tab, raised cells"],
     ["inset", "--s-inset", "Fields, value boxes, timeline lanes"],
     ["edge", "--s-edge", "1px outline around insets"],
-    ["hover", "--s-hover", "Hover on tiles and rows"],
-    ["sel", "--s-sel", "Selected rows"],
+    ["hover", "--s-hover", "Hover on tile-colored controls"],
+    ["inset-hover", "--s-inset-hover", "Hover on dark insets and rows"],
   ] },
   { title: "Text", description: "Light grey, not white. One size.", tokens: [
     ["bright", "--s-bright", "Selected, emphasis, typing"],
@@ -16,9 +16,14 @@ const groups = [
     ["dim", "--s-dim", "Labels, meta"],
     ["off", "--s-off", "Disabled"],
   ] },
+  { title: "Focus + selection", description: "Strong, like Live: selected things go bright cyan with black text; focused controls get a light-grey outline.", tokens: [
+    ["select", "--s-select", "Selected rows, focused items (notes, keys)"],
+    ["select-txt", "--s-select-txt", "Text on the selection"],
+    ["ring", "--s-ring", "Focus outline on controls"],
+  ] },
   { title: "Meaning", description: "Color only where it means something.", tokens: [
     ["accent", "--s-accent", "On: active toggles, main action, LEDs"],
-    ["fill", "--s-fill", "Value bars and knob arcs"],
+    ["fill", "--s-fill", "Value bars"],
     ["value", "--s-value", "Numbers in rows"],
     ["danger", "--s-danger", "Destructive"],
   ] },

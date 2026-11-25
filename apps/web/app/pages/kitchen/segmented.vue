@@ -20,8 +20,5 @@ const quality = ref("high");
     <KitchenSection title="Disabled option">
       <StudioSegmented v-model="wave" :options="[{ value: 'sine', label: 'Sine' }, { value: 'saw', label: 'Saw' }, { value: 'square', label: 'Square' }, { value: 'noise', label: 'Noise', disabled: true }]" />
     </KitchenSection>
-    <KitchenSection title="Small" description="In section headers.">
-      <StudioSegmented v-model="quality" size="sm" :options="[{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }]" />
-    </KitchenSection>
   </KitchenPage>
 </template>

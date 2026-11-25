@@ -27,8 +27,5 @@ const parentOptions = [
     <KitchenSection title="Tile" description="On the dark frame (top bar)." on="frame">
       <div class="w-[90px]"><StudioSelect v-model="fps" variant="tile" :options="fpsOptions" /></div>
     </KitchenSection>
-    <KitchenSection title="Small">
-      <div class="w-[100px]"><StudioSelect v-model="fps" size="sm" :options="fpsOptions" /></div>
-    </KitchenSection>
   </KitchenPage>
 </template>
