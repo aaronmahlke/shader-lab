@@ -29,6 +29,11 @@ export const THREED_TRANSFORM_UNIFORMS: LayerUniformDef[] = [
   { name: "layerRotationY", type: "float", label: "Rotation Y", default: 0, min: -360, max: 360, step: 0.1 },
 ];
 
+/** Gaussian blur of the layer's content in comp px (applied when compositing; generators only). */
+export const BLUR_UNIFORM: LayerUniformDef = {
+  name: "layerBlur", type: "float", label: "Blur", default: 0, min: 0, max: 200, step: 0.5,
+};
+
 /** Opacity applies to every layer (generators composite; effects crossfade; distortion scales displacement). */
 export const OPACITY_UNIFORM: LayerUniformDef = {
   name: "layerOpacity", type: "float", label: "Opacity", default: 100, min: 0, max: 100, step: 0.1,
@@ -83,6 +88,7 @@ export const UNIVERSAL_LAYER_UNIFORMS: LayerUniformDef[] = [
   ...TRANSFORM_UNIFORMS,
   ...THREED_TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
+  BLUR_UNIFORM,
   BLEND_MODE_UNIFORM,
   ACCEPTS_LIGHT_UNIFORM,
 ];
@@ -127,6 +133,7 @@ const THREED_DISPLAY_ORDER: LayerUniformDef[] = [
   findUniform("layerAnchorX"),
   findUniform("layerAnchorY"),
   OPACITY_UNIFORM,
+  BLUR_UNIFORM,
   BLEND_MODE_UNIFORM,
   ACCEPTS_LIGHT_UNIFORM,
 ];
@@ -151,7 +158,7 @@ export function universalUniformsFor(
     }
     return THREED_DISPLAY_ORDER;
   }
-  return [...TRANSFORM_UNIFORMS, OPACITY_UNIFORM, BLEND_MODE_UNIFORM];
+  return [...TRANSFORM_UNIFORMS, OPACITY_UNIFORM, BLUR_UNIFORM, BLEND_MODE_UNIFORM];
 }
 
 /** Find a param def by name across the layer's template uniforms and the universal set. */

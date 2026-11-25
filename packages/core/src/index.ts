@@ -186,6 +186,7 @@ export {
   TRANSFORM_UNIFORMS,
   THREED_TRANSFORM_UNIFORMS,
   OPACITY_UNIFORM,
+  BLUR_UNIFORM,
   universalUniformsFor,
   findLayerParamDef,
   isUniversalParamName,

@@ -78,6 +78,45 @@ vec3 applyBlend(vec3 below, vec3 src, int mode) {
   return src;
 }
 
+
+// --- Layer blur (universal "Blur", comp px) ---
+uniform float layerBlur;    // radius in comp px (0 = off)
+uniform float u_blurScale;  // buffer px per comp px
+
+float blurHash(vec2 p) {
+  return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// Premultiplied golden-spiral gaussian over the content texture's mip chain
+// (the renderer generates mips when blur > 0): each tap reads a level already
+// shrunk to ~radius/4, so 24 taps come out smooth at any radius. Transparent
+// edges don't darken (premultiplied), samples outside the layer are empty.
+vec4 sampleLayerContent(sampler2D tex, vec2 luv, vec2 res) {
+  vec2 cuv = clamp(luv, 0.0, 1.0);
+  if (layerBlur <= 0.01) return texture2D(tex, cuv);
+  float radiusPx = layerBlur * u_blurScale;
+  vec2 radius = vec2(radiusPx) / res;
+  // Each tap reads a level ~radius/4 wide so neighbouring taps overlap (smooth, no grain).
+  float lod = max(log2(radiusPx / 4.0), 0.0);
+  float rot = 0.0;
+  vec3 rgb = vec3(0.0);
+  float a = 0.0;
+  float wsum = 0.0;
+  for (int i = 0; i < 24; i++) {
+    float fi = float(i) + 0.5;
+    float r = sqrt(fi / 24.0);
+    float th = fi * 2.39996323 + rot;
+    vec2 q = luv + vec2(cos(th), sin(th)) * r * radius;
+    float w = exp(-2.0 * r * r);
+    vec4 s = texture2D(tex, clamp(q, 0.0, 1.0), lod);
+    s.a *= step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
+    rgb += s.rgb * s.a * w;
+    a += s.a * w;
+    wsum += w;
+  }
+  return vec4(a > 1e-5 ? rgb / a : vec3(0.0), a / wsum);
+}
+
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec4 belowSample = texture2D(u_input, uv);
@@ -108,7 +147,9 @@ void main() {
   vec2 inside = smoothstep(-aa, vec2(0.0), luv) * smoothstep(-aa, vec2(0.0), 1.0 - luv);
   float coverage = inside.x * inside.y;
 
-  vec4 content = texture2D(u_color, clamp(luv, 0.0, 1.0));
+  vec4 content = sampleLayerContent(u_color, luv, u_resolution);
+  // Blur spreads past the layer bounds; keep the hard coverage only when sharp.
+  if (layerBlur > 0.01) coverage = 1.0;
   float alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
 
   vec3 blended = applyBlend(below, content.rgb, layerBlendMode);

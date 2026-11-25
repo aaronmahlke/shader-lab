@@ -108,6 +108,8 @@ function resolvePassUniformValues(
   if (isComposite) {
     // Nested comps accumulate coverage alpha; the root comp flattens to 1.
     merged.u_keepAlpha = pass.preserveAlpha ? 1 : 0;
+    // Layer blur radius is in comp px; content textures are buffer-sized.
+    merged.u_blurScale = ctx.contentScale ?? 1;
   }
 
   // A camera that drives 3D groups films the plate flat: the view transform
@@ -385,8 +387,9 @@ function setPassUniforms(
   inputTexture: WebGLTexture | null,
   colorTexture: WebGLTexture | null,
   target: PassTargetInfo,
-) {
+): { mipmappedTexture: WebGLTexture | null } {
   let texUnit = 0;
+  let mipmappedTexture: WebGLTexture | null = null;
   const uniformValues = resolvePassUniformValues(pass, ctx);
   const { width, height, time, scaleUniform, gradientTextures, stbnTexture } = ctx;
 
@@ -432,6 +435,13 @@ function setPassUniforms(
     if (uColor) {
       gl.activeTexture(gl.TEXTURE0 + texUnit);
       gl.bindTexture(gl.TEXTURE_2D, colorTexture);
+      // Layer blur samples pre-shrunk mip levels for a smooth, cheap blur.
+      const blur = Number(uniformValues.layerBlur ?? 0);
+      if (blur > 0.01 && (pass.layerType === "layerComposite" || pass.layerType === "layerComposite3d")) {
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        mipmappedTexture = colorTexture;
+      }
       gl.uniform1i(uColor, texUnit);
       texUnit++;
     }
@@ -583,6 +593,7 @@ function setPassUniforms(
       }
     }
   }
+  return { mipmappedTexture };
 }
 
 export type RenderPassesResult = {
@@ -872,7 +883,7 @@ export function renderPasses(
       ? fbos.get(pass.auxSourceLayerId)?.texture ?? getBlackTexture()
       : null;
 
-    setPassUniforms(gl, program, pass, ctx, inputTexture, colorTexture, {
+    const { mipmappedTexture } = setPassUniforms(gl, program, pass, ctx, inputTexture, colorTexture, {
       targetWidth,
       targetHeight,
       inputWidth,
@@ -880,6 +891,11 @@ export function renderPasses(
       auxTexture,
     });
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    if (mipmappedTexture) {
+      // Back to plain sampling: other consumers must not read stale mips.
+      gl.bindTexture(gl.TEXTURE_2D, mipmappedTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    }
   }
 
   const pixels = readPixels ? new Uint8Array(width * height * 4) : undefined;

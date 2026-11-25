@@ -241,7 +241,7 @@ const UNIVERSAL_GROUPS_3D: UniversalGroup[] = [
   UNIVERSAL_GROUPS_2D[1]!,
 ];
 
-const APPEARANCE_UNIVERSALS = new Set(["layerOpacity", "layerBlendMode", "layerAcceptsLight"]);
+const APPEARANCE_UNIVERSALS = new Set(["layerOpacity", "layerBlur", "layerBlendMode", "layerAcceptsLight"]);
 
 /** Position X/Y(/Z), Rotation X/Y/Z (3D) and Anchor X/Y collapse into one multi-column row each. */
 const universalRows = computed<UniversalRow[]>(() => {
