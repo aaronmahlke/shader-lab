@@ -36,10 +36,13 @@ import {
   useEditorKeyboard,
 } from "~/composables/use-editor-keyboard";
 import {
-  EASING_PRESETS,
   LAYER_TEMPLATES,
   ModulationEngine,
   linksFor,
+  linkTrackLayerId,
+  removeKeyframeAt,
+  setTrackEnabled,
+  sourceTrackLayerId,
   evaluateKeyframes,
   evaluatePropertyTrack,
   find3DRuns,
@@ -59,7 +62,6 @@ import {
   type EnvelopeSource,
   type LFOSource,
   type ModulationAssignment,
-  type Keyframe,
   type KeyframeEasing,
   type LayerInstance,
   type LayerUniformDef,
@@ -498,23 +500,31 @@ function collectKeyframeHits(): KeyframeHit[] {
   const hits: KeyframeHit[] = [];
   let y = 0;
 
+  const pushRowHits = (row: TimelineRow) => {
+    const centerY = y + PROP_ROW_H / 2;
+    const track = findPropertyTrack(tracks.value, row.owner, row.def.name);
+    for (const key of track?.keys ?? []) {
+      hits.push({
+        layerId: row.owner,
+        paramName: row.def.name,
+        time: key.time,
+        x: timeToX(key.time),
+        y: centerY,
+      });
+    }
+  };
+
   for (const layer of layers.value) {
     y += LAYER_ROW_H;
-    for (const def of visibleProperties(layer)) {
-      if (!showPropertyRow(layer, def.name)) continue;
-      const centerY = y + PROP_ROW_H / 2;
-      const track = findPropertyTrack(tracks.value, layer.id, def.name);
-      for (const key of track?.keys ?? []) {
-        hits.push({
-          layerId: layer.id,
-          paramName: def.name,
-          time: key.time,
-          x: timeToX(key.time),
-          y: centerY,
-        });
-      }
+    for (const row of rowsForLayer(layer)) {
+      pushRowHits(row);
       y += PROP_ROW_H;
     }
+  }
+
+  for (const item of modulatorGroupLayout()) {
+    if (item.row) pushRowHits(item.row);
+    y += item.height;
   }
 
   return hits;
@@ -966,21 +976,294 @@ function modulationCurve(layerId: string, paramName: string): ModCurve | undefin
   return modulationCurves.value.get(`${layerId}:${paramName}`);
 }
 
-function valueAt(layer: LayerInstance, paramName: string, fallback: number): number {
-  const track = findPropertyTrack(tracks.value, layer.id, paramName);
-  const base = (layer.values[paramName] as number) ?? fallback;
-  return evaluatePropertyTrack(track, displayTime.value, base);
+// --- Timeline rows ---
+//
+// Every keyframeable row (layer property, modulator link param, modulator
+// param) shares one model: `owner` is the track layerId (layer id, `link:…`,
+// `mod:…`), `def` drives clamping/formatting, base/setBase read and write the
+// static value used when the stopwatch is off.
+
+type TimelineRow = {
+  key: string;
+  owner: string;
+  def: LayerUniformDef;
+  kind: "property" | "link" | "source";
+  layer?: LayerInstance;
+  link?: ModulationAssignment;
+  color?: string;
+  /** Modulator name shown before the label on link rows. */
+  prefix?: string;
+  base: () => number;
+  setBase: (v: number) => void;
+};
+
+function propertyRow(layer: LayerInstance, def: LayerUniformDef): TimelineRow {
+  return {
+    key: `${layer.id}:${def.name}`,
+    owner: layer.id,
+    def,
+    kind: "property",
+    layer,
+    base: () => {
+      const raw = layer.values[def.name];
+      return typeof raw === "number" ? raw : Number(def.default ?? 0);
+    },
+    setBase: (v) => {
+      layer.values[def.name] = v;
+    },
+  };
+}
+
+/** Link sub-rows open under a modulated property (toggled by its dots). */
+const linkRowsOpen = ref<Set<string>>(new Set());
+
+function linkRowsKey(layerId: string, paramName: string): string {
+  return `${layerId}:${paramName}`;
+}
+
+function isLinkRowsOpen(layerId: string, paramName: string): boolean {
+  return linkRowsOpen.value.has(linkRowsKey(layerId, paramName));
+}
+
+function toggleLinkRows(layerId: string, paramName: string) {
+  const next = new Set(linkRowsOpen.value);
+  const key = linkRowsKey(layerId, paramName);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  linkRowsOpen.value = next;
+}
+
+function linkRows(layer: LayerInstance, def: LayerUniformDef): TimelineRow[] {
+  const span =
+    def.min !== undefined && def.max !== undefined ? def.max - def.min : undefined;
+  return propertyLinks(layer.id, def.name).flatMap((link) => {
+    const source = modSources.value.get(link.sourceId)!;
+    const owner = linkTrackLayerId(link);
+    const common = { owner, kind: "link" as const, layer, link, color: source.color, prefix: source.label };
+    return [
+      {
+        ...common,
+        key: `${owner}:depth`,
+        def: {
+          name: "depth",
+          label: "Amount",
+          type: def.type === "int" ? "int" : "float",
+          default: 0,
+          step: def.step,
+          min: span === undefined ? undefined : -span,
+          max: span,
+        },
+        base: () => link.depth,
+        setBase: (v: number) => {
+          link.depth = v;
+        },
+      },
+      {
+        ...common,
+        key: `${owner}:enabled`,
+        def: { name: "enabled", label: "On", type: "bool", default: 1 },
+        base: () => (link.enabled === false ? 0 : 1),
+        setBase: (v: number) => {
+          link.enabled = v >= 0.5;
+        },
+      },
+    ] satisfies TimelineRow[];
+  });
+}
+
+/** Property rows (+ open link rows) under a layer, in display order. */
+function rowsForLayer(layer: LayerInstance): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  for (const def of visibleProperties(layer)) {
+    if (!showPropertyRow(layer, def.name)) continue;
+    rows.push(propertyRow(layer, def));
+    if (isLinkRowsOpen(layer.id, def.name) && isModulated(layer.id, def.name)) {
+      rows.push(...linkRows(layer, def));
+    }
+  }
+  return rows;
+}
+
+// --- Modulators group (bottom of the timeline) ---
+
+type ModulatorEntry =
+  | { kind: "lfo"; source: LFOSource }
+  | { kind: "envelope"; source: EnvelopeSource };
+
+const modulatorEntries = computed<ModulatorEntry[]>(() => [
+  ...lfos.map((source) => ({ kind: "lfo" as const, source })),
+  ...envelopes.map((source) => ({ kind: "envelope" as const, source })),
+]);
+
+const modGroupOpen = ref(false);
+const sourceRowsOpen = ref<Set<string>>(new Set());
+
+function toggleSourceRows(id: string) {
+  const next = new Set(sourceRowsOpen.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  sourceRowsOpen.value = next;
+}
+
+type SourceParam = { name: string; label: string; min: number; max: number; step: number };
+
+const LFO_PARAMS: SourceParam[] = [
+  { name: "rate", label: "Rate", min: 0, max: 20, step: 0.01 },
+  { name: "phase", label: "Phase", min: 0, max: 360, step: 1 },
+];
+
+const ENVELOPE_PARAMS: SourceParam[] = [
+  { name: "attack", label: "Attack", min: 0, max: 30, step: 0.01 },
+  { name: "decay", label: "Decay", min: 0, max: 30, step: 0.01 },
+  { name: "sustain", label: "Sustain", min: 0, max: 1, step: 0.01 },
+  { name: "gate", label: "Gate", min: 0, max: 30, step: 0.01 },
+  { name: "release", label: "Release", min: 0, max: 30, step: 0.01 },
+];
+
+function sourceRows(entry: ModulatorEntry): TimelineRow[] {
+  const owner = sourceTrackLayerId(entry.source.id);
+  const params = entry.kind === "lfo" ? LFO_PARAMS : ENVELOPE_PARAMS;
+  const values = entry.source as unknown as Record<string, number>;
+  return params.map((p) => ({
+    key: `${owner}:${p.name}`,
+    owner,
+    kind: "source",
+    color: entry.source.color,
+    def: { name: p.name, label: p.label, type: "float", default: 0, min: p.min, max: p.max, step: p.step },
+    base: () => values[p.name] ?? 0,
+    setBase: (v: number) => {
+      values[p.name] = v;
+    },
+  }));
+}
+
+/** Each modulator's signal (0..1) across the comp, for its header row. */
+const sourceCurves = computed(() => {
+  const curves = new Map<string, string>();
+  if (modulatorEntries.value.length === 0) return curves;
+  const engine = new ModulationEngine();
+  engine.setConfig({ layers: layers.value, lfos, envelopes, assignments, tracks: tracks.value });
+  const duration = Math.max(settings.duration, 1e-3);
+  const samples = Math.max(32, Math.min(800, Math.round((duration * pxPerSecond.value) / 2)));
+  const top = 4;
+  const bottom = PROP_ROW_H - 4;
+  for (const { source } of modulatorEntries.value) {
+    const points: string[] = [];
+    for (let i = 0; i < samples; i++) {
+      const t = (duration * i) / (samples - 1);
+      const y = bottom - engine.signal(source.id, t) * (bottom - top);
+      points.push(`${(t * pxPerSecond.value).toFixed(1)} ${y.toFixed(1)}`);
+    }
+    curves.set(source.id, `M ${points.join(" L ")}`);
+  }
+  return curves;
+});
+
+/** On-spans of a bool row (link "On"), in px. */
+function onRanges(row: TimelineRow): { x: number; w: number }[] {
+  const duration = settings.duration;
+  const track = findPropertyTrack(tracks.value, row.owner, row.def.name);
+  const spans: [number, number][] = [];
+  if (isPropertyTrackActive(track)) {
+    const keys = [...track!.keys].sort((a, b) => a.time - b.time);
+    keys.forEach((key, i) => {
+      if (key.value < 0.5) return;
+      const start = i === 0 ? 0 : key.time;
+      const end = keys[i + 1]?.time ?? duration;
+      if (end > start) spans.push([start, end]);
+    });
+  } else if (row.base() >= 0.5) {
+    spans.push([0, duration]);
+  }
+  return spans.map(([a, b]) => ({ x: a * pxPerSecond.value, w: (b - a) * pxPerSecond.value }));
+}
+
+/** Rows in the modulators group, in display order, with header placeholders (for hit testing). */
+function modulatorGroupLayout(): ({ height: number; row?: TimelineRow })[] {
+  if (modulatorEntries.value.length === 0) return [];
+  const out: { height: number; row?: TimelineRow }[] = [{ height: LAYER_ROW_H }];
+  if (!modGroupOpen.value) return out;
+  for (const entry of modulatorEntries.value) {
+    out.push({ height: PROP_ROW_H });
+    if (sourceRowsOpen.value.has(entry.source.id)) {
+      for (const row of sourceRows(entry)) out.push({ height: PROP_ROW_H, row });
+    }
+  }
+  return out;
+}
+
+/** Keyframe clicks on link/modulator rows select the related layer, never a fake id. */
+function selectLayerForOwner(owner: string) {
+  if (layers.value.some((l) => l.id === owner)) {
+    selectedLayerId.value = owner;
+    return;
+  }
+  const link = assignments.find((a) => linkTrackLayerId(a) === owner);
+  if (link) selectedLayerId.value = link.layerId;
+}
+
+function rowValue(row: TimelineRow): number {
+  const track = findPropertyTrack(tracks.value, row.owner, row.def.name);
+  return evaluatePropertyTrack(track, displayTime.value, row.base());
+}
+
+function formatRowValue(row: TimelineRow): string {
+  const v = rowValue(row);
+  if (row.def.type === "bool") return v >= 0.5 ? "On" : "Off";
+  return v.toFixed(2);
+}
+
+/** Bool rows step: every key holds. */
+function holdTrackKeys(owner: string, paramName: string) {
+  tracks.value = tracks.value.map((t) =>
+    t.layerId === owner && t.paramName === paramName
+      ? { ...t, keys: t.keys.map(({ curve: _curve, ...k }) => ({ ...k, ease: "hold" as const })) }
+      : t,
+  );
+}
+
+function onRowStopwatch(row: TimelineRow) {
+  if (row.kind === "property") {
+    emit("toggle-stopwatch", row.owner, row.def.name);
+    return;
+  }
+  const { owner } = row;
+  const name = row.def.name;
+  if (trackEnabled(owner, name)) {
+    tracks.value = setTrackEnabled(tracks.value, owner, name, false);
+    selectedKeyframes.value = selectedKeyframes.value.filter(
+      (k) => !(k.layerId === owner && k.paramName === name),
+    );
+  } else {
+    tracks.value = setTrackEnabled(tracks.value, owner, name, true, row.base(), snapTime(currentTime.value));
+    if (row.def.type === "bool") holdTrackKeys(owner, name);
+  }
+  history?.record();
+}
+
+function onRowKeyframe(row: TimelineRow) {
+  if (row.kind === "property") {
+    emit("toggle-keyframe", row.owner, row.def.name);
+    return;
+  }
+  const { owner } = row;
+  const name = row.def.name;
+  const track = findPropertyTrack(tracks.value, owner, name);
+  if (!track?.enabled) return;
+  const time = currentTime.value;
+  if (hasKeyframeAt(track, time)) {
+    tracks.value = removeKeyframeAt(tracks.value, owner, name, time);
+    selectedKeyframes.value = selectedKeyframes.value.filter(
+      (k) => !(k.layerId === owner && k.paramName === name && Math.abs(k.time - time) < 1e-6),
+    );
+  } else {
+    tracks.value = upsertKeyframe(tracks.value, owner, name, time, rowValue(row));
+    if (row.def.type === "bool") holdTrackKeys(owner, name);
+  }
+  history?.record();
 }
 
 // --- Keyframe easing (context menu) ---
-
-const NAMED_EASINGS: { id: KeyframeEasing; label: string }[] = [
-  { id: "linear", label: "Linear" },
-  { id: "easeIn", label: "Ease In" },
-  { id: "easeOut", label: "Ease Out" },
-  { id: "easeInOut", label: "Ease In Out" },
-  { id: "hold", label: "Hold" },
-];
 
 /** Apply to the whole selection when the clicked key is part of it. */
 function applyKeyframeEasing(
@@ -994,14 +1277,6 @@ function applyKeyframeEasing(
     : [{ layerId, paramName, time }];
   tracks.value = setKeyframesEasing(tracks.value, refs, easing);
   history?.record();
-}
-
-/** Shape variant for a key's diamond: linear, eased (curve/named), or hold. */
-function keyframeShape(key: Keyframe): "linear" | "eased" | "hold" {
-  if (key.ease === "hold") return "hold";
-  if (key.curve) return "eased";
-  if (key.ease && key.ease !== "linear") return "eased";
-  return "linear";
 }
 
 /** Mini value curves drawn between adjacent keys in a property row. */
@@ -1058,6 +1333,7 @@ function keyframeEasingId(layerId: string, paramName: string, time: number): str
 // --- Timeline value editing (scrub + click to type) ---
 
 const editingValue = ref<{ layerId: string; paramName: string; text: string } | null>(null);
+// layerId here is the row owner (layer id or link/modulator track id).
 
 function isEditingValue(layerId: string, paramName: string): boolean {
   return editingValue.value?.layerId === layerId && editingValue.value?.paramName === paramName;
@@ -1078,20 +1354,29 @@ function clampToDef(def: LayerUniformDef, value: number): number {
 }
 
 /** Keyframe-aware write: keys the playhead when the stopwatch is on, else sets the base value. */
-function writeParamValue(layer: LayerInstance, def: LayerUniformDef, value: number) {
-  const v = clampToDef(def, value);
-  if (trackEnabled(layer.id, def.name)) {
-    tracks.value = upsertKeyframe(tracks.value, layer.id, def.name, snapTime(currentTime.value), v);
+function writeParamValue(row: TimelineRow, value: number) {
+  const { def, owner } = row;
+  const v = def.type === "bool" ? (value >= 0.5 ? 1 : 0) : clampToDef(def, value);
+  if (trackEnabled(owner, def.name)) {
+    tracks.value = upsertKeyframe(tracks.value, owner, def.name, snapTime(currentTime.value), v);
+    if (def.type === "bool") holdTrackKeys(owner, def.name);
   } else {
-    layer.values[def.name] = v;
+    row.setBase(v);
   }
 }
 
-function onValuePointerDown(layer: LayerInstance, def: LayerUniformDef, e: PointerEvent) {
+function onValuePointerDown(row: TimelineRow, e: PointerEvent) {
   if (e.button !== 0) return;
+  const { def } = row;
+
+  if (def.type === "bool") {
+    writeParamValue(row, rowValue(row) >= 0.5 ? 0 : 1);
+    history?.record();
+    return;
+  }
 
   const startX = e.clientX;
-  const startValue = valueAt(layer, def.name, def.default as number);
+  const startValue = rowValue(row);
   let dragging = false;
 
   function onMove(ev: PointerEvent) {
@@ -1104,7 +1389,7 @@ function onValuePointerDown(layer: LayerInstance, def: LayerUniformDef, e: Point
     // 1px per step, shift for 10x finer.
     const fine = ev.shiftKey ? 0.1 : 1;
     const next = startValue + (ev.clientX - startX) * defStep(def) * fine;
-    writeParamValue(layer, def, next);
+    writeParamValue(row, next);
   }
 
   function onUp() {
@@ -1114,7 +1399,7 @@ function onValuePointerDown(layer: LayerInstance, def: LayerUniformDef, e: Point
     if (dragging) {
       history?.commitGesture();
     } else {
-      openValueEditor(layer, def);
+      openValueEditor(row);
     }
   }
 
@@ -1122,32 +1407,39 @@ function onValuePointerDown(layer: LayerInstance, def: LayerUniformDef, e: Point
   window.addEventListener("pointerup", onUp);
 }
 
-function openValueEditor(layer: LayerInstance, def: LayerUniformDef) {
-  const current = valueAt(layer, def.name, def.default as number);
+function openValueEditor(row: TimelineRow) {
+  const current = rowValue(row);
   editingValue.value = {
-    layerId: layer.id,
-    paramName: def.name,
+    layerId: row.owner,
+    paramName: row.def.name,
     text: String(Number(current.toFixed(4))),
   };
 }
 
+/** Function refs run on every re-render; only focus/select when the input first mounts. */
+let focusedValueInput: HTMLInputElement | null = null;
+
 function focusValueInput(el: unknown) {
   const input = el as HTMLInputElement | null;
-  if (input) {
-    input.focus();
-    input.select();
+  if (input && input !== focusedValueInput) {
+    // Next frame: the click that opened the editor would otherwise steal focus.
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
   }
+  focusedValueInput = input;
 }
 
-function commitValueEditor(layer: LayerInstance, def: LayerUniformDef) {
+function commitValueEditor(row: TimelineRow) {
   const editing = editingValue.value;
   if (!editing) return;
   editingValue.value = null;
   const parsed = Number.parseFloat(editing.text.replace(",", "."));
   if (!Number.isFinite(parsed)) return;
-  const clamped = clampToDef(def, parsed);
-  if (clamped === valueAt(layer, def.name, def.default as number)) return;
-  writeParamValue(layer, def, clamped);
+  const clamped = clampToDef(row.def, parsed);
+  if (clamped === rowValue(row)) return;
+  writeParamValue(row, clamped);
   history?.record();
 }
 
@@ -1308,7 +1600,7 @@ function onKeyframePointerDown(
     // Right-click: make sure the key is selected so easing applies to it.
     if (!isKeyframeInSelection(selectedKeyframes.value, layerId, paramName, time)) {
       selectedKeyframes.value = [{ layerId, paramName, time }];
-      selectedLayerId.value = layerId;
+      selectLayerForOwner(layerId);
     }
     return;
   }
@@ -1326,7 +1618,7 @@ function onKeyframePointerDown(
 
   if (e.shiftKey) {
     selectedKeyframes.value = toggleKeyframeInSelection(selectedKeyframes.value, clickedKey);
-    selectedLayerId.value = layerId;
+    selectLayerForOwner(layerId);
     history?.record();
     return;
   }
@@ -1335,7 +1627,7 @@ function onKeyframePointerDown(
     selectedKeyframes.value = [clickedKey];
   }
 
-  selectedLayerId.value = layerId;
+  selectLayerForOwner(layerId);
 
   const startX = e.clientX;
   let dragging = false;
@@ -1417,7 +1709,7 @@ function onTracksMarqueePointerDown(e: PointerEvent) {
       selectedKeyframes.value = hits;
     }
     if (hits.length > 0) {
-      selectedLayerId.value = hits[0]!.layerId;
+      selectLayerForOwner(hits[0]!.layerId);
     }
   }
 
@@ -2147,68 +2439,208 @@ function selectAllLayers() {
                 </div>
               </UiHover>
 
-              <template v-for="def in visibleProperties(layer)" :key="`${layer.id}-${def.name}`">
-                <div
-                  v-if="showPropertyRow(layer, def.name)"
-                  class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
+              <div
+                v-for="row in rowsForLayer(layer)"
+                :key="row.key"
+                class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
+                :class="row.kind !== 'property' && 'bg-layer-1/40'"
+              >
+                <div class="flex size-5 shrink-0 items-center justify-center">
+                  <UiKeyframeButton
+                    v-if="trackEnabled(row.owner, row.def.name)"
+                    data-drag-exclude
+                    :active="isKeyedAtPlayhead(row.owner, row.def.name)"
+                    @toggle="onRowKeyframe(row)"
+                  />
+                </div>
+                <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1" :class="row.kind !== 'property' && 'pl-3'">
+                  <UiStopwatchButton
+                    data-drag-exclude
+                    :active="trackEnabled(row.owner, row.def.name)"
+                    @toggle="onRowStopwatch(row)"
+                  />
+                  <button
+                    v-if="row.kind === 'link'"
+                    type="button"
+                    data-drag-exclude
+                    class="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-control"
+                    :title="`Edit ${row.prefix}`"
+                    @pointerdown.stop
+                    @click.stop="emit('select-modulator', row.link!.sourceId)"
+                  >
+                    <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
+                  </button>
+                  <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
+                    {{ row.def.label }}
+                  </span>
+                  <button
+                    v-if="row.kind === 'property' && isModulated(row.owner, row.def.name)"
+                    type="button"
+                    data-drag-exclude
+                    class="flex h-4 shrink-0 items-center gap-0.5 rounded-full px-1 transition-colors hover:bg-control"
+                    :class="isLinkRowsOpen(row.owner, row.def.name) && 'bg-control'"
+                    :title="`${modTitle(propertyModSources(row.owner, row.def.name)).replace(' — click to edit', '')} — click to show links`"
+                    @pointerdown.stop
+                    @click.stop="toggleLinkRows(row.owner, row.def.name)"
+                  >
+                    <span
+                      v-for="src in propertyModSources(row.owner, row.def.name)"
+                      :key="src.id"
+                      class="size-1.5 shrink-0 rounded-full"
+                      :style="{ backgroundColor: src.color }"
+                    />
+                  </button>
+                </div>
+                <input
+                  v-if="isEditingValue(row.owner, row.def.name)"
+                  :ref="focusValueInput"
+                  v-model="editingValue!.text"
+                  data-drag-exclude
+                  class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                  spellcheck="false"
+                  @keydown.enter.stop.prevent="commitValueEditor(row)"
+                  @keydown.esc.stop.prevent="cancelValueEditor"
+                  @keydown.stop
+                  @blur="commitValueEditor(row)"
+                  @pointerdown.stop
+                />
+                <span
+                  v-else
+                  data-drag-exclude
+                  class="shrink-0 rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
+                  :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
+                  @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
                 >
-                  <div class="flex size-5 shrink-0 items-center justify-center">
-                    <UiKeyframeButton
-                      v-if="trackEnabled(layer.id, def.name)"
-                      data-drag-exclude
-                      :active="isKeyedAtPlayhead(layer.id, def.name)"
-                      @toggle="emit('toggle-keyframe', layer.id, def.name)"
-                    />
-                  </div>
-                  <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1">
-                    <UiStopwatchButton
-                      data-drag-exclude
-                      :active="trackEnabled(layer.id, def.name)"
-                      @toggle="emit('toggle-stopwatch', layer.id, def.name)"
-                    />
-                    <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
-                      {{ def.label }}
-                    </span>
+                  {{ formatRowValue(row) }}
+                </span>
+              </div>
+            </div>
+            <div v-if="modulatorEntries.length" class="border-t border-neutral/60">
+              <div class="flex h-7 items-center gap-1 border-b border-neutral/40 bg-layer-1 px-1 select-none">
+                <button
+                  type="button"
+                  class="flex size-5 shrink-0 items-center justify-center rounded-sm text-neutral-subtle hover:text-neutral-strong"
+                  :title="modGroupOpen ? 'Collapse modulators' : 'Expand modulators'"
+                  @click.stop="modGroupOpen = !modGroupOpen"
+                >
+                  <ChevronRightIcon class="size-3.5 transition-transform" :class="modGroupOpen && 'rotate-90'" />
+                </button>
+                <span class="min-w-0 flex-1 truncate text-copy-sm text-neutral-subtle">Modulators</span>
+                <span class="flex gap-0.5 pr-1">
+                  <span
+                    v-for="entry in modulatorEntries"
+                    :key="entry.source.id"
+                    class="size-1.5 rounded-full"
+                    :style="{ backgroundColor: entry.source.color }"
+                  />
+                </span>
+              </div>
+              <template v-if="modGroupOpen">
+                <template v-for="entry in modulatorEntries" :key="entry.source.id">
+                  <div class="flex h-6 w-full items-center gap-1 border-t border-neutral/50 px-1 pl-4 select-none">
                     <button
-                      v-if="isModulated(layer.id, def.name)"
                       type="button"
-                      data-drag-exclude
-                      class="flex h-4 shrink-0 items-center gap-0.5 rounded-full px-1 transition-colors hover:bg-control"
-                      :title="modTitle(propertyModSources(layer.id, def.name))"
-                      @pointerdown.stop
-                      @click.stop="emit('select-modulator', propertyModSources(layer.id, def.name)[0]!.id)"
+                      class="flex size-4 shrink-0 items-center justify-center text-neutral-subtle hover:text-neutral-strong"
+                      @click.stop="toggleSourceRows(entry.source.id)"
                     >
-                      <span
-                        v-for="src in propertyModSources(layer.id, def.name)"
-                        :key="src.id"
-                        class="size-1.5 shrink-0 rounded-full"
-                        :style="{ backgroundColor: src.color }"
+                      <ChevronRightIcon
+                        class="size-3 transition-transform"
+                        :class="sourceRowsOpen.has(entry.source.id) && 'rotate-90'"
                       />
                     </button>
+                    <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: entry.source.color }" />
+                    <button
+                      type="button"
+                      class="min-w-0 flex-1 truncate text-left text-copy-xs text-neutral-subtle hover:text-neutral-strong"
+                      :title="`Edit ${entry.source.label}`"
+                      @click.stop="emit('select-modulator', entry.source.id)"
+                    >
+                      {{ entry.source.label }}
+                    </button>
+                    <span class="shrink-0 pr-1 text-copy-xs text-neutral-subtle/60">
+                      {{ entry.kind === "lfo" ? "LFO" : "Envelope" }}
+                    </span>
                   </div>
-                  <input
-                    v-if="isEditingValue(layer.id, def.name)"
-                    :ref="focusValueInput"
-                    v-model="editingValue!.text"
-                    data-drag-exclude
-                    class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
-                    spellcheck="false"
-                    @keydown.enter.stop.prevent="commitValueEditor(layer, def)"
-                    @keydown.esc.stop.prevent="cancelValueEditor"
-                    @keydown.stop
-                    @blur="commitValueEditor(layer, def)"
-                    @pointerdown.stop
-                  />
-                  <span
-                    v-else
-                    data-drag-exclude
-                    class="shrink-0 cursor-ew-resize rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
-                    title="Drag to scrub, click to type (⇧ fine)"
-                    @pointerdown.stop.prevent="onValuePointerDown(layer, def, $event)"
-                  >
-                    {{ valueAt(layer, def.name, def.default as number).toFixed(2) }}
-                  </span>
-                </div>
+                  <template v-if="sourceRowsOpen.has(entry.source.id)">
+                    <div
+                      v-for="row in sourceRows(entry)"
+                      :key="row.key"
+                      class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
+                      :class="row.kind !== 'property' && 'bg-layer-1/40'"
+                    >
+                      <div class="flex size-5 shrink-0 items-center justify-center">
+                        <UiKeyframeButton
+                          v-if="trackEnabled(row.owner, row.def.name)"
+                          data-drag-exclude
+                          :active="isKeyedAtPlayhead(row.owner, row.def.name)"
+                          @toggle="onRowKeyframe(row)"
+                        />
+                      </div>
+                      <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1" :class="row.kind !== 'property' && 'pl-3'">
+                        <UiStopwatchButton
+                          data-drag-exclude
+                          :active="trackEnabled(row.owner, row.def.name)"
+                          @toggle="onRowStopwatch(row)"
+                        />
+                        <button
+                          v-if="row.kind === 'link'"
+                          type="button"
+                          data-drag-exclude
+                          class="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-control"
+                          :title="`Edit ${row.prefix}`"
+                          @pointerdown.stop
+                          @click.stop="emit('select-modulator', row.link!.sourceId)"
+                        >
+                          <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
+                        </button>
+                        <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
+                          {{ row.def.label }}
+                        </span>
+                        <button
+                          v-if="row.kind === 'property' && isModulated(row.owner, row.def.name)"
+                          type="button"
+                          data-drag-exclude
+                          class="flex h-4 shrink-0 items-center gap-0.5 rounded-full px-1 transition-colors hover:bg-control"
+                          :class="isLinkRowsOpen(row.owner, row.def.name) && 'bg-control'"
+                          :title="`${modTitle(propertyModSources(row.owner, row.def.name)).replace(' — click to edit', '')} — click to show links`"
+                          @pointerdown.stop
+                          @click.stop="toggleLinkRows(row.owner, row.def.name)"
+                        >
+                          <span
+                            v-for="src in propertyModSources(row.owner, row.def.name)"
+                            :key="src.id"
+                            class="size-1.5 shrink-0 rounded-full"
+                            :style="{ backgroundColor: src.color }"
+                          />
+                        </button>
+                      </div>
+                      <input
+                        v-if="isEditingValue(row.owner, row.def.name)"
+                        :ref="focusValueInput"
+                        v-model="editingValue!.text"
+                        data-drag-exclude
+                        class="w-16 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                        spellcheck="false"
+                        @keydown.enter.stop.prevent="commitValueEditor(row)"
+                        @keydown.esc.stop.prevent="cancelValueEditor"
+                        @keydown.stop
+                        @blur="commitValueEditor(row)"
+                        @pointerdown.stop
+                      />
+                      <span
+                        v-else
+                        data-drag-exclude
+                        class="shrink-0 rounded-sm px-1 font-mono text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                        :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
+                        :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
+                        @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
+                      >
+                        {{ formatRowValue(row) }}
+                      </span>
+                    </div>
+                  </template>
+                </template>
               </template>
             </div>
           </div>
@@ -2271,82 +2703,148 @@ function selectAllLayers() {
                   </div>
                 </div>
 
-                <template v-for="def in visibleProperties(layer)" :key="`t-${layer.id}-${def.name}`">
-                  <div
-                    v-if="showPropertyRow(layer, def.name)"
-                    class="relative h-6 border-b border-neutral/30 select-none"
-                  >
-                    <svg
-                      class="pointer-events-none absolute inset-0 size-full"
-                      aria-hidden="true"
-                    >
-                      <template v-if="modulationCurve(layer.id, def.name)">
+                <div
+                  v-for="row in rowsForLayer(layer)"
+                  :key="`t-${row.key}`"
+                  class="relative h-6 border-b border-neutral/30 select-none"
+                  :class="row.kind !== 'property' && 'bg-layer-1/40'"
+                >
+                  <svg class="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
+                    <template v-if="row.kind === 'property' && modulationCurve(row.owner, row.def.name)">
+                      <path
+                        :d="modulationCurve(row.owner, row.def.name)!.base"
+                        fill="none"
+                        class="stroke-white/15"
+                        stroke-width="1"
+                        stroke-dasharray="2 2"
+                      />
+                      <path
+                        :d="modulationCurve(row.owner, row.def.name)!.mod"
+                        fill="none"
+                        :stroke="modulationCurve(row.owner, row.def.name)!.color"
+                        stroke-opacity="0.85"
+                        stroke-width="1.25"
+                        stroke-linejoin="round"
+                      />
+                    </template>
+                    <template v-else-if="row.def.type === 'bool'">
+                      <rect
+                        v-for="(span, si) in onRanges(row)"
+                        :key="`on-${si}`"
+                        :x="span.x"
+                        :width="span.w"
+                        y="7"
+                        height="10"
+                        rx="2"
+                        :fill="row.color"
+                        fill-opacity="0.22"
+                      />
+                    </template>
+                    <template v-else>
+                      <path
+                        v-for="(seg, si) in segmentPaths(row.owner, row.def.name)"
+                        :key="`s-${si}`"
+                        :d="seg"
+                        fill="none"
+                        :class="!row.color && 'stroke-accent/40'"
+                        :stroke="row.color"
+                        :stroke-opacity="row.color ? 0.6 : undefined"
+                        stroke-width="1.5"
+                      />
+                    </template>
+                  </svg>
+                  <EditorTimelineKeyStrip
+                    :keys="findPropertyTrack(tracks, row.owner, row.def.name)?.keys ?? []"
+                    :label="row.prefix ? `${row.prefix} ${row.def.label}` : row.def.label"
+                    :left="keyLeft"
+                    :is-selected="(t: number) => isKeyframeSelected(row.owner, row.def.name, t)"
+                    :at-playhead="isKeyframeAtPlayhead"
+                    :easing-id="(t: number) => keyframeEasingId(row.owner, row.def.name, t)"
+                    @key-pointerdown="(t: number, e: PointerEvent) => onKeyframePointerDown(row.owner, row.def.name, t, e)"
+                    @apply-easing="(t: number, easing: KeyframeEasing | CubicBezierEase) => applyKeyframeEasing(row.owner, row.def.name, t, easing)"
+                  />
+                </div>
+              </div>
+              <div v-if="modulatorEntries.length" class="border-t border-neutral/60">
+                <div class="relative h-7 border-b border-neutral/40 bg-layer-1/50" />
+                <template v-if="modGroupOpen">
+                  <template v-for="entry in modulatorEntries" :key="`t-${entry.source.id}`">
+                    <div class="relative h-6 border-b border-neutral/30">
+                      <svg class="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
                         <path
-                          :d="modulationCurve(layer.id, def.name)!.base"
+                          :d="sourceCurves.get(entry.source.id)"
                           fill="none"
-                          class="stroke-white/15"
-                          stroke-width="1"
-                          stroke-dasharray="2 2"
-                        />
-                        <path
-                          :d="modulationCurve(layer.id, def.name)!.mod"
-                          fill="none"
-                          :stroke="modulationCurve(layer.id, def.name)!.color"
+                          :stroke="entry.source.color"
                           stroke-opacity="0.85"
                           stroke-width="1.25"
                           stroke-linejoin="round"
                         />
-                      </template>
-                      <template v-else>
-                        <path
-                          v-for="(seg, si) in segmentPaths(layer.id, def.name)"
-                          :key="`s-${si}`"
-                          :d="seg"
-                          fill="none"
-                          class="stroke-accent/40"
-                          stroke-width="1.5"
-                        />
-                      </template>
-                    </svg>
-                    <UiContextMenu
-                      v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
-                      :key="`${layer.id}-${def.name}-${key.time}`"
-                    >
-                      <button
-                        type="button"
-                        class="absolute top-1/2 z-10 size-2.5 -translate-x-1/2 -translate-y-1/2 cursor-default border-0 bg-transparent p-0 outline-none"
-                        :style="{ left: keyLeft(key.time) }"
-                        :title="`${def.label} @ ${key.time.toFixed(2)}s`"
-                        @pointerdown.stop="onKeyframePointerDown(layer.id, def.name, key.time, $event)"
+                      </svg>
+                    </div>
+                    <template v-if="sourceRowsOpen.has(entry.source.id)">
+                      <div
+                        v-for="row in sourceRows(entry)"
+                        :key="`t-${row.key}`"
+                        class="relative h-6 border-b border-neutral/30 select-none"
+                        :class="row.kind !== 'property' && 'bg-layer-1/40'"
                       >
-                        <UiKeyframeDiamond
-                          class="size-full"
-                          :selected="isKeyframeSelected(layer.id, def.name, key.time)"
-                          :at-playhead="isKeyframeAtPlayhead(key.time)"
-                          :easing="keyframeShape(key)"
+                        <svg class="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
+                          <template v-if="row.kind === 'property' && modulationCurve(row.owner, row.def.name)">
+                            <path
+                              :d="modulationCurve(row.owner, row.def.name)!.base"
+                              fill="none"
+                              class="stroke-white/15"
+                              stroke-width="1"
+                              stroke-dasharray="2 2"
+                            />
+                            <path
+                              :d="modulationCurve(row.owner, row.def.name)!.mod"
+                              fill="none"
+                              :stroke="modulationCurve(row.owner, row.def.name)!.color"
+                              stroke-opacity="0.85"
+                              stroke-width="1.25"
+                              stroke-linejoin="round"
+                            />
+                          </template>
+                          <template v-else-if="row.def.type === 'bool'">
+                            <rect
+                              v-for="(span, si) in onRanges(row)"
+                              :key="`on-${si}`"
+                              :x="span.x"
+                              :width="span.w"
+                              y="7"
+                              height="10"
+                              rx="2"
+                              :fill="row.color"
+                              fill-opacity="0.22"
+                            />
+                          </template>
+                          <template v-else>
+                            <path
+                              v-for="(seg, si) in segmentPaths(row.owner, row.def.name)"
+                              :key="`s-${si}`"
+                              :d="seg"
+                              fill="none"
+                              :class="!row.color && 'stroke-accent/40'"
+                              :stroke="row.color"
+                              :stroke-opacity="row.color ? 0.6 : undefined"
+                              stroke-width="1.5"
+                            />
+                          </template>
+                        </svg>
+                        <EditorTimelineKeyStrip
+                          :keys="findPropertyTrack(tracks, row.owner, row.def.name)?.keys ?? []"
+                          :label="row.prefix ? `${row.prefix} ${row.def.label}` : row.def.label"
+                          :left="keyLeft"
+                          :is-selected="(t: number) => isKeyframeSelected(row.owner, row.def.name, t)"
+                          :at-playhead="isKeyframeAtPlayhead"
+                          :easing-id="(t: number) => keyframeEasingId(row.owner, row.def.name, t)"
+                          @key-pointerdown="(t: number, e: PointerEvent) => onKeyframePointerDown(row.owner, row.def.name, t, e)"
+                          @apply-easing="(t: number, easing: KeyframeEasing | CubicBezierEase) => applyKeyframeEasing(row.owner, row.def.name, t, easing)"
                         />
-                      </button>
-                      <template #menu>
-                        <UiContextMenuItem
-                          v-for="named in NAMED_EASINGS"
-                          :key="named.id"
-                          @click="applyKeyframeEasing(layer.id, def.name, key.time, named.id)"
-                        >
-                          <span class="flex-1">{{ named.label }}</span>
-                          <span v-if="keyframeEasingId(layer.id, def.name, key.time) === named.id">✓</span>
-                        </UiContextMenuItem>
-                        <UiContextMenuSeparator />
-                        <UiContextMenuItem
-                          v-for="preset in EASING_PRESETS"
-                          :key="preset.id"
-                          @click="applyKeyframeEasing(layer.id, def.name, key.time, preset.curve)"
-                        >
-                          <span class="flex-1">{{ preset.label }}</span>
-                          <span v-if="keyframeEasingId(layer.id, def.name, key.time) === preset.id">✓</span>
-                        </UiContextMenuItem>
-                      </template>
-                    </UiContextMenu>
-                  </div>
+                      </div>
+                    </template>
+                  </template>
                 </template>
               </div>
             </div>
