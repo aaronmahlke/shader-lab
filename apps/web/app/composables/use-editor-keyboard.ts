@@ -45,8 +45,15 @@ function allowsGlobalShortcut(e: KeyboardEvent): boolean {
   return !!el?.closest?.("select, input[type='range'], [data-global-shortcuts]");
 }
 
+/** Space on a focused non-text control (dropdown, slider, checkbox) plays instead of opening/toggling it. */
+function isSpaceOnControl(e: KeyboardEvent): boolean {
+  if (e.code !== "Space") return false;
+  const el = e.target as HTMLElement | null;
+  return !!el?.closest?.("select, input[type='range'], input[type='checkbox'], input[type='radio']");
+}
+
 function dispatchKeydown(e: KeyboardEvent) {
-  if (isTypingTarget(e.target) && !allowsGlobalShortcut(e)) return;
+  if (isTypingTarget(e.target) && !allowsGlobalShortcut(e) && !isSpaceOnControl(e)) return;
 
   const sorted = [...handlers.values()].sort((a, b) => b.priority - a.priority);
   for (const handler of sorted) {
