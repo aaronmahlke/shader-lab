@@ -111,6 +111,7 @@ type Emits = {
   precompose: [layerIds: string[]];
   /** A comp was dragged in from the project panel; the page owns the insert. */
   "insert-composition": [payload: { compId: string; name: string; index: number }];
+  "open-comp": [layer: LayerInstance, newTab: boolean];
   /** Modulator pill clicked: open that LFO/envelope in the inspector. */
   "select-modulator": [sourceId: string];
 };
@@ -148,8 +149,10 @@ const playing = defineModel<boolean>("playing", { required: true });
 const pxPerSecond = defineModel<number>("pxPerSecond", { default: DEFAULT_PX_PER_SECOND });
 const snapping = defineModel<boolean>("snapping", { default: true });
 
-const { settings, lfos = [], envelopes = [], assignments = [] } = defineProps<{
+const { settings, lfos = [], envelopes = [], assignments = [], usedRange = null } = defineProps<{
   settings: CompositionSettings;
+  /** Drilled into a nested comp: the range (comp time) the parent shows. */
+  usedRange?: { start: number; end: number } | null;
   lfos?: LFOSource[];
   envelopes?: EnvelopeSource[];
   assignments?: ModulationAssignment[];
@@ -631,7 +634,8 @@ function onLayerRowDblClick(layer: LayerInstance, e: MouseEvent) {
   if (typeof ref !== "string" || !ref) return;
   e.stopPropagation();
   e.preventDefault();
-  navigateTo(`/shader/${ref}`);
+  // ⌘/Ctrl double-click: own tab; plain: drill in (breadcrumb + synced time).
+  emit("open-comp", layer, e.metaKey || e.ctrlKey);
 }
 
 function startRenameSelectedLayer() {
@@ -3037,6 +3041,12 @@ function selectAllLayers() {
               }"
             />
 
+            <!-- Drilled into a nested comp: the part the parent actually shows. -->
+            <div
+              v-if="usedRange"
+              class="pointer-events-none absolute -top-px bottom-0 z-[5] border-x border-dashed border-accent bg-accent-subtle/40"
+              :style="{ left: `${timeToX(usedRange.start)}px`, width: `${timeToX(usedRange.end) - timeToX(usedRange.start)}px` }"
+            />
             <div
               class="pointer-events-none absolute -top-px bottom-0 z-10 w-px -translate-x-1/2 bg-playhead"
               :style="{ left: `${playheadX}px` }"

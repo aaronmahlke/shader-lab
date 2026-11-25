@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { PlusIcon } from "@heroicons/vue/16/solid";
 import {
   ComboboxAnchor,
   ComboboxContent,
@@ -31,9 +30,7 @@ defineExpose({ open, openPanel });
 </script>
 
 <template>
-  <div
-    class="flex gap-1 rounded-xl border border-neutral bg-layer-1 p-1 shadow-panel backdrop-blur-xl"
-  >
+  <div class="flex">
     <ComboboxRoot
       :model-value="undefined"
       :open="open"
@@ -43,21 +40,16 @@ defineExpose({ open, openPanel });
       @update:open="open = $event"
       @update:model-value="onSelect"
     >
-      <ComboboxAnchor as-child>
-        <UiTooltip label="Add layer" side="bottom" disable-closing-trigger>
-          <UiHover
-            :active="open"
-            class-name="bg-layer-1 border border-neutral group-hover/h:bg-tint"
+      <d-tooltip content="Add layer">
+        <ComboboxAnchor as-child>
+          <ComboboxTrigger
+            class="flex size-8 cursor-pointer items-center justify-center rounded-lg text-neutral-subtle outline-none transition-colors hover:bg-tint hover:text-neutral-strong data-[state=open]:bg-tint data-[state=open]:text-neutral-strong"
+            aria-label="Add layer"
           >
-            <ComboboxTrigger
-              class="relative inline-flex size-7 cursor-pointer items-center justify-center rounded-lg text-neutral-strong outline-none transition-colors duration-100 ease-out-expo"
-              aria-label="Add layer"
-            >
-              <PlusIcon class="size-4 shrink-0" aria-hidden="true" />
-            </ComboboxTrigger>
-          </UiHover>
-        </UiTooltip>
-      </ComboboxAnchor>
+            <d-icon-plus class="size-4 shrink-0" aria-hidden="true" />
+          </ComboboxTrigger>
+        </ComboboxAnchor>
+      </d-tooltip>
 
       <ComboboxPortal>
         <!-- Fixed, screen-centered (cmd+k style) rather than anchored to the

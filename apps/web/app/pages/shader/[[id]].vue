@@ -83,6 +83,7 @@ import {
 } from "#shared/editor/shader-presets";
 import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
+import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
 import {
   beginExportClock,
   seekStageSequences,
@@ -90,7 +91,6 @@ import {
   setTimelineDrive,
   createDomAnimationStepper,
 } from "~/utils/export-clock";
-import { ChevronRightIcon } from "@heroicons/vue/16/solid";
 import {
   WAVE_AMPLITUDE,
   WAVE_CYCLE_WIDTH,
@@ -222,6 +222,71 @@ if (routeId) {
 
 syncInitialLayerSelection();
 syncLayerCounter();
+
+// --- Shell: nested-comp trail, project panel, preview ---
+
+/** Drill-in trail from the URL (empty = comp opened standalone). */
+const trail = computed<TrailStep[]>(() => parseTrail(route.query.trail));
+const rootCompId = computed(() => trail.value[0]?.id ?? shaderId.value);
+
+// Arriving through a trail (or going up): start on the same moment.
+{
+  const t = Number(route.query.t);
+  if (Number.isFinite(t) && t > 0) currentTime.value = Math.min(t, settings.value.duration);
+}
+
+/** The part of this comp its parent shows (child time), when drilled in. */
+const usedRange = computed(() => {
+  const step = trail.value.at(-1);
+  if (!step) return null;
+  const end = step.out != null ? step.out - step.in : settings.value.duration;
+  return { start: 0, end: Math.max(0, Math.min(end, settings.value.duration)) };
+});
+
+/** Double-click a comp layer: go in (same tab, synced time) or open it in its own tab. */
+function openNestedComp(layer: LayerInstance, newTab = false) {
+  const ref = layer.values.compRefId;
+  if (typeof ref !== "string" || !ref || !shaderId.value) return;
+  if (newTab) {
+    navigateTo(`/shader/${ref}`);
+    return;
+  }
+  const inT = layer.timing?.in ?? 0;
+  const step: TrailStep = { id: shaderId.value, in: inT, out: layer.timing?.out ?? null };
+  navigateTo(compUrl(ref, [...trail.value, step], Math.max(0, currentTime.value - inT)));
+}
+
+const PROJECT_PANEL_KEY = "shader-lab:project-panel-open";
+const projectPanelOpen = ref(false);
+onMounted(() => {
+  try {
+    projectPanelOpen.value = localStorage.getItem(PROJECT_PANEL_KEY) === "1";
+  } catch {}
+});
+function toggleProjectPanel() {
+  projectPanelOpen.value = !projectPanelOpen.value;
+  try {
+    localStorage.setItem(PROJECT_PANEL_KEY, projectPanelOpen.value ? "1" : "0");
+  } catch {}
+}
+
+/** Preview: canvas alone, full window, playing. Esc or click to leave. */
+const previewing = ref(false);
+function startPreview() {
+  previewing.value = true;
+  playing.value = true;
+  nextTick(() => viewport.fit());
+}
+function stopPreview() {
+  previewing.value = false;
+  playing.value = false;
+  nextTick(() => viewport.fit());
+}
+onMounted(() => {
+  window.addEventListener("keydown", (e) => {
+    if (previewing.value && e.key === "Escape") stopPreview();
+  });
+});
 
 const selectedLayer = computed(() => {
   if (!selectedLayerId.value) return null;
@@ -375,9 +440,21 @@ const { registryVersion, resolveComposition } = useCompRegistry({
 // Project comp list, shared with the project panel, the comp tab strip and
 // the inspector's Composition select (useProjectCompositions). One refresh on
 // mount keeps every consumer fresh without triple-fetching.
-const { comps: projectComps, refresh: refreshProjectComps } =
+const { project, comps: projectComps, refresh: refreshProjectComps } =
   useProjectCompositions(projectId);
 onMounted(refreshProjectComps);
+
+const projectName = computed(() => project.value?.name);
+const compNames = computed<Record<string, string>>(() =>
+  Object.fromEntries(projectComps.value.map((c) => [c.id, c.name])),
+);
+
+// Renames happen in the tabs / project panel (server-side); keep the local
+// name in step so autosave doesn't write the old one back.
+watch(projectComps, (list) => {
+  const name = list.find((c) => c.id === shaderId.value)?.name;
+  if (name && name !== shaderName.value) shaderName.value = name;
+});
 
 /** Selectable nesting targets: every project comp except the open one (self-cycle). */
 const compRefOptions = computed(() =>
@@ -716,12 +793,12 @@ function pasteKeyframesAtPlayhead() {
 
 // --- Layer Management ---
 
-function addLayer(type: LayerType) {
+function addLayer(type: LayerType, overrides: Record<string, unknown> = {}) {
   const template = LAYER_TEMPLATES[type];
   if (!template) return;
 
   const id = createUniqueLayerId(type, layers.value, layerCounter);
-  const values = buildLayerValues(type);
+  const values = { ...buildLayerValues(type), ...overrides };
 
   if (type === "waveFill") {
     offsetDuplicatedWave(
@@ -985,7 +1062,7 @@ function duplicateSelectedLayers() {
 
 // --- Pre-compose (AE-style: group selected layers into a new composition) ---
 
-const compTabsRef = ref<{ refresh: () => Promise<void> } | null>(null);
+const topBarRef = ref<{ refresh: () => Promise<void> } | null>(null);
 
 /** First "Precomp N" not already used by a comp in this project. */
 function nextPrecompName(): string {
@@ -1061,7 +1138,7 @@ async function precomposeLayers(layerIds: string[]) {
   // The comp registry watches compRefIds and fetches the new comp on its own;
   // refresh the comp lists (tabs + inspector's Composition select) here.
   void refreshProjectComps();
-  void compTabsRef.value?.refresh();
+  void topBarRef.value?.refresh();
 }
 
 /** Drop from the project panel: insert a composition layer at the slot. */
@@ -1512,6 +1589,8 @@ function onArtboardDblClick(e: MouseEvent) {
   const layer = id ? layers.value.find((l) => l.id === id) : null;
   if (layer?.type === "text") {
     startTextEditing(layer.id, { type: "all" });
+  } else if (layer?.type === "composition") {
+    openNestedComp(layer, e.metaKey || e.ctrlKey);
   }
 }
 
@@ -1713,14 +1792,14 @@ watch(shaderName, () => {
 
 const { register: registerKeyboard } = useEditorKeyboard();
 
-const layerAddBarRef = ref<{ openPanel: () => void } | null>(null);
+const toolDockRef = ref<{ openAddLayer: () => void } | null>(null);
 
 registerKeyboard({
   id: "shader:add-layer-palette",
   priority: EditorKeyboardPriority.transport,
   handle(e) {
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "k") return false;
-    layerAddBarRef.value?.openPanel();
+    toolDockRef.value?.openAddLayer();
     return true;
   },
 });
@@ -1816,22 +1895,46 @@ registerKeyboard({
 </script>
 
 <template>
-  <EditorFrame>
-    <template v-if="projectId" #left>
-      <EditorProjectPanel
-        :project-id="projectId"
-        :active-comp-id="shaderId"
-      />
-    </template>
+  <div class="flex h-dvh flex-col overflow-hidden bg-layer-0 text-neutral">
+    <ShellTopBar
+      v-show="!previewing"
+      ref="topBarRef"
+      :project-id="projectId"
+      :project-name="projectName"
+      :comp-id="shaderId"
+      :comp-name="shaderName"
+      :root-comp-id="rootCompId"
+      :project-panel-open="projectPanelOpen"
+      @toggle-project-panel="toggleProjectPanel"
+      @preview="startPreview"
+      @export="exportOpen = true"
+    />
 
-    <div ref="editorSplitRef" class="flex h-full min-h-0 flex-col">
-      <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg bg-layer-1">
+    <div ref="editorSplitRef" class="flex min-h-0 flex-1 flex-col">
+      <div class="flex min-h-0 flex-1">
+        <aside
+          v-if="projectId && projectPanelOpen && !previewing"
+          class="shrink-0 border-r border-neutral-subtle bg-layer-1"
+        >
+          <ShellProjectPanel
+            :project-id="projectId"
+            :active-comp-id="shaderId"
+            :root-comp-id="rootCompId"
+            @add-component="(name) => addLayer('component', { componentName: name })"
+          />
+        </aside>
+
+        <main
+          class="min-w-0 flex-1 overflow-hidden"
+          :class="previewing ? 'fixed inset-0 z-[100] bg-black' : 'relative'"
+          @click="previewing && stopPreview()"
+        >
         <ClientOnly>
           <div class="size-full min-h-0 select-none">
             <div
               ref="viewportRef"
-              class="absolute inset-0 overflow-hidden bg-base-0"
-              :class="viewport.panning.value && 'cursor-grabbing'"
+              class="absolute inset-0 overflow-hidden"
+              :class="[previewing ? 'bg-black' : 'bg-layer-0', viewport.panning.value && 'cursor-grabbing']"
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
               @pointerdown.self="onPasteboardPointerDown"
@@ -1874,6 +1977,7 @@ registerKeyboard({
                     class="pointer-events-none size-full"
                   />
                 </div>
+              <template v-if="!previewing">
               <EditorCanvasPicker
                 :layers="layers"
                 :selected-layer-ids="[...selectedLayerIds]"
@@ -1996,16 +2100,27 @@ registerKeyboard({
                 :intent="textEditIntent"
                 @commit="commitTextEditing"
               />
+              </template>
               </div>
 
-              <!-- Canvas tools -->
-              <EditorCanvasToolbar
-                v-model:tool="activeTool"
-                class="absolute bottom-3 left-1/2 z-20 -translate-x-1/2"
-              />
+              <template v-if="!previewing">
+                <ShellBreadcrumbs
+                  class="absolute top-3 left-3 z-20"
+                  :trail="trail"
+                  :comp-name="shaderName"
+                  :names="compNames"
+                  :current-time="currentTime"
+                />
+                <ShellToolDock
+                  ref="toolDockRef"
+                  v-model:tool="activeTool"
+                  class="absolute bottom-3 left-1/2 z-20 -translate-x-1/2"
+                  @add-layer="addLayer"
+                />
+              </template>
 
               <!-- Zoom controls -->
-              <div class="absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-lg border border-neutral bg-layer-1/90 p-0.5 backdrop-blur">
+              <div v-if="!previewing" class="material-lg absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-lg p-0.5">
                 <button
                   type="button"
                   class="rounded-md px-1.5 py-1 text-copy-xs transition-colors"
@@ -2047,162 +2162,12 @@ registerKeyboard({
 
           <EditorComponentStageHost ref="stageHostRef" :layers="layers" />
         </ClientOnly>
+        </main>
 
-        <div class="pointer-events-none absolute inset-x-0 top-3 z-50 flex justify-center gap-2">
-          <EditorLayerAddBar ref="layerAddBarRef" class="pointer-events-auto" @select="addLayer" />
-          <UiPopover side="bottom" align="center">
-            <template #trigger>
-              <button
-                type="button"
-                class="pointer-events-auto flex h-9 items-center rounded-xl border border-neutral bg-layer-1/90 px-3 font-mono text-copy-xs text-neutral-subtle backdrop-blur transition-colors hover:text-neutral-strong"
-                title="Composition size"
-              >
-                {{ settings.width }} × {{ settings.height }}
-              </button>
-            </template>
-            <div class="flex w-56 flex-col gap-2 p-1">
-              <span class="px-1 text-copy-sm text-secondary select-none">
-                Composition size
-              </span>
-              <div class="flex items-center gap-1.5 px-1">
-                <input
-                  :value="settings.width"
-                  type="text"
-                  inputmode="numeric"
-                  class="w-full rounded-md bg-control px-2 py-1 text-right font-mono text-copy-xs text-neutral-strong outline-none"
-                  @change="setCompositionSize(Number(($event.target as HTMLInputElement).value), settings.height)"
-                  @keydown.enter="($event.target as HTMLInputElement).blur()"
-                />
-                <span class="text-copy-xs text-neutral-weak">×</span>
-                <input
-                  :value="settings.height"
-                  type="text"
-                  inputmode="numeric"
-                  class="w-full rounded-md bg-control px-2 py-1 text-right font-mono text-copy-xs text-neutral-strong outline-none"
-                  @change="setCompositionSize(settings.width, Number(($event.target as HTMLInputElement).value))"
-                  @keydown.enter="($event.target as HTMLInputElement).blur()"
-                />
-              </div>
-              <div class="flex flex-col">
-                <button
-                  v-for="preset in COMP_SIZE_PRESETS"
-                  :key="preset.label"
-                  type="button"
-                  class="flex items-center justify-between rounded-md px-2 py-1.5 text-copy-xs transition-colors hover:bg-control"
-                  :class="settings.width === preset.width && settings.height === preset.height
-                    ? 'text-neutral-strong'
-                    : 'text-neutral-subtle'"
-                  @click="setCompositionSize(preset.width, preset.height)"
-                >
-                  <span>{{ preset.label }}</span>
-                  <span class="font-mono text-copy-2xs text-neutral-weak">{{ preset.width }}×{{ preset.height }}</span>
-                </button>
-              </div>
-              <div class="flex flex-col gap-1.5 border-t border-neutral px-1 pt-2">
-                <UiToggle
-                  label="Motion blur"
-                  :model-value="!!settings.motionBlur"
-                  @update:model-value="(v: boolean) => { settings.motionBlur = v; history.record(); }"
-                />
-                <template v-if="settings.motionBlur">
-                  <UiSliderField
-                    label="Shutter angle"
-                    :model-value="settings.shutterAngle ?? 180"
-                    :min="0"
-                    :max="720"
-                    :step="1"
-                    @update:model-value="(v: number) => (settings.shutterAngle = v)"
-                  />
-                  <UiSliderField
-                    label="Samples"
-                    :model-value="settings.motionBlurSamples ?? 8"
-                    :min="2"
-                    :max="32"
-                    :step="1"
-                    @update:model-value="(v: number) => (settings.motionBlurSamples = Math.round(v))"
-                  />
-                </template>
-              </div>
-            </div>
-          </UiPopover>
-        </div>
-      </div>
-
-      <div
-        class="group relative h-1 shrink-0"
-        title="Drag to resize timeline"
-      >
-        <div
-          class="absolute inset-x-0 -top-1.5 -bottom-1.5 flex cursor-ns-resize touch-none items-center justify-center select-none"
-          @pointerdown="onTimelineResizePointerDown"
+        <aside
+          v-show="!previewing"
+          class="flex w-editor-panel shrink-0 flex-col overflow-hidden border-l border-neutral-subtle bg-layer-1"
         >
-          <div class="h-0.5 w-10 rounded-full bg-neutral-subtle transition-colors group-hover:bg-neutral-strong" />
-        </div>
-      </div>
-
-      <div
-        class="flex shrink-0 flex-col overflow-hidden rounded-lg bg-layer-1"
-        :style="{ height: `${timelineHeight}px` }"
-      >
-        <!-- Open-comps tab strip (AE-style), visually attached to the timeline. -->
-        <EditorCompTabs
-          v-if="projectId"
-          ref="compTabsRef"
-          :project-id="projectId"
-          :active-comp-id="shaderId"
-          :active-comp-name="shaderName"
-        />
-        <div class="min-h-0 flex-1">
-          <EditorTimeline
-            ref="timelineRef"
-            v-model:layers="layers"
-            v-model:tracks="tracks"
-            v-model:selected-layer-id="selectedLayerId"
-            v-model:selected-layer-ids="selectedLayerIds"
-            v-model:selection-anchor-id="selectionAnchorId"
-            v-model:selected-keyframes="selectedKeyframes"
-            v-model:current-time="currentTime"
-            v-model:playing="playing"
-            v-model:px-per-second="timelineZoom"
-            v-model:snapping="timelineSnapping"
-            :settings="settings"
-            :lfos="lfos"
-            :assignments="assignments"
-            @select-modulator="(id: string) => (selectedLfoId = id)"
-            @toggle-stopwatch="toggleStopwatch"
-            @toggle-keyframe="toggleKeyframeAtPlayhead"
-            @duplicate-layer="duplicateLayer"
-            @remove-layer="removeLayer"
-            @precompose="precomposeLayers"
-            @insert-composition="insertCompositionLayer"
-          />
-        </div>
-      </div>
-    </div>
-
-    <template #right>
-      <div class="flex h-full min-h-0 flex-col">
-        <div class="flex shrink-0 items-center gap-2 border-b border-neutral px-2 py-2">
-          <UiHover>
-            <NuxtLink
-              to="/"
-              class="flex size-8 items-center justify-center text-neutral-subtle outline-none group-hover/h:text-neutral-strong"
-              title="Shader Lab"
-            >
-              <ChevronRightIcon class="size-4 rotate-180" />
-            </NuxtLink>
-          </UiHover>
-          <UiEditableText
-            v-model="shaderName"
-            fill
-            class="min-w-0 flex-1 text-copy-sm text-neutral-strong"
-          />
-          <UiButton variant="filled" size="sm" @click="exportOpen = true">
-            Export
-          </UiButton>
-        </div>
-
-        <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <EditorEasingPanel
             v-if="selectedKeyframes.length > 0"
             v-model:tracks="tracks"
@@ -2231,14 +2196,14 @@ registerKeyboard({
           @set-animated-value="(param, value) => setAnimatedValue(selectedLayer!.id, param, value)"
           @set-parent="(parentId, point) => setLayerParent(selectedLayer!.id, parentId, point)"
           />
-          <div
+          <ShellCompSettings
             v-else
-            class="flex flex-1 items-center justify-center p-6 text-center"
-          >
-            <p class="text-copy-sm text-neutral-subtle">
-              Select a layer to edit its properties.
-            </p>
-          </div>
+            class="min-h-0 flex-1 overflow-y-auto"
+            :settings="settings"
+            :comp-name="shaderName"
+            @set-size="setCompositionSize"
+            @update="(patch) => { settings = { ...settings, ...patch }; history.record(); }"
+          />
 
           <EditorLfoRack
             v-model:lfos="lfos"
@@ -2249,10 +2214,48 @@ registerKeyboard({
             @clear-assignments="clearLfoAssignments"
             @delete-lfo="deleteLfo"
           />
-        </div>
+        </aside>
       </div>
-    </template>
-  </EditorFrame>
+
+      <template v-if="!previewing">
+        <div class="group relative h-px shrink-0 bg-neutral-subtle" title="Drag to resize timeline">
+          <div
+            class="absolute inset-x-0 -top-1.5 -bottom-1.5 z-10 cursor-ns-resize touch-none select-none"
+            @pointerdown="onTimelineResizePointerDown"
+          />
+        </div>
+        <div class="flex shrink-0 flex-col overflow-hidden bg-layer-1" :style="{ height: `${timelineHeight}px` }">
+          <div class="min-h-0 flex-1">
+          <EditorTimeline
+            ref="timelineRef"
+            v-model:layers="layers"
+            v-model:tracks="tracks"
+            v-model:selected-layer-id="selectedLayerId"
+            v-model:selected-layer-ids="selectedLayerIds"
+            v-model:selection-anchor-id="selectionAnchorId"
+            v-model:selected-keyframes="selectedKeyframes"
+            v-model:current-time="currentTime"
+            v-model:playing="playing"
+            v-model:px-per-second="timelineZoom"
+            v-model:snapping="timelineSnapping"
+            :settings="settings"
+            :lfos="lfos"
+            :assignments="assignments"
+            :used-range="usedRange"
+            @select-modulator="(id: string) => (selectedLfoId = id)"
+            @toggle-stopwatch="toggleStopwatch"
+            @toggle-keyframe="toggleKeyframeAtPlayhead"
+            @duplicate-layer="duplicateLayer"
+            @remove-layer="removeLayer"
+            @precompose="precomposeLayers"
+            @insert-composition="insertCompositionLayer"
+            @open-comp="openNestedComp"
+          />
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
 
   <div
     v-if="draggingLfo"
