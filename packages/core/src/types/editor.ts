@@ -66,6 +66,10 @@ export type LayerInstance = {
   values: Record<string, unknown>;
   /** In/out points; layer contributes nothing outside this window. */
   timing?: LayerTiming;
+  /** Parent layer id (AE parenting): this layer's transform is relative to it. */
+  parent?: string;
+  /** Attach to a named point on the parent instead of its anchor (e.g. "textEnd"). */
+  parentPoint?: string;
   /** Set on virtual cloner copies only (never persisted). */
   clone?: CloneInfo;
 };

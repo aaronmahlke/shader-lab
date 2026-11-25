@@ -4,6 +4,10 @@ import type { GradientStop, MeshPoint } from "@shader-lab/core";
 import {
   isZeroBaseDisabled,
   linkTrackLayerId,
+  ATTACH_POINTS,
+  attachPointsFor,
+  canParent,
+  LAYER_TEMPLATES,
   upsertKeyframe,
   evaluatePropertyTrack,
   findPropertyTrack,
@@ -39,6 +43,8 @@ type Emits = {
   "assign-lfo": [paramName: string];
   "remove-assignment": [sourceId: string, paramName: string];
   "update-depth": [sourceId: string, paramName: string, depth: number];
+  /** Parent layer (null = none) and optional attach point on it (e.g. "textEnd"). */
+  "set-parent": [parentId: string | null, point: string | null];
   "update:meshSelectedPointIndex": [index: number];
   "toggle-stopwatch": [paramName: string];
   "toggle-keyframe": [paramName: string];
@@ -281,6 +287,46 @@ const appearanceRows = computed(() =>
 // --- Alignment (Figma-style, relative to the composition frame) ---
 
 const isGenerator = computed(() => template.category === "generator");
+
+// --- Parenting ---
+
+const editorLayers = inject<Ref<LayerInstance[]> | null>("editorLayers", null);
+const NO_PARENT = "__none__";
+const ANCHOR_POINT = "__anchor__";
+
+const parentOptions = computed(() => {
+  const all = editorLayers?.value ?? [];
+  return [
+    { label: "None", value: NO_PARENT },
+    ...all
+      .filter((l) => l.id !== layer.id && canParent(all, layer.id, l.id))
+      .map((l) => ({ label: l.name ?? LAYER_TEMPLATES[l.type]?.label ?? l.type, value: l.id })),
+  ];
+});
+
+const parentLayer = computed(() =>
+  layer.parent ? editorLayers?.value.find((l) => l.id === layer.parent) : undefined,
+);
+
+const attachOptions = computed(() => {
+  if (!parentLayer.value) return [];
+  const points = attachPointsFor(parentLayer.value);
+  if (points.length === 0) return [];
+  return [
+    { label: "Layer", value: ANCHOR_POINT },
+    ...points.map((p) => ({ label: ATTACH_POINTS[p].label, value: p })),
+  ];
+});
+
+function onParentChange(value: string | number) {
+  const id = String(value);
+  emit("set-parent", id === NO_PARENT ? null : id, null);
+}
+
+function onAttachChange(value: string | number) {
+  const point = String(value);
+  emit("set-parent", layer.parent ?? null, point === ANCHOR_POINT ? null : point);
+}
 
 function universalDef(name: string): LayerUniformDef {
   return universalDefs.value.find((def) => def.name === name)!;
@@ -630,6 +676,23 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           @update:model-value="setLayer3D"
         />
       </template>
+      <div v-if="isGenerator" class="flex gap-1.5">
+        <UiSelect
+          class="min-w-0 flex-1"
+          :model-value="layer.parent ?? NO_PARENT"
+          :options="parentOptions"
+          label="Parent"
+          @update:model-value="onParentChange"
+        />
+        <UiSelect
+          v-if="attachOptions.length"
+          class="min-w-0 flex-1"
+          :model-value="layer.parentPoint ?? ANCHOR_POINT"
+          :options="attachOptions"
+          label="Attach to"
+          @update:model-value="onAttachChange"
+        />
+      </div>
       <div
         v-if="isGenerator && compositionAspect"
         class="flex items-center justify-between rounded-lg bg-control/40 p-0.5"

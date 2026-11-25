@@ -8,6 +8,8 @@ import { evaluateLfoWave, getLfoWaveShape } from "./lfo-wave";
 import { evaluateEnvelope } from "./envelope";
 import { computeEffectorInfluence, type EffectorInfluence, type ParamReader } from "./effectors";
 import { expandCloners } from "./cloners";
+import { resolveWorldTransform, type LocalReader, type WorldTransform } from "./parenting";
+import { attachPointOffset, estimateTextWidth, type AttachPoint, type TextMeasure } from "./attach-points";
 
 /** Track `layerId` for a modulator's own params (LFO: rate, phase; envelope: attack, decay, sustain, gate, release). */
 export function sourceTrackLayerId(sourceId: string): string {
@@ -56,7 +58,13 @@ export class ModulationEngine {
   private layersById = new Map<string, LayerInstance>();
   private effectors: LayerInstance[] = [];
   private hasClones = false;
+  private hasParents = false;
+  /** Per-frame cache: layer id → world transform (parent chain resolved). */
+  private worldCache = new Map<string, WorldTransform>();
   private aspect = 16 / 9;
+  private compWidth = 1920;
+  private compHeight = 1080;
+  private measure: TextMeasure = estimateTextWidth;
   /** Per-frame cache: target layer id → effector influence (null = untouched). */
   private influenceCache = new Map<string, EffectorInfluence | null>();
   private lfoValues: Record<string, number> = {};
@@ -93,7 +101,27 @@ export class ModulationEngine {
     this.layerIn = new Map([...this.layersById.values()].map((l) => [l.id, l.timing?.in ?? 0]));
     this.effectors = layers.filter((l) => l.type === "effector");
     this.hasClones = layers.some((l) => l.type === "cloner");
+    this.hasParents = layers.some((l) => !!l.parent);
     this.influenceCache.clear();
+    this.worldCache.clear();
+  }
+
+  /** True when any layer has a parent. */
+  hasParenting(): boolean {
+    return this.hasParents;
+  }
+
+  /** World transform through the parent chain at the sampled time (cached per frame). */
+  worldTransform(layer: LayerInstance, read: LocalReader): WorldTransform {
+    return resolveWorldTransform(
+      layer,
+      (id) => this.layersById.get(id),
+      read,
+      this.aspect,
+      this.worldCache,
+      (parent, point) =>
+        attachPointOffset(parent, point as AttachPoint, read, this.measure, this.compWidth, this.compHeight),
+    );
   }
 
   /** True when any cloner exists (copies need transform routing). */
@@ -105,11 +133,30 @@ export class ModulationEngine {
     return this.aspect;
   }
 
+  /** Comp size in px (text attach points lay out at comp resolution); also sets the aspect. */
+  setCompSize(width: number, height: number): void {
+    if (!(width > 0 && height > 0)) return;
+    if (width !== this.compWidth || height !== this.compHeight) {
+      this.compWidth = width;
+      this.compHeight = height;
+      this.worldCache.clear();
+      this.influenceCache.clear();
+    }
+    this.setAspect(width / height);
+  }
+
+  /** Glyph measurement for text attach points (canvas measureText); estimates without one. */
+  setTextMeasure(measure: TextMeasure | null): void {
+    this.measure = measure ?? estimateTextWidth;
+    this.worldCache.clear();
+  }
+
   /** Comp width / height, so effector radii are round on screen. */
   setAspect(aspect: number): void {
     if (!Number.isFinite(aspect) || aspect <= 0 || aspect === this.aspect) return;
     this.aspect = aspect;
     this.influenceCache.clear();
+    this.worldCache.clear();
   }
 
   getLayer(id: string): LayerInstance | undefined {
@@ -148,7 +195,7 @@ export class ModulationEngine {
     this.tracks = config.tracks ?? [];
     this.setLayers(config.layers ?? []);
     const settings = config.settings;
-    if (settings && settings.height > 0) this.setAspect(settings.width / settings.height);
+    if (settings && settings.height > 0) this.setCompSize(settings.width, settings.height);
     this.invalidate();
   }
 
@@ -157,6 +204,7 @@ export class ModulationEngine {
     this.sampled = true;
     this.cache.clear();
     this.influenceCache.clear();
+    this.worldCache.clear();
 
     const values: Record<string, number> = {};
     for (const lfo of this.lfos) values[lfo.id] = this.signal(lfo.id, clockSeconds);
@@ -253,6 +301,7 @@ export class ModulationEngine {
   private invalidate(): void {
     this.cache.clear();
     this.influenceCache.clear();
+    this.worldCache.clear();
     if (this.sampled) this.sampleAt(this.time);
   }
 }

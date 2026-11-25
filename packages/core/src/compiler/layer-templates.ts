@@ -307,29 +307,6 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         ],
         keyframeable: false,
       },
-      {
-        // Drawn after the last revealed character (follows typing).
-        name: "cursor",
-        type: "select",
-        label: "Cursor",
-        default: 0,
-        options: [
-          { label: "None", value: 0 },
-          { label: "Block", value: 1 },
-          { label: "Bar", value: 2 },
-        ],
-        keyframeable: false,
-      },
-      {
-        // Keyframe or put a square LFO on this to blink the cursor.
-        name: "cursorOpacity",
-        type: "float",
-        label: "Cursor opacity",
-        default: 1,
-        min: 0,
-        max: 1,
-        step: 0.01,
-      },
     ],
   },
 

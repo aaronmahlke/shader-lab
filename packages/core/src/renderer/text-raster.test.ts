@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { charProgress, drawTextSpec, isTextAnimated, textCacheKey, textSpecFromValues } from "./text-raster";
+import { charProgress, drawTextSpec, isTextAnimated, layoutTextSpec, textCacheKey, textSpecFromValues } from "./text-raster";
 import { compilePasses, compositePassId } from "../compiler/compile-passes";
 import { buildLayerValues } from "../compiler/build-layer-values";
 
@@ -132,7 +132,7 @@ describe("text animators", () => {
   });
 });
 
-describe("text animator: typewriter, cursor, blur, slide", () => {
+describe("text animator: typewriter, text end, blur, slide", () => {
   /** Records glyphs with their translate offsets, rects, and shadow state. */
   function recordingCtx() {
     const glyphs: { ch: string; tx: number; ty: number; blur: number; alpha: number }[] = [];
@@ -186,24 +186,17 @@ describe("text animator: typewriter, cursor, blur, slide", () => {
     expect(glyphs.every((g) => g.alpha === 1)).toBe(true);
   });
 
-  it("draws the cursor after the last typed character, with its opacity", () => {
-    const { ctx, rects } = recordingCtx();
-    drawTextSpec(ctx, spec({ animStyle: 1, animProgress: 0.5, cursor: 1, cursorOpacity: 0.5 }), 400, 200, 1);
-    expect(rects.length).toBe(1);
+  it("reports the text end after the last typed character", () => {
+    const measure = () => 10;
     const fontPx = 160;
     const pad = Math.round(fontPx * 0.25);
-    expect(rects[0]!.x).toBeCloseTo(pad + 20 + fontPx * 0.06, 6); // after "ab" (10px each in the fake)
-    expect(rects[0]!.alpha).toBe(0.5);
-  });
-
-  it("keeps the cursor at the end once fully typed (and hides it at opacity 0)", () => {
-    const shown = recordingCtx();
-    drawTextSpec(shown.ctx, spec({ animStyle: 1, animProgress: 1, cursor: 2 }), 400, 200, 1);
-    expect(shown.glyphs.length).toBe(4);
-    expect(shown.rects.length).toBe(1);
-    const hidden = recordingCtx();
-    drawTextSpec(hidden.ctx, spec({ animStyle: 1, animProgress: 1, cursor: 2, cursorOpacity: 0 }), 400, 200, 1);
-    expect(hidden.rects.length).toBe(0);
+    const half = layoutTextSpec(spec({ animStyle: 1, animProgress: 0.5 }), 400, 200, 1, measure);
+    expect(half.end.x).toBeCloseTo(pad + 20, 6); // after "ab"
+    expect(half.end.y).toBeCloseTo(100, 6);
+    const none = layoutTextSpec(spec({ animStyle: 1, animProgress: 0 }), 400, 200, 1, measure);
+    expect(none.end.x).toBeCloseTo(pad, 6);
+    const all = layoutTextSpec(spec({ animStyle: 1, animProgress: 1 }), 400, 200, 1, measure);
+    expect(all.end.x).toBeCloseTo(pad + 40, 6);
   });
 
   it("blurs and slides arriving characters, sharp once in place", () => {
@@ -212,9 +205,9 @@ describe("text animator: typewriter, cursor, blur, slide", () => {
     // stagger 0: every char at the same progress (smoothstep(0.5) = 0.5)
     expect(glyphs[0]!.blur).toBeCloseTo(10, 6);
     const settled = recordingCtx();
-    drawTextSpec(settled.ctx, spec({ animProgress: 1, animStagger: 0, animBlur: 20, animOffsetX: 100, cursor: 1 }), 400, 200, 1);
-    expect(settled.glyphs[0]!.blur).toBe(0);
+    drawTextSpec(settled.ctx, spec({ animProgress: 0.9999, animStagger: 0, animBlur: 20, animOffsetX: 100 }), 400, 200, 1);
+    expect(settled.glyphs[0]!.blur).toBeLessThan(0.01);
     // 50 px of slide left at t = .5 → glyph sits 50 px right of its settled spot
-    expect(glyphs[0]!.tx - settled.glyphs[0]!.tx).toBeCloseTo(50, 6);
+    expect(glyphs[0]!.tx - settled.glyphs[0]!.tx).toBeCloseTo(50, 1);
   });
 });

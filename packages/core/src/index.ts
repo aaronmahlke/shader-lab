@@ -256,6 +256,19 @@ export {
 } from "./modulation/cloners";
 export type { ClonerExpansion } from "./modulation/cloners";
 export {
+  canParent,
+  composeTransforms,
+  localFromWorld,
+  localTransform,
+  worldParam,
+  PARENT_PARAMS,
+} from "./modulation/parenting";
+export type { WorldTransform } from "./modulation/parenting";
+export { ATTACH_POINTS, attachPointsFor, attachPointOffset, estimateTextWidth } from "./modulation/attach-points";
+export type { AttachPoint, TextMeasure } from "./modulation/attach-points";
+export { layoutTextSpec, textFont } from "./renderer/text-raster";
+export type { TextLayout, TextGlyph } from "./renderer/text-raster";
+export {
   applyEffectorInfluence,
   computeEffectorInfluence,
   effectorFalloff,

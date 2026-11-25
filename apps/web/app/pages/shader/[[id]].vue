@@ -28,6 +28,10 @@ import {
   isPropertyTrackActive,
   buildKeyframePasteItems,
   pasteKeyframesAtTime,
+  localFromWorld,
+  staticParamValue,
+  PARENT_PARAMS,
+  type WorldTransform,
 } from "@shader-lab/core";
 import { refDebounced } from "@vueuse/core";
 import type { CompositionMeta, ProjectWithCompositions, ShaderDoc } from "#shared/types/project";
@@ -254,7 +258,7 @@ const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime } = useModulationE
     clockTime: currentTime,
     tracks,
     layers,
-    aspect: computed(() => settings.value.width / Math.max(settings.value.height, 1)),
+    compSize: computed(() => ({ width: settings.value.width, height: settings.value.height })),
   },
 );
 
@@ -1183,11 +1187,31 @@ const selectedLayerAssignments = computed(() => {
   return assignments.value.filter((a) => a.layerId === selectedLayer.value!.id);
 });
 
+/**
+ * What gizmos show: the layer's own (keyframed) value, except transform params
+ * of parented layers, which show where the layer really is on screen.
+ */
+function gizmoParamValue(layerId: string, paramName: string, fallback: number): number {
+  const layer = layers.value.find((l) => l.id === layerId);
+  if (layer?.parent && PARENT_PARAMS.has(paramName)) {
+    return getModulatedValue(layerId, paramName, staticParamValue(layer, paramName));
+  }
+  return paramValue(layerId, paramName, fallback);
+}
+
 function getGizmoFloat(layer: LayerInstance, paramName: string, fallback: number): number {
-  return paramValue(layer.id, paramName, fallback);
+  return gizmoParamValue(layer.id, paramName, fallback);
 }
 
 function setGizmoFloat(layer: LayerInstance, paramName: string, value: number) {
+  if (layer.parent && PARENT_PARAMS.has(paramName)) {
+    // Gizmos work in screen space: shift by the parent's current contribution.
+    const own = paramValue(layer.id, paramName, staticParamValue(layer, paramName));
+    const world = getModulatedValue(layer.id, paramName, staticParamValue(layer, paramName));
+    value = paramName === "layerScale"
+      ? (Math.abs(world) > 1e-9 ? value * (own / world) : own)
+      : value - (world - own);
+  }
   if (isPropertyTrackActive(findPropertyTrack(tracks.value, layer.id, paramName))) {
     setAnimatedValue(layer.id, paramName, value);
     return;
@@ -1217,7 +1241,7 @@ const transformRotationDef = transformDef("layerRotation");
 const transformAnchorDef = transformDef("layerAnchorX");
 
 function getTransformFloat(layer: LayerInstance, name: string): number {
-  return paramValue(layer.id, name, transformDef(name).default as number);
+  return gizmoParamValue(layer.id, name, transformDef(name).default as number);
 }
 
 function setTransformFloat(layer: LayerInstance, name: string, value: number) {
@@ -1342,9 +1366,9 @@ function sceneViewForLayer(layerId: string): SceneView {
 function threeDGizmoDataFor(layer: LayerInstance): ThreeDGizmoData | null {
   if (!isLayer3D(layer)) return null;
   return {
-    // Same evaluated reads the 2D gizmo uses (keyframes via paramValue).
+    // Same evaluated reads the 2D gizmo uses (keyframes; parented → on-screen).
     transform: threeDTransformFromValues(layer.values, (name, fallback) =>
-      paramValue(layer.id, name, fallback),
+      gizmoParamValue(layer.id, name, fallback),
     ),
     view: sceneViewForLayer(layer.id),
     size:
@@ -1497,6 +1521,64 @@ const showMultiGizmo = computed(
 );
 
 /** Keyframe-aware write used by the multi-selection gizmo. */
+// --- Parenting ---
+
+/** World transform as rendered right now (frame-height units, x × aspect). */
+function worldTransformOf(layerId: string): WorldTransform {
+  const layer = layers.value.find((l) => l.id === layerId)!;
+  const aspect = settings.value.width / Math.max(settings.value.height, 1);
+  const v = (p: string) => getModulatedValue(layerId, p, staticParamValue(layer, p));
+  return {
+    x: v("layerPositionX") * aspect,
+    y: v("layerPositionY"),
+    z: v("layerPositionZ"),
+    rx: v("layerRotationX"),
+    ry: v("layerRotationY"),
+    rz: v("layerRotation"),
+    scale: v("layerScale"),
+  };
+}
+
+/**
+ * Set or clear a layer's parent. Keeps the layer where it is on screen
+ * (AE pick-whip): its static transform is converted into the new space.
+ * Attaching to a point (text end) snaps the layer onto that point instead.
+ * Keyframed params keep their keys.
+ */
+function setLayerParent(layerId: string, parentId: string | null, point: string | null) {
+  const layer = layers.value.find((l) => l.id === layerId);
+  if (!layer) return;
+  const aspect = settings.value.width / Math.max(settings.value.height, 1);
+  const world = worldTransformOf(layerId);
+  const parentWorld = parentId ? worldTransformOf(parentId) : null;
+
+  if (parentId) layer.parent = parentId;
+  else delete layer.parent;
+  if (parentId && point) layer.parentPoint = point;
+  else delete layer.parentPoint;
+
+  const local = parentWorld ? localFromWorld(parentWorld, world) : world;
+  if (parentId && point) {
+    local.x = 0;
+    local.y = 0;
+    local.z = 0;
+  }
+  const write = (param: string, value: number) => {
+    if (isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, param))) return;
+    layer.values[param] = Number(value.toFixed(6));
+  };
+  write("layerPositionX", local.x / aspect);
+  write("layerPositionY", local.y);
+  if (isLayer3D(layer)) {
+    write("layerPositionZ", local.z);
+    write("layerRotationX", local.rx);
+    write("layerRotationY", local.ry);
+  }
+  write("layerRotation", local.rz);
+  write("layerScale", local.scale);
+  history.record();
+}
+
 function applyLayerParam(layerId: string, paramName: string, value: number) {
   const layer = layers.value.find((l) => l.id === layerId);
   if (!layer) return;
@@ -1799,7 +1881,7 @@ registerKeyboard({
                 :selected-layer-ids="[...selectedLayerIds]"
                 :zoom="viewport.zoom.value"
                 :get-view="sceneViewForLayer"
-                :get-param="paramValue"
+                :get-param="gizmoParamValue"
                 :apply-param="applyLayerParam"
                 @select="onCanvasSelect"
               />
@@ -2116,6 +2198,7 @@ registerKeyboard({
           @toggle-stopwatch="toggleStopwatch(selectedLayer.id, $event)"
           @toggle-keyframe="toggleKeyframeAtPlayhead(selectedLayer.id, $event)"
           @set-animated-value="(param, value) => setAnimatedValue(selectedLayer!.id, param, value)"
+          @set-parent="(parentId, point) => setLayerParent(selectedLayer!.id, parentId, point)"
           />
           <div
             v-else
