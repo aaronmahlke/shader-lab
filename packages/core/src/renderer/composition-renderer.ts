@@ -274,8 +274,8 @@ export class CompositionRenderer {
       stbnTexture: this.stbnTexture,
       createGradientData: (stops) => this.createGradientData(stops),
       textTextures: this.textTextures,
-      createTextImage: (spec, w, h, contentScale) =>
-        this.createTextImage(spec, w, h, contentScale),
+      createTextImage: (spec, w, h, contentScale, window) =>
+        this.createTextImage(spec, w, h, contentScale, window),
       componentSources: this.componentSources,
       componentTextures: this.componentTextures,
       mediaSources: this.mediaSources,
@@ -299,6 +299,7 @@ export class CompositionRenderer {
     width: number,
     height: number,
     contentScale: number,
+    window?: readonly [number, number, number, number],
   ): TexImageSource | null {
     if (typeof document === "undefined") return null;
     if (!this.textCanvas) this.textCanvas = document.createElement("canvas");
@@ -308,7 +309,7 @@ export class CompositionRenderer {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     requestTextFont(spec, contentScale);
-    drawTextSpec(ctx, spec, width, height, contentScale);
+    drawTextSpec(ctx, spec, width, height, contentScale, window);
     return canvas;
   }
 

@@ -11,10 +11,11 @@ export function createNodeTextImage(
   width: number,
   height: number,
   contentScale: number,
+  window?: readonly [number, number, number, number],
 ): { width: number; height: number; data: Uint8Array } | null {
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
-  drawTextSpec(ctx as unknown as Parameters<typeof drawTextSpec>[0], spec, width, height, contentScale);
+  drawTextSpec(ctx as unknown as Parameters<typeof drawTextSpec>[0], spec, width, height, contentScale, window);
   const image = ctx.getImageData(0, 0, width, height);
   return { width, height, data: new Uint8Array(image.data) };
 }

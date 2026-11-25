@@ -10,6 +10,7 @@ import {
 } from "./text-raster";
 import type { ComponentSource, MediaSource } from "./component-source";
 import { stbnFrameIndex } from "../modulation/stbn";
+import { computeContentWindow, FULL_WINDOW, WINDOWED_SOURCE_TYPES, type ContentWindow } from "./content-window";
 import {
   FRAG_SHADERS,
   GRADIENT_RESOLUTION,
@@ -39,6 +40,8 @@ export type TextImageFactory = (
   width: number,
   height: number,
   contentScale: number,
+  /** Layer-UV rect to rasterize (content window); whole layer when omitted. */
+  window?: ContentWindow,
 ) => TextImageResult | null;
 
 export type TextTextureEntry = { key: string; texture: WebGLTexture };
@@ -69,6 +72,8 @@ export type RenderPassContext = {
   contentScale?: number;
   findLayer?: (pass: RenderPass) => LayerInstance | undefined;
   getModulatedValue?: ModulationFn | null;
+  /** Per-frame content windows, keyed by source pass id (see content-window.ts). */
+  contentWindows?: Map<string, ContentWindow>;
 };
 
 /** Zero out a layer's contribution while the playhead is outside its in/out window. */
@@ -106,6 +111,8 @@ function resolvePassUniformValues(
   }
 
   if (isComposite) {
+    // Layer UV rect the content buffer holds (zoomed-in source layers render only what's visible).
+    merged.u_window = ctx.contentWindows?.get(pass.colorSourceLayerId ?? "") ?? FULL_WINDOW;
     // Nested comps accumulate coverage alpha; the root comp flattens to 1.
     merged.u_keepAlpha = pass.preserveAlpha ? 1 : 0;
     // Layer blur radius is in comp px; content textures are buffer-sized.
@@ -119,6 +126,10 @@ function resolvePassUniformValues(
     merged.yaw = 0;
     merged.roll = 0;
     merged.zoom = 1;
+  }
+
+  if (WINDOWED_SOURCE_TYPES.has(pass.layerType)) {
+    merged.u_window = ctx.contentWindows?.get(pass.layerId) ?? FULL_WINDOW;
   }
 
   applyTimingGate(merged, layer, pass, ctx.time);
@@ -227,11 +238,12 @@ function ensureTextTexture(
 
   const spec = textSpecFromValues(uniformValues);
   const contentScale = ctx.contentScale ?? 1;
-  const key = `${textCacheKey(spec, ctx.width, ctx.height)}:${contentScale}`;
+  const win = (uniformValues.u_window as ContentWindow | undefined) ?? FULL_WINDOW;
+  const key = `${textCacheKey(spec, ctx.width, ctx.height)}:${contentScale}:${win.join(",")}`;
   const cached = textTextures.get(pass.layerId);
   if (cached && cached.key === key) return cached.texture;
 
-  const image = createTextImage(spec, ctx.width, ctx.height, contentScale);
+  const image = createTextImage(spec, ctx.width, ctx.height, contentScale, win);
   if (!image) return cached?.texture ?? null;
 
   const texture = cached?.texture ?? gl.createTexture();
@@ -557,6 +569,8 @@ function setPassUniforms(
         gl.uniform2f(loc, value[0], value[1] as number);
       } else if (value.length === 3 && typeof value[0] === "number") {
         gl.uniform3f(loc, value[0], value[1] as number, value[2] as number);
+      } else if (value.length === 4 && typeof value[0] === "number") {
+        gl.uniform4f(loc, value[0], value[1] as number, value[2] as number, value[3] as number);
       } else if (value.length > 0 && typeof value[0] === "object" && "color" in value[0]) {
         const stops = value as GradientStop[];
         const key = `${pass.layerId}_${name}`;
@@ -828,6 +842,25 @@ export function renderPasses(
 
   // Depth-sort 3D group slots for this frame (keyframed/LFO Z flows through modFn).
   const execPasses = assignThreeDSlots(passes, ctx.findLayer, ctx.getModulatedValue, width / Math.max(height, 1));
+
+  // Content windows: zoomed-in source layers render only their visible part (sharp at any scale).
+  const sourceTypes = new Map(execPasses.map((p) => [p.layerId, p.layerType] as const));
+  const consumers = new Map<string, number>();
+  for (const p of execPasses) {
+    if (p.colorSourceLayerId) consumers.set(p.colorSourceLayerId, (consumers.get(p.colorSourceLayerId) ?? 0) + 1);
+  }
+  const windows = new Map<string, ContentWindow>();
+  for (const pass of execPasses) {
+    if (pass.layerType !== "layerComposite" && pass.layerType !== "layerComposite3d") continue;
+    const src = pass.colorSourceLayerId;
+    if (!src || !WINDOWED_SOURCE_TYPES.has(sourceTypes.get(src) ?? "")) continue;
+    // Shared sources (e.g. cloner copies with different transforms) keep the whole layer.
+    if ((consumers.get(src) ?? 0) > 1) continue;
+    const u = resolvePassUniformValues(pass, ctx);
+    const win = computeContentWindow(u, pass.layerType === "layerComposite3d", width, height, ctx.contentScale ?? 1);
+    if (win !== FULL_WINDOW) windows.set(src, win);
+  }
+  ctx = { ...ctx, contentWindows: windows };
 
   for (const pass of execPasses) {
     const program = programs.get(pass.layerType);

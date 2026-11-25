@@ -91,10 +91,16 @@ float blurHash(vec2 p) {
 // (the renderer generates mips when blur > 0): each tap reads a level already
 // shrunk to ~radius/4, so 24 taps come out smooth at any radius. Transparent
 // edges don't darken (premultiplied), samples outside the layer are empty.
-vec4 sampleLayerContent(sampler2D tex, vec2 luv, vec2 res) {
+// Content window: u_color holds layer-UV rect (x0, y0, w, h) only (zoomed-in
+// source layers render just their visible part); (0,0,1,1) = whole layer.
+uniform vec4 u_window;
+
+vec4 sampleLayerContent(sampler2D tex, vec2 layerUv, vec2 res) {
+  vec2 luv = (layerUv - u_window.xy) / u_window.zw;
   vec2 cuv = clamp(luv, 0.0, 1.0);
   if (layerBlur <= 0.01) return texture2D(tex, cuv);
-  float radiusPx = layerBlur * u_blurScale;
+  // Blur radius is in layer space; the windowed buffer is magnified by 1/w.
+  float radiusPx = layerBlur * u_blurScale / min(u_window.z, u_window.w);
   vec2 radius = vec2(radiusPx) / res;
   // Each tap reads a level ~radius/4 wide so neighbouring taps overlap (smooth, no grain).
   float lod = max(log2(radiusPx / 4.0), 0.0);

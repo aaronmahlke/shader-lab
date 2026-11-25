@@ -245,9 +245,34 @@ export function drawTextSpec(
   width: number,
   height: number,
   contentScale: number,
+  /**
+   * Content window (layer-UV rect x0, y0, w, h; y up): draw only that part of
+   * the layer, magnified to fill the canvas, so zoomed-in text stays vector
+   * sharp. Omitted / (0,0,1,1) = the whole layer.
+   */
+  window?: readonly [number, number, number, number],
 ): void {
   ctx.clearRect(0, 0, width, height);
   if (!spec.content.trim()) return;
+  const windowed = !!window && (window[2] < 1 || window[3] < 1);
+  if (windowed) {
+    const [x0, y0, w, h] = window!;
+    ctx.save();
+    // Full-layer canvas px → window px: canvas y runs down, layer uv y up.
+    ctx.translate((-x0 * width) / w, (-(1 - y0 - h) * height) / h);
+    ctx.scale(1 / w, 1 / h);
+  }
+  drawTextSpecLayer(ctx, spec, width, height, contentScale);
+  if (windowed) ctx.restore();
+}
+
+function drawTextSpecLayer(
+  ctx: Canvas2DLike,
+  spec: TextLayerSpec,
+  width: number,
+  height: number,
+  contentScale: number,
+): void {
 
   ctx.font = textFont(spec, contentScale);
   ctx.fillStyle = spec.color;
