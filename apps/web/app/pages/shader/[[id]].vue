@@ -1895,7 +1895,8 @@ registerKeyboard({
 </script>
 
 <template>
-  <div class="flex h-dvh flex-col overflow-hidden bg-layer-0 text-neutral">
+  <!-- Studio UI: dark frame, panels as grey tiles with 6px gaps (see /kitchen). -->
+  <div data-ui="studio" class="flex h-dvh flex-col gap-[var(--s-gap)] overflow-hidden bg-[var(--s-frame)] p-[var(--s-gap)]" :class="previewing && '!gap-0 !p-0'">
     <ShellTopBar
       v-show="!previewing"
       ref="topBarRef"
@@ -1911,10 +1912,10 @@ registerKeyboard({
     />
 
     <div ref="editorSplitRef" class="flex min-h-0 flex-1 flex-col">
-      <div class="flex min-h-0 flex-1">
+      <div class="flex min-h-0 flex-1 gap-[var(--s-gap)]">
         <aside
           v-if="projectId && projectPanelOpen && !previewing"
-          class="shrink-0 border-r border-neutral-subtle bg-layer-1"
+          class="shrink-0 overflow-hidden bg-[var(--s-tile)]"
         >
           <ShellProjectPanel
             :project-id="projectId"
@@ -1925,7 +1926,7 @@ registerKeyboard({
         </aside>
 
         <main
-          class="min-w-0 flex-1 overflow-hidden"
+          class="min-w-0 flex-1 overflow-hidden bg-[var(--s-tile)]"
           :class="previewing ? 'fixed inset-0 z-[100] bg-black' : 'relative'"
           @click="previewing && stopPreview()"
         >
@@ -1934,7 +1935,7 @@ registerKeyboard({
             <div
               ref="viewportRef"
               class="absolute inset-0 overflow-hidden"
-              :class="[previewing ? 'bg-black' : 'bg-layer-0', viewport.panning.value && 'cursor-default']"
+              :class="[previewing ? 'bg-black' : 'bg-[var(--s-tile)]', viewport.panning.value && 'cursor-default']"
               @wheel.prevent="viewport.onWheel"
               @pointerdown.capture="viewport.onPointerDown"
               @pointerdown.self="onPasteboardPointerDown"
@@ -2166,7 +2167,7 @@ registerKeyboard({
 
         <aside
           v-show="!previewing"
-          class="flex w-editor-panel shrink-0 flex-col overflow-hidden border-l border-neutral-subtle bg-layer-1"
+          class="flex w-editor-panel shrink-0 flex-col overflow-hidden bg-[var(--s-tile)]"
         >
           <EditorEasingPanel
             v-if="selectedKeyframes.length > 0"
@@ -2218,13 +2219,13 @@ registerKeyboard({
       </div>
 
       <template v-if="!previewing">
-        <div class="group relative h-px shrink-0 bg-neutral-subtle" title="Drag to resize timeline">
+        <div class="group relative h-[var(--s-gap)] shrink-0" title="Drag to resize timeline">
           <div
             class="absolute inset-x-0 -top-1.5 -bottom-1.5 z-10 cursor-ns-resize touch-none select-none"
             @pointerdown="onTimelineResizePointerDown"
           />
         </div>
-        <div class="flex shrink-0 flex-col overflow-hidden bg-layer-1" :style="{ height: `${timelineHeight}px` }">
+        <div class="flex shrink-0 flex-col overflow-hidden bg-[var(--s-tile)]" :style="{ height: `${timelineHeight}px` }">
           <div class="min-h-0 flex-1">
           <EditorTimeline
             ref="timelineRef"

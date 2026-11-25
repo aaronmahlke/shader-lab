@@ -1,5 +1,9 @@
 <script setup lang="ts">
-/** Top bar: dashboard, project panel toggle, project name, comp tabs, preview, export. */
+/**
+ * Top bar (Studio): grey tile controls directly on the dark frame, like Live's
+ * control bar. Dashboard, project panel toggle, project name, comp tabs,
+ * preview, export.
+ */
 defineProps<{
   projectId: string | null;
   projectName?: string;
@@ -20,27 +24,30 @@ defineExpose({ refresh: () => tabsRef.value?.refresh() });
 </script>
 
 <template>
-  <header class="flex h-11 shrink-0 items-center gap-1 border-b border-neutral-subtle bg-layer-1 px-2">
-    <d-tooltip content="All projects" side="bottom">
-      <d-button variant="ghost" size="sm" to="/" aria-label="All projects">
-        <template #leading><d-icon-arrow-left /></template>
-      </d-button>
-    </d-tooltip>
-    <d-tooltip v-if="projectId" :content="projectPanelOpen ? 'Hide project' : 'Show project'" side="bottom">
-      <d-button
-        variant="ghost"
-        size="sm"
-        aria-label="Toggle project panel"
-        :data-state="projectPanelOpen ? 'open' : 'closed'"
-        @click="emit('toggle-project-panel')"
-      >
-        <template #leading><d-icon-sidebar-left /></template>
-      </d-button>
-    </d-tooltip>
-    <span class="max-w-48 truncate px-1.5 text-sm font-medium text-neutral-strong">
+  <header class="flex h-[18px] shrink-0 items-center gap-[2px]">
+    <span class="flex h-[18px] w-[24px] items-center justify-center bg-[var(--s-tile)]" aria-hidden="true">
+      <span class="flex h-[10px] w-[12px] gap-[2px]"><i class="flex-1 bg-[var(--s-accent)]" /><i class="flex-1 bg-[var(--s-accent)]" /></span>
+    </span>
+    <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" aria-label="All projects" title="All projects" @click="navigateTo('/')">
+      <StudioIcon name="back" />
+    </StudioButton>
+    <StudioButton
+      v-if="projectId"
+      variant="tile"
+      square
+      class="!h-[18px] !w-[18px]"
+      :active="projectPanelOpen"
+      :aria-label="projectPanelOpen ? 'Hide project' : 'Show project'"
+      :title="projectPanelOpen ? 'Hide project' : 'Show project'"
+      @click="emit('toggle-project-panel')"
+    >
+      <StudioIcon name="folder" />
+    </StudioButton>
+    <span class="flex h-[18px] max-w-[200px] items-center truncate bg-[var(--s-tile)] px-[7px] text-[var(--s-bright)]">
       {{ projectName ?? compName }}
     </span>
-    <span class="mx-1 h-4 w-px bg-neutral-subtle" />
+
+    <span class="w-[10px] shrink-0" />
 
     <ShellCompTabs
       v-if="projectId"
@@ -53,11 +60,13 @@ defineExpose({ refresh: () => tabsRef.value?.refresh() });
     />
     <div v-else class="flex-1" />
 
-    <d-tooltip content="Preview (full screen)" side="bottom">
-      <d-button variant="ghost" size="sm" aria-label="Preview" @click="emit('preview')">
-        <template #leading><d-icon-play-progress /></template>
-      </d-button>
-    </d-tooltip>
-    <d-button variant="solid" size="sm" @click="emit('export')">Export</d-button>
+    <span class="w-[10px] shrink-0" />
+
+    <StudioButton variant="tile" class="!h-[18px]" title="Preview (full screen)" @click="emit('preview')">
+      <StudioIcon name="play" /> Preview
+    </StudioButton>
+    <StudioButton variant="tile" active class="!h-[18px]" @click="emit('export')">
+      <StudioIcon name="export" /> Export
+    </StudioButton>
   </header>
 </template>

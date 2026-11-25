@@ -100,18 +100,18 @@ defineExpose({ refresh });
 </script>
 
 <template>
-  <div class="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]">
+  <div class="flex min-w-0 items-center gap-[2px] overflow-x-auto [scrollbar-width:none]" role="tablist">
     <d-context-menu v-for="comp in tabs" :key="comp.id">
       <d-context-menu-trigger>
         <div
           role="tab"
           :aria-selected="comp.id === rootCompId"
-          class="group flex h-7 shrink-0 cursor-default items-center gap-0.5 rounded-md pl-2.5 text-xs whitespace-nowrap transition-colors"
+          class="group flex h-[18px] shrink-0 cursor-default items-center gap-[2px] pl-[7px] whitespace-nowrap select-none"
           :class="[
             comp.id === rootCompId
-              ? 'bg-tint text-neutral-strong'
-              : 'text-neutral-subtle hover:bg-tint-subtle hover:text-neutral-strong',
-            tabs.length > 1 ? 'pr-0.5' : 'pr-2.5',
+              ? 'bg-[var(--s-raise)] text-[var(--s-bright)]'
+              : 'bg-[var(--s-tile)] text-[var(--s-dim)] hover:bg-[var(--s-hover)] hover:text-[var(--s-txt)]',
+            tabs.length > 1 ? 'pr-[3px]' : 'pr-[7px]',
           ]"
           @click="openTab(comp)"
           @pointerdown.middle.prevent="closeTab(comp)"
@@ -119,17 +119,18 @@ defineExpose({ refresh });
           <UiEditableText
             :ref="(el: unknown) => (el ? editors.set(comp.id, el as EditableText) : editors.delete(comp.id))"
             :model-value="comp.name"
+            class="!text-[length:var(--s-fs)]"
             @update:model-value="rename(comp, $event)"
           />
           <button
             v-if="tabs.length > 1"
             type="button"
-            class="flex size-5 items-center justify-center rounded transition-opacity hover:bg-tint"
-            :class="comp.id === rootCompId ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100'"
+            class="ml-[2px] flex size-[12px] cursor-default items-center justify-center hover:bg-[var(--s-hover)]"
+            :class="comp.id === rootCompId ? 'opacity-70 hover:opacity-100' : 'opacity-0 group-hover:opacity-70 hover:!opacity-100'"
             :aria-label="`Close ${comp.name}`"
             @click.stop="closeTab(comp)"
           >
-            <d-icon-xmark class="size-3" />
+            <StudioIcon name="close" class="!size-[8px]" />
           </button>
         </div>
       </d-context-menu-trigger>
@@ -142,10 +143,8 @@ defineExpose({ refresh });
         </template>
       </d-context-menu-content>
     </d-context-menu>
-    <d-tooltip content="New composition" side="bottom">
-      <d-button variant="ghost" size="sm" aria-label="New composition" :disabled="busy" @click="create()">
-        <template #leading><d-icon-plus /></template>
-      </d-button>
-    </d-tooltip>
+    <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" aria-label="New composition" title="New composition" :disabled="busy" @click="create()">
+      <StudioIcon name="plus" />
+    </StudioButton>
   </div>
 </template>
