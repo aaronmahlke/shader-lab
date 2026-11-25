@@ -213,22 +213,59 @@ Depends on universal transform (Phase 1) with XYZ from the start.
 
 ---
 
-## Phase 8 — LFOs on the timeline
+## Phase 8 — Modulators (LFOs, envelopes) on any value
 
-LFO engine exists (`LFOSource`, `ModulationAssignment`). UI/integration is unresolved.
+Design agreed 2026-11-25. Replaces the earlier open-problems list. LFOs are
+evaluated live and stacked on top of the base value, not baked into keyframes.
 
-### Proposed UX
+### Model
 
-- Next to a property value: **LFO symbol** (like stopwatch)
-- Click → create new LFO or pick existing
-- LFO drives property over time (virtual/automatic keyframes or live evaluation)
-- LFO **parameters** (rate, depth, phase, …) can themselves be keyframed
-- Enable/disable LFO via keyframes
+- **Modulator** — reusable asset that outputs a signal over time. Types:
+  - `lfo` — today's `LFOSource` (wave shape, rate, phase, mode)
+  - `envelope` — attack / decay / sustain / release, fired by a trigger
+    (layer in-point, timeline marker, or a trigger key on the link row)
+  - later: random/noise, audio-reactive
+- **Link** — modulator → any numeric property `(layerId, paramName)`.
+  Fields: `id`, `sourceId`, `enabled`, `amount` (signed = direction).
+  `enabled` and `amount` are keyframeable. Evolves from `ModulationAssignment`.
+- Modulator params (rate, phase, ADSR times) are keyframeable too, via the
+  same `PropertyTrack` system (e.g. `layerId = "mod:<id>"`).
 
-### Open problems
+### Evaluation
 
-| Problem | Possible directions |
-|---|---|
+```
+value = keyframes(t) ?? static value
+for each enabled link on this property:
+    value += amount(t) * signal(t)
+value = clamp to param range
+```
+
+- Keyframes set the base; modulators ride on top. Fixes today's either/or in
+  `createAnimatedModulationFn` (an enabled track currently disables the LFO).
+- Express `amount` relative to the param range so it means the same on every
+  property; lets us drop the `ZERO_BASE_PARAMS` special case.
+- LFO phase must be accumulated (∫ rate dt per keyframe segment), not
+  `t * rate`, so keyframed rate doesn't jump. Deterministic for scrub/export.
+- Time base: comp time by default; option to restart at the layer in-point.
+
+### UI
+
+- **Inspector:** `mod-slider` already shows base + modulation range; it becomes
+  the link editor (amount, direction, on/off). Selecting a modulator opens its
+  editor (existing LFO editor; new ADSR editor). Shared modulators update
+  every linked property.
+- **Timeline:** modulator badge next to the stopwatch. Under the property row,
+  one sub-row per link: modulator color pill, on/off toggle, `amount` /
+  `enabled` keyframes, and the resulting value drawn as a band around the base
+  curve. Envelope triggers show as markers on that row.
+
+### Baking
+
+`bakeLfoAssignments` (branch `feat/bake-lfo-keyframes`) stays only as an
+explicit **Convert to keyframes** command (interop/export), not as the
+integration path.
+
+---|---|
 | **Single source of truth** | LFO is a modifier on `(layerId, paramName)`; one row in data, many UI surfaces |
 | **Timeline representation** | Mini “LFO lane” under property vs collapsed badge only |
 | **vs keyframes** | LFO adds on top of keyframed base value, or replaces until disabled? (AE: often additive via expressions) |
@@ -329,7 +366,7 @@ Items that come up in a full AE-like tool but aren’t in the current list:
 7. Nested compositions
 8. Shape / text / media layers
 9. scene3d pass + camera/lights/glass
-10. LFO timeline integration (resolve open questions first)
+10. Modulators on any value (LFO + envelope, see Phase 8)
 
 ---
 
