@@ -17,9 +17,15 @@
     "db:migrate": "bun run --cwd apps/web db:migrate",
     "migrate": "bun run --cwd apps/web migrate",
     "db:push": "bun run --cwd apps/web db:push",
-    "db:studio": "bun run --cwd apps/web db:studio"
+    "db:studio": "bun run --cwd apps/web db:studio",
+    "desktop": "bun run --cwd apps/desktop start",
+    "desktop:dev": "bun run --cwd apps/desktop dev",
+    "dev:local": "bun run --cwd apps/web dev:local"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
-  }
+  },
+  "trustedDependencies": [
+    "electron"
+  ]
 }

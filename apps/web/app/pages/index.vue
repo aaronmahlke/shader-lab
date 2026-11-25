@@ -45,6 +45,14 @@ async function duplicateProject(project: ProjectWithCompositions) {
 }
 
 const isEmpty = computed(() => !projects.value?.length);
+
+// Desktop app: real folders (native pickers). Hosted: unchanged.
+const desktop = useDesktop();
+
+async function openFromDesktop(action: "openProject" | "newProject") {
+  const compId = await desktop.value?.[action]();
+  if (compId) await navigateTo(`/shader/${compId}`);
+}
 </script>
 
 <template>
@@ -52,8 +60,16 @@ const isEmpty = computed(() => !projects.value?.length);
     <header class="sticky top-0 z-10 flex items-center justify-between border-b border-edge bg-base-0/80 px-6 py-4 backdrop-blur-xl">
       <h1 class="text-copy-sm text-primary select-none">Shader Lab</h1>
       <div class="flex items-center gap-3">
-        <DashboardNewMenu />
-        <DashboardUserMenu />
+        <template v-if="desktop">
+          <UiButton variant="ghost" @click="openFromDesktop('openProject')">Open…</UiButton>
+          <UiButton variant="action" :icon-left="PlusIcon" @click="openFromDesktop('newProject')">
+            New project
+          </UiButton>
+        </template>
+        <template v-else>
+          <DashboardNewMenu />
+          <DashboardUserMenu />
+        </template>
       </div>
     </header>
 
@@ -66,15 +82,17 @@ const isEmpty = computed(() => !projects.value?.length);
           <SparklesIcon class="size-5 text-tertiary" aria-hidden="true" />
         </div>
         <div class="flex flex-col items-center gap-1">
-          <p class="text-copy-sm text-primary">No compositions yet</p>
-          <p class="text-copy-sm text-tertiary">Create your first one to get started.</p>
+          <p class="text-copy-sm text-primary">{{ desktop ? "No projects yet" : "No compositions yet" }}</p>
+          <p class="text-copy-sm text-tertiary">
+            {{ desktop ? "Create a project folder or open an existing one." : "Create your first one to get started." }}
+          </p>
         </div>
         <UiButton
           variant="action"
           :icon-left="PlusIcon"
-          @click="navigateTo({ path: '/shader', query: { preset: 'blank' } })"
+          @click="desktop ? openFromDesktop('newProject') : navigateTo({ path: '/shader', query: { preset: 'blank' } })"
         >
-          New composition
+          {{ desktop ? "New project" : "New composition" }}
         </UiButton>
       </div>
 

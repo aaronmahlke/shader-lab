@@ -1,0 +1,15 @@
+{
+  "name": "@shader-lab/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shader Lab desktop app (local projects as folders)",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build:main": "bun build src/main.ts --outfile dist/main.cjs --target node --format cjs --external electron && bun build src/preload.ts --outfile dist/preload.cjs --target node --format cjs --external electron",
+    "dev": "bun run build:main && SHADERLAB_DEV_URL=http://localhost:3000 electron .",
+    "start": "bun run build:main && electron ."
+  },
+  "devDependencies": {
+    "electron": "^45.5.0"
+  }
+}
