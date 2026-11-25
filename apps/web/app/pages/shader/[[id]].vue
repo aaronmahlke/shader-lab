@@ -2106,7 +2106,7 @@ registerKeyboard({
 
               <template v-if="!previewing">
                 <ShellBreadcrumbs
-                  class="absolute top-3 left-3 z-20"
+                  class="absolute top-[6px] left-[6px] z-20"
                   :trail="trail"
                   :comp-name="shaderName"
                   :names="compNames"
@@ -2115,48 +2115,17 @@ registerKeyboard({
                 <ShellToolDock
                   ref="toolDockRef"
                   v-model:tool="activeTool"
-                  class="absolute bottom-3 left-1/2 z-20 -translate-x-1/2"
+                  class="absolute bottom-[6px] left-1/2 z-20 -translate-x-1/2"
                   @add-layer="addLayer"
                 />
               </template>
 
               <!-- Zoom controls -->
-              <div v-if="!previewing" class="material-lg absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-lg p-0.5">
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-1 text-copy-xs transition-colors"
-                  :class="viewport.fitMode.value
-                    ? 'bg-accent/25 text-neutral-strong ring-1 ring-accent/50'
-                    : 'text-neutral-subtle hover:bg-control hover:text-neutral-strong'"
-                  title="Zoom to fit — stays fitted until you zoom or pan (⌘0)"
-                  @click="viewport.fit()"
-                >
-                  Fit
-                </button>
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
-                  title="Zoom out (⌘−)"
-                  @click="viewport.stepZoom(-1)"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  class="min-w-12 rounded-md px-1 py-1 text-center tabular-nums text-copy-xs text-neutral-strong transition-colors hover:bg-control"
-                  title="Zoom to 100% (⌘1)"
-                  @click="viewport.zoomTo100()"
-                >
-                  {{ viewport.zoomPercent.value }}%
-                </button>
-                <button
-                  type="button"
-                  class="rounded-md px-1.5 py-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
-                  title="Zoom in (⌘+)"
-                  @click="viewport.stepZoom(1)"
-                >
-                  +
-                </button>
+              <div v-if="!previewing" class="absolute right-[6px] bottom-[6px] z-20 flex items-center gap-[2px] bg-[var(--s-band)] p-[2px] shadow-[0_0_0_1px_var(--s-edge)]">
+                <StudioButton :active="viewport.fitMode.value" title="Zoom to fit (⌘0)" @click="viewport.fit()"><StudioIcon name="fit" /> Fit</StudioButton>
+                <StudioButton square title="Zoom out (⌘−)" aria-label="Zoom out" @click="viewport.stepZoom(-1)"><StudioIcon name="minus" /></StudioButton>
+                <StudioButton class="min-w-[44px]" title="Zoom to 100% (⌘1)" @click="viewport.zoomTo100()"><span class="tabular-nums">{{ viewport.zoomPercent.value }}%</span></StudioButton>
+                <StudioButton square title="Zoom in (⌘+)" aria-label="Zoom in" @click="viewport.stepZoom(1)"><StudioIcon name="plus" /></StudioButton>
               </div>
             </div>
           </div>

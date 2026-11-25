@@ -25,36 +25,18 @@ register({
   },
 });
 
-const btn = "flex size-8 items-center justify-center rounded-lg transition-colors [&>svg]:size-4";
 </script>
 
 <template>
-  <div class="material-lg flex items-center gap-0.5 rounded-xl p-1">
-    <d-tooltip content="Select (V)">
-      <button
-        type="button"
-        aria-label="Select"
-        :aria-pressed="tool === 'select'"
-        :class="[btn, tool === 'select' ? 'bg-accent text-on-accent' : 'text-neutral-subtle hover:bg-tint hover:text-neutral-strong']"
-        @pointerdown.prevent
-        @click="tool = 'select'"
-      >
-        <d-icon-cursor-default />
-      </button>
-    </d-tooltip>
-    <d-tooltip content="Text (T)">
-      <button
-        type="button"
-        aria-label="Text"
-        :aria-pressed="tool === 'text'"
-        :class="[btn, tool === 'text' ? 'bg-accent text-on-accent' : 'text-neutral-subtle hover:bg-tint hover:text-neutral-strong']"
-        @pointerdown.prevent
-        @click="tool = 'text'"
-      >
-        <d-icon-text />
-      </button>
-    </d-tooltip>
-    <span class="mx-0.5 h-5 w-px bg-neutral-subtle" />
+  <!-- Studio: a band-colored strip of buttons; active tool in accent. -->
+  <div class="flex items-center gap-[2px] bg-[var(--s-band)] p-[2px] shadow-[0_0_0_1px_var(--s-edge)]">
+    <StudioButton square :active="tool === 'select'" aria-label="Select" title="Select (V)" @pointerdown.prevent @click="tool = 'select'">
+      <StudioIcon name="cursor" />
+    </StudioButton>
+    <StudioButton square :active="tool === 'text'" aria-label="Text" title="Text (T)" @pointerdown.prevent @click="tool = 'text'">
+      <StudioIcon name="text" />
+    </StudioButton>
+    <span class="mx-[2px] h-[12px] w-px bg-[var(--s-edge)]" />
     <EditorLayerAddBar ref="addBarRef" @select="emit('add-layer', $event)" />
   </div>
 </template>

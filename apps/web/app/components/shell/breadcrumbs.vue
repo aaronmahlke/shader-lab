@@ -39,32 +39,29 @@ register({
 </script>
 
 <template>
+  <!-- Studio: band strip with a back button and crumbs; right-click / middle-click opens in a tab. -->
   <div
     v-if="trail.length"
-    class="material-lg flex items-center gap-0.5 rounded-lg p-0.5"
+    class="flex items-center gap-[2px] bg-[var(--s-band)] p-[2px] shadow-[0_0_0_1px_var(--s-edge)]"
     @pointerdown.stop
   >
-    <d-tooltip content="Up one level (⌘↑)" side="bottom">
-      <d-button variant="ghost" size="sm" aria-label="Up one level" @click="goTo(trail.length - 1)">
-        <template #leading><d-icon-arrow-left /></template>
-      </d-button>
-    </d-tooltip>
-    <d-breadcrumb size="sm" class="min-w-0">
-      <template v-for="(step, i) in trail" :key="`${step.id}-${i}`">
-        <d-context-menu>
-          <d-context-menu-trigger>
-            <d-breadcrumb-item @click="goTo(i)" @pointerdown.middle.prevent="openInTab(step.id)">
-              {{ names[step.id] ?? "Comp" }}
-            </d-breadcrumb-item>
-          </d-context-menu-trigger>
-          <d-context-menu-content>
-            <d-context-menu-item @select="goTo(i)">Go to</d-context-menu-item>
-            <d-context-menu-item @select="openInTab(step.id)">Open in new tab</d-context-menu-item>
-          </d-context-menu-content>
-        </d-context-menu>
-        <d-breadcrumb-separator><d-chevron-right /></d-breadcrumb-separator>
-      </template>
-      <d-breadcrumb-item current>{{ compName }}</d-breadcrumb-item>
-    </d-breadcrumb>
+    <StudioButton square aria-label="Up one level" title="Up one level (⌘↑)" @click="goTo(trail.length - 1)">
+      <StudioIcon name="back" />
+    </StudioButton>
+    <template v-for="(step, i) in trail" :key="`${step.id}-${i}`">
+      <d-context-menu>
+        <d-context-menu-trigger>
+          <StudioButton variant="ghost" @click="goTo(i)" @pointerdown.middle.prevent="openInTab(step.id)">
+            {{ names[step.id] ?? "Comp" }}
+          </StudioButton>
+        </d-context-menu-trigger>
+        <d-context-menu-content>
+          <d-context-menu-item @select="goTo(i)">Go to</d-context-menu-item>
+          <d-context-menu-item @select="openInTab(step.id)">Open in new tab</d-context-menu-item>
+        </d-context-menu-content>
+      </d-context-menu>
+      <StudioIcon name="forward" class="text-[var(--s-dim)]" />
+    </template>
+    <span class="px-[5px] text-[var(--s-bright)]">{{ compName }}</span>
   </div>
 </template>
