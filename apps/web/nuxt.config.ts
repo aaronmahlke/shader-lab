@@ -25,7 +25,14 @@ export default defineNuxtConfig({
     "/": { ssr: false },
   },
   future: { compatibilityVersion: 4 },
-  fonts: { experimental: { disableLocalFallbacks: true } },
+  fonts: {
+    experimental: { disableLocalFallbacks: true },
+    // Text layers rasterize with these on a canvas, so they must be loaded globally (not only when CSS uses them).
+    families: [
+      { name: "Geist", global: true, weights: ["100 900"] },
+      { name: "Geist Mono", global: true, weights: ["100 900"] },
+    ],
+  },
   build: {
     transpile: ["@shader-lab/core"],
   },

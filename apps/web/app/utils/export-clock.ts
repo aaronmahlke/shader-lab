@@ -33,6 +33,8 @@ type StageSequenceEntry = {
 const sequences = new Set<StageSequenceEntry>();
 let exportActive = false;
 let timelineDriven = false;
+/** Last timeline seek mapping, replayed for sequences that register later. */
+let lastSeek: ((layerId: string | null) => number | null) | null = null;
 
 function suspended(): boolean {
   return exportActive || timelineDriven;
@@ -44,7 +46,13 @@ export function registerExportSequence(
 ): () => void {
   const entry: StageSequenceEntry = { handle, layerId };
   sequences.add(entry);
-  if (suspended()) handle.suspend();
+  if (suspended()) {
+    handle.suspend();
+    // Mounted after the last timeline seek (async stage components): catch up
+    // to the playhead instead of sitting at 0 until the next seek.
+    const ms = lastSeek?.(layerId) ?? null;
+    if (ms !== null) handle.seekTo(ms);
+  }
   return () => sequences.delete(entry);
 }
 
@@ -62,8 +70,12 @@ export function setTimelineDrive(active: boolean): void {
   if (timelineDriven === active) return;
   timelineDriven = active;
   for (const s of sequences) {
-    if (suspended()) s.handle.suspend();
-    else s.handle.resume();
+    if (suspended()) {
+      s.handle.suspend();
+      // Sequences that mounted before the drive switched on catch up to the playhead.
+      const ms = lastSeek?.(s.layerId) ?? null;
+      if (ms !== null) s.handle.seekTo(ms);
+    } else s.handle.resume();
   }
 }
 
@@ -78,6 +90,7 @@ export function beginExportClock(): void {
  * return null to leave a sequence untouched.
  */
 export function seekStageSequences(msForLayer: (layerId: string | null) => number | null): void {
+  lastSeek = msForLayer;
   for (const s of sequences) {
     const ms = msForLayer(s.layerId);
     if (ms !== null) s.handle.seekTo(ms);

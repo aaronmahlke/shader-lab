@@ -17,7 +17,7 @@ import {
   type TextTextureEntry,
 } from "./render-passes";
 import type { ComponentSource, ComponentSourceInput, MediaSource } from "./component-source";
-import { drawTextSpec, type TextLayerSpec } from "./text-raster";
+import { drawTextSpec, requestTextFont, type TextLayerSpec } from "./text-raster";
 
 export type CompositionRendererOptions = {
   pixelRatio?: number;
@@ -307,6 +307,7 @@ export class CompositionRenderer {
     canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
+    requestTextFont(spec, contentScale);
     drawTextSpec(ctx, spec, width, height, contentScale);
     return canvas;
   }

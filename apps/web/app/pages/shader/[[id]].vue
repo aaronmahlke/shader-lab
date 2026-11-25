@@ -32,6 +32,7 @@ import {
   motionBlurSampleTimes,
   staticParamValue,
   PARENT_PARAMS,
+  NESTED_SEP,
   type WorldTransform,
 } from "@shader-lab/core";
 import { refDebounced } from "@vueuse/core";
@@ -512,8 +513,37 @@ const {
 
 const stageHostRef = ref<{ getElement: (layerId: string) => HTMLElement | null } | null>(null);
 
+/**
+ * Every component layer occurrence to stage: the open comp's own plus those
+ * inside nested comps, keyed by core's pass id (`host::layerId`) so a precomp
+ * with a component looks the same from outside as inside. `inOffset` = summed
+ * host in-points (root time − inOffset = the nested comp's local time).
+ */
+const stagedComponents = computed(() => {
+  void registryVersion.value;
+  const out: { layer: LayerInstance; inOffset: number }[] = [];
+  const walk = (list: LayerInstance[], prefix: string, inOffset: number, visited: Set<string>, depth: number) => {
+    for (const layer of list) {
+      if (!layer.enabled) continue;
+      if (layer.type === "component") {
+        out.push({ layer: prefix ? { ...layer, id: `${prefix}${layer.id}` } : layer, inOffset });
+        continue;
+      }
+      if (layer.type !== "composition" || depth >= 4) continue;
+      const compId = layer.values.compRefId;
+      if (typeof compId !== "string" || !compId || visited.has(compId)) continue;
+      const config = resolveComposition(compId);
+      if (!config) continue;
+      walk(config.layers, `${prefix}${layer.id}${NESTED_SEP}`, inOffset + (layer.timing?.in ?? 0), new Set([...visited, compId]), depth + 1);
+    }
+  };
+  walk(renderLayers.value, "", 0, new Set(), 0);
+  return out;
+});
+const stagedComponentLayers = computed(() => stagedComponents.value.map((c) => c.layer));
+
 const componentCapture = useComponentCapture({
-  layers,
+  layers: stagedComponentLayers,
   getElement: (layerId) => stageHostRef.value?.getElement(layerId) ?? null,
   setComponentSource,
   requestRender,
@@ -571,9 +601,8 @@ let lastExportFrameTime: number | null = null;
  */
 function seekStageToCompTime(tSec: number): void {
   const offsets = new Map<string, number>();
-  for (const layer of layers.value) {
-    if (layer.type !== "component") continue;
-    offsets.set(layer.id, Math.max(0, (tSec - (layer.timing?.in ?? 0)) * 1000));
+  for (const { layer, inOffset } of stagedComponents.value) {
+    offsets.set(layer.id, Math.max(0, (tSec - inOffset - (layer.timing?.in ?? 0)) * 1000));
   }
   seekStageSequences((layerId) => {
     if (layerId === null) return Math.max(0, tSec * 1000);
@@ -587,11 +616,12 @@ onBeforeUnmount(() => setTimelineDrive(false));
 watch(currentTime, (t) => {
   seekStageToCompTime(t);
 });
+// Newly staged components (e.g. a nested comp arriving) start at the playhead, not at 0.
+watch(stagedComponents, () => nextTick(() => seekStageToCompTime(currentTime.value)), { immediate: true });
 
 function componentStageRoots(): Element[] {
   const roots: Element[] = [];
-  for (const layer of layers.value) {
-    if (layer.type !== "component") continue;
+  for (const layer of stagedComponentLayers.value) {
     const el = stageHostRef.value?.getElement(layer.id);
     if (el) roots.push(el);
   }
@@ -2148,7 +2178,7 @@ registerKeyboard({
             </div>
           </div>
 
-          <EditorComponentStageHost ref="stageHostRef" :layers="layers" />
+          <EditorComponentStageHost ref="stageHostRef" :layers="stagedComponentLayers" />
         </ClientOnly>
         </main>
 

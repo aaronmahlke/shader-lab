@@ -66,8 +66,34 @@ export function textSpecFromValues(values: Record<string, unknown>): TextLayerSp
 }
 
 /** Cache key: re-rasterize only when the spec or target size changes. */
+/**
+ * Bumped whenever the browser finishes loading web fonts. Part of the cache
+ * key, so text drawn with a fallback before its font arrived is redrawn.
+ */
+let fontEpoch = 0;
+if (typeof document !== "undefined" && document.fonts) {
+  document.fonts.addEventListener("loadingdone", () => {
+    fontEpoch++;
+  });
+}
+
+const requestedFonts = new Set<string>();
+
+/**
+ * Ask the browser to load the spec's font once (canvas text never triggers web
+ * font loads itself). `fonts.check()` is not used: it reports true for lists
+ * ending in a generic family even while the web font is still unloaded.
+ */
+export function requestTextFont(spec: TextLayerSpec, contentScale: number): void {
+  if (typeof document === "undefined" || !document.fonts) return;
+  const key = `${spec.fontWeight} 16px ${spec.fontFamily}`;
+  if (requestedFonts.has(key)) return;
+  requestedFonts.add(key);
+  document.fonts.load(key).catch(() => {});
+}
+
 export function textCacheKey(spec: TextLayerSpec, width: number, height: number): string {
-  return JSON.stringify([spec, width, height]);
+  return JSON.stringify([spec, width, height, fontEpoch]);
 }
 
 /** Extract the text spec for a layer, or null for non-text layers. */

@@ -264,6 +264,13 @@ export function useMultiPassRenderer(
     );
   }
 
+  // Text layers draw with a fallback until their web font arrives; the core
+  // invalidates its text cache on load, the paused loop needs a nudge to redraw.
+  if (typeof document !== "undefined" && document.fonts) {
+    document.fonts.addEventListener("loadingdone", scheduleRender);
+    onBeforeUnmount(() => document.fonts.removeEventListener("loadingdone", scheduleRender));
+  }
+
   onBeforeUnmount(destroy);
 
   function configureRenderer(width: number, height: number) {

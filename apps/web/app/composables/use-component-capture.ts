@@ -1,5 +1,5 @@
 import type { ComponentSourceInput, LayerInstance } from "@shader-lab/core";
-import { componentNameFromValues } from "@shader-lab/core";
+import { componentCaptureScaleFromValues, componentNameFromValues } from "@shader-lab/core";
 import { DomCaptureSession } from "~/utils/dom-capture";
 
 /**
@@ -26,6 +26,7 @@ type ComponentCaptureOptions = {
 
 export function useComponentCapture(options: ComponentCaptureOptions) {
   const sessions = new Map<string, DomCaptureSession>();
+  const sessionScales = new Map<string, number>();
   const pending = new Map<string, Promise<boolean>>();
   const lastCaptureAt = new Map<string, number>();
   const stagedNames = new Map<string, string>();
@@ -53,10 +54,13 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     const element = options.getElement(layer.id);
     if (!element) return Promise.resolve(false);
 
+    // Resolution = capture pixels per CSS px; raise it for components shown zoomed in.
+    const scale = componentCaptureScaleFromValues(layer.values);
     let session = sessions.get(layer.id);
-    if (!session) {
-      session = new DomCaptureSession();
+    if (!session || sessionScales.get(layer.id) !== scale) {
+      session = new DomCaptureSession({ scale });
       sessions.set(layer.id, session);
+      sessionScales.set(layer.id, scale);
     }
 
     const run = session

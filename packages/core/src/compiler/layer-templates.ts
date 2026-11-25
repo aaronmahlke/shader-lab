@@ -159,6 +159,8 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         default: "Inter Variable, sans-serif",
         options: [
           { label: "Inter", value: "Inter Variable, sans-serif" },
+          { label: "Geist", value: "Geist, sans-serif" },
+          { label: "Geist Mono", value: "Geist Mono, monospace" },
           { label: "Sans", value: "sans-serif" },
           { label: "Serif", value: "serif" },
           { label: "Mono", value: "JetBrains Mono, monospace" },
@@ -337,6 +339,18 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         min: 120,
         max: 3840,
         step: 1,
+        keyframeable: false,
+      },
+      {
+        // Capture pixels per CSS px. Raise it when the layer is scaled up a lot
+        // (zoomed-in UI) so text stays sharp; costs texture memory.
+        name: "captureScale",
+        type: "float",
+        label: "Resolution",
+        default: 2,
+        min: 1,
+        max: 8,
+        step: 0.5,
         keyframeable: false,
       },
     ],

@@ -42,6 +42,12 @@ export function componentStageWidthFromValues(values: Record<string, unknown>): 
   return typeof values.stageWidth === "number" ? values.stageWidth : 640;
 }
 
+/** Capture pixels per CSS px (2 = retina). Higher keeps zoomed-in components sharp. */
+export function componentCaptureScaleFromValues(values: Record<string, unknown>): number {
+  const v = values.captureScale;
+  return typeof v === "number" && Number.isFinite(v) ? Math.min(8, Math.max(1, v)) : 2;
+}
+
 // --- Media layer sources (image / video) -----------------------------------
 //
 // Image and video layers follow the exact same push model as components: the

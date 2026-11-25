@@ -235,6 +235,7 @@ export type { GradientStop } from "./types";
 export {
   componentNameFromValues,
   componentStageWidthFromValues,
+  componentCaptureScaleFromValues,
   mediaSrcFromValues,
   videoLoopFromValues,
   videoTrimStartFromValues,
