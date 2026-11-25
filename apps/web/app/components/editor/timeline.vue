@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  ChevronDownIcon,
   ChevronLeftIcon,
   MagnifyingGlassIcon,
   ChevronRightIcon,
@@ -1955,6 +1956,41 @@ function parentOptionsFor(layer: LayerInstance): { value: string; label: string 
   ];
 }
 
+// --- Pick-whip: drag from a layer's spiral onto another layer to parent ---
+
+const pickWhip = ref<{ childId: string; x0: number; y0: number; x: number; y: number } | null>(null);
+const pickWhipTargetId = ref<string | null>(null);
+
+function layerIdAt(x: number, y: number): string | null {
+  const el = document.elementFromPoint(x, y) as HTMLElement | null;
+  return el?.closest<HTMLElement>("[data-layer-id]")?.dataset.layerId ?? null;
+}
+
+function startPickWhip(childId: string, e: PointerEvent) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const x0 = rect.left + rect.width / 2;
+  const y0 = rect.top + rect.height / 2;
+  pickWhip.value = { childId, x0, y0, x: e.clientX, y: e.clientY };
+  const valid = () => new Set(parentOptionsFor(layers.value.find((l) => l.id === childId)!).map((o) => o.value));
+  const allowed = valid();
+  const move = (ev: PointerEvent) => {
+    if (!pickWhip.value) return;
+    pickWhip.value = { ...pickWhip.value, x: ev.clientX, y: ev.clientY };
+    const id = layerIdAt(ev.clientX, ev.clientY);
+    pickWhipTargetId.value = id && allowed.has(id) ? id : null;
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    const target = pickWhipTargetId.value;
+    pickWhip.value = null;
+    pickWhipTargetId.value = null;
+    if (target) emit("set-parent", childId, target);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+}
+
 // --- Zoom slider (log scale between min and max) ---
 
 const zoomSlider = computed({
@@ -2527,10 +2563,17 @@ function selectAllLayers() {
               </button>
             </d-tooltip>
           </div>
+          <!-- Column labels use the exact slots + padding of the layer row cells,
+               so they line up by construction (no pixel offsets). -->
           <div class="flex h-6 items-center gap-0.5 px-1 text-xs text-neutral-weak select-none">
             <span class="w-[60px] shrink-0" />
+            <span class="size-5 shrink-0" />
+            <span class="size-3 shrink-0" />
             <span class="min-w-0 flex-1 px-1">Layer</span>
-            <span class="w-24 shrink-0 px-1">Parent</span>
+            <span class="flex w-28 shrink-0 items-center">
+              <span class="size-5 shrink-0" />
+              <span class="px-1.5">Parent</span>
+            </span>
           </div>
         </div>
 
@@ -2617,6 +2660,8 @@ function selectAllLayers() {
                 <div
                   data-drag-handle
                   class="flex h-7 w-full cursor-default items-center gap-0.5 px-1 select-none"
+                  :data-layer-id="layer.id"
+                  :class="pickWhip && pickWhipTargetId === layer.id && 'ring-1 ring-inset ring-accent'"
                   :title="layer.type === 'composition' ? 'Double-click to open the composition' : undefined"
                   @click="selectLayer(layer.id, $event)"
                   @dblclick.capture="onLayerRowDblClick(layer, $event)"
@@ -2646,12 +2691,14 @@ function selectAllLayers() {
                       :class="isLayerChevronOpen(layer.id) && 'rotate-90'"
                     />
                   </button>
-                  <component
-                    :is="layerTypeIcon(layer)"
-                    v-if="layerTypeIcon(layer)"
-                    class="size-3 shrink-0 text-neutral-subtle"
-                    aria-hidden="true"
-                  />
+                  <span class="flex size-3 shrink-0 items-center justify-center">
+                    <component
+                      :is="layerTypeIcon(layer)"
+                      v-if="layerTypeIcon(layer)"
+                      class="size-3 text-neutral-subtle"
+                      aria-hidden="true"
+                    />
+                  </span>
                   <UiEditableText
                     :ref="(el) => bindLayerNameRef(layer.id, el)"
                     :model-value="layerLabel(layer)"
@@ -2665,16 +2712,29 @@ function selectAllLayers() {
                     "
                     @update:model-value="setLayerName(layer, $event)"
                   />
-                  <div class="w-24 shrink-0" data-drag-exclude @click.stop @pointerdown.stop>
-                    <select
-                      class="h-6 w-full cursor-pointer truncate rounded-md bg-transparent px-1 text-xs outline-none transition-colors hover:bg-tint"
-                      :class="layer.parent ? 'text-neutral-strong' : 'text-neutral-weak'"
-                      :value="layer.parent ?? ''"
-                      :title="layer.parent ? `Parent: ${layerLabel(layers.find((l) => l.id === layer.parent)!)}` : 'No parent'"
-                      @change="emit('set-parent', layer.id, ($event.target as HTMLSelectElement).value || null)"
+                  <div class="flex w-28 shrink-0 items-center" data-drag-exclude @click.stop @pointerdown.stop>
+                    <!-- AE pick-whip: drag onto another layer row to parent. -->
+                    <button
+                      type="button"
+                      class="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-neutral-weak transition-colors hover:text-neutral-strong"
+                      :class="pickWhip?.childId === layer.id && 'text-accent'"
+                      aria-label="Pick whip: drag onto a layer to parent"
+                      title="Drag onto a layer to parent"
+                      @pointerdown.stop.prevent="startPickWhip(layer.id, $event)"
                     >
-                      <option v-for="opt in parentOptionsFor(layer)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                    </select>
+                      <UIcon name="i-lucide-spline" class="size-3.5" />
+                    </button>
+                    <div class="relative min-w-0 flex-1">
+                      <select
+                        class="h-6 w-full cursor-pointer appearance-none truncate rounded-md bg-transparent py-0 pr-5 pl-1.5 text-xs outline-none transition-colors hover:bg-tint"
+                        :class="layer.parent ? 'text-neutral-strong' : 'text-neutral-weak'"
+                        :value="layer.parent ?? ''"
+                        @change="emit('set-parent', layer.id, ($event.target as HTMLSelectElement).value || null); ($event.target as HTMLSelectElement).blur()"
+                      >
+                        <option v-for="opt in parentOptionsFor(layer)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                      </select>
+                      <ChevronDownIcon class="pointer-events-none absolute top-1/2 right-1 size-3 -translate-y-1/2 text-neutral-weak" />
+                    </div>
                   </div>
                 </div>
               </UiHover>
@@ -3187,6 +3247,14 @@ function selectAllLayers() {
           </div>
         </div>
       </div>
+      <!-- Pick-whip line while dragging -->
+      <svg v-if="pickWhip" class="pointer-events-none fixed inset-0 z-[200] size-full">
+        <line
+          :x1="pickWhip.x0" :y1="pickWhip.y0" :x2="pickWhip.x" :y2="pickWhip.y"
+          class="stroke-accent" stroke-width="1.5" stroke-dasharray="4 3"
+        />
+        <circle :cx="pickWhip.x" :cy="pickWhip.y" r="3" class="fill-accent" />
+      </svg>
       <!-- Bottom bar: zoom under the time area (AE). -->
       <div class="flex h-8 shrink-0 border-t border-neutral-subtle bg-layer-1">
         <div class="shrink-0 border-r border-neutral-subtle" :style="{ width: `${labelWidth}px` }" />
