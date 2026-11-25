@@ -2539,7 +2539,7 @@ function selectAllLayers() {
           </div>
           <!-- Column labels use the exact slots + padding of the layer row cells,
                so they line up by construction (no pixel offsets). -->
-          <div class="flex h-6 items-center gap-0.5 px-1 text-xs text-neutral-weak select-none">
+          <div class="flex h-6 items-center gap-0.5 px-1 text-[var(--s-dim)] select-none">
             <span class="w-[60px] shrink-0" />
             <span class="size-5 shrink-0" />
             <span class="size-3 shrink-0" />
@@ -2565,12 +2565,12 @@ function selectAllLayers() {
               >
                 <span
                   v-if="mark.kind === 'major'"
-                  class="pl-1 tabular-nums text-xs text-neutral-subtle"
+                  class="pl-1 tabular-nums text-[var(--s-dim)]"
                 >
                   {{ formatRulerLabel(mark.time) }}
                 </span>
                 <div
-                  class="w-px bg-neutral/60"
+                  class="w-px bg-[var(--s-edge)]"
                   :class="mark.kind === 'frame' ? 'opacity-50' : mark.kind === 'mid' ? 'opacity-75' : ''"
                   :style="{ height: rulerMarkHeight(mark.kind) }"
                 />
@@ -2609,7 +2609,7 @@ function selectAllLayers() {
           <!-- Comp-drop insertion line (absolute children scroll with content) -->
           <div
             v-if="compDropIndex !== null"
-            class="pointer-events-none absolute inset-x-1 z-40 h-0.5 -translate-y-1/2 rounded-full bg-accent"
+            class="pointer-events-none absolute inset-x-1 z-40 h-0.5 -translate-y-1/2 bg-[var(--s-select)]"
             :style="{ top: `${compDropY}px` }"
           />
           <div ref="layerListRef" class="min-h-full" @click.self="clearSelection">
@@ -2632,7 +2632,7 @@ function selectAllLayers() {
                   data-drag-handle
                   class="flex h-7 w-full cursor-default items-center gap-0.5 border-b border-[var(--s-frame)] px-1 select-none"
                   :data-layer-id="layer.id"
-                  :class="pickWhip && pickWhipTargetId === layer.id && 'ring-1 ring-inset ring-accent'"
+                  :class="pickWhip && pickWhipTargetId === layer.id && 'ring-1 ring-inset ring-[var(--s-select)]'"
                   :title="layer.type === 'composition' ? 'Double-click to open the composition' : undefined"
                   @click="selectLayer(layer.id, $event)"
                   @dblclick.capture="onLayerRowDblClick(layer, $event)"
@@ -2644,7 +2644,7 @@ function selectAllLayers() {
                       type="button"
                       data-drag-exclude
                       class="flex size-6 shrink-0 items-center justify-center rounded-none outline-none transition-colors hover:bg-[var(--s-inset-hover)]"
-                      :class="layer.enabled ? 'text-neutral-subtle hover:text-neutral-strong' : 'text-neutral-weak'"
+                      :class="layer.enabled ? 'text-[var(--s-dim)] hover:text-[var(--s-bright)]' : 'text-[var(--s-dim)]'"
                       :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
                       @click.stop="toggleLayerEnabled(layer)"
                     >
@@ -2654,7 +2654,7 @@ function selectAllLayers() {
                   <button
                     type="button"
                     data-drag-exclude
-                    class="flex size-5 shrink-0 items-center justify-center text-neutral-subtle outline-none"
+                    class="flex size-5 shrink-0 items-center justify-center text-[var(--s-dim)] outline-none"
                     @click.stop="toggleExpand(layer.id)"
                   >
                     <ChevronRightIcon
@@ -2666,7 +2666,7 @@ function selectAllLayers() {
                     <component
                       :is="layerTypeIcon(layer)"
                       v-if="layerTypeIcon(layer)"
-                      class="size-3 text-neutral-subtle"
+                      class="size-3 text-[var(--s-dim)]"
                       aria-hidden="true"
                     />
                   </span>
@@ -2675,11 +2675,11 @@ function selectAllLayers() {
                     :model-value="layerLabel(layer)"
                     fill
                     data-drag-exclude
-                    class="min-w-0 flex-1 px-1 text-copy-xs"
+                    class="min-w-0 flex-1 px-1"
                     :class="
                       isLayerSelected(layer.id)
-                        ? 'text-neutral-strong'
-                        : 'text-neutral-subtle group-hover/h:text-neutral-strong group-data-[active=true]/h:text-neutral-strong group-focus-within/h:text-neutral-strong'
+                        ? 'text-[var(--s-bright)]'
+                        : 'text-[var(--s-dim)] group-hover/h:text-[var(--s-bright)] group-data-[active=true]/h:text-[var(--s-bright)] group-focus-within/h:text-[var(--s-bright)]'
                     "
                     @update:model-value="setLayerName(layer, $event)"
                   />
@@ -2689,24 +2689,21 @@ function selectAllLayers() {
                       type="button"
                       class="flex size-5 shrink-0 cursor-default items-center justify-center rounded-none transition-colors"
                       :class="pickWhip?.childId === layer.id
-                        ? 'bg-accent text-on-accent'
-                        : 'text-neutral-subtle hover:bg-[var(--s-inset-hover)] hover:text-neutral-strong'"
+                        ? 'bg-[var(--s-accent)] text-[var(--s-on-txt)]'
+                        : 'text-[var(--s-dim)] hover:bg-[var(--s-inset-hover)] hover:text-[var(--s-bright)]'"
                       aria-label="Pick whip: drag onto a layer to parent"
                       title="Drag onto a layer to parent"
                       @pointerdown.stop.prevent="startPickWhip(layer.id, $event)"
                     >
                       <StudioIcon name="pickwhip" />
                     </button>
-                    <div class="relative min-w-0 flex-1">
-                      <select
-                        class="h-6 w-full cursor-default appearance-none truncate rounded-none bg-transparent py-0 pr-5 pl-1.5 text-xs outline-none transition-colors hover:bg-[var(--s-inset-hover)]"
-                        :class="layer.parent ? 'text-neutral-strong' : 'text-neutral-weak'"
-                        :value="layer.parent ?? ''"
-                        @change="emit('set-parent', layer.id, ($event.target as HTMLSelectElement).value || null); ($event.target as HTMLSelectElement).blur()"
-                      >
-                        <option v-for="opt in parentOptionsFor(layer)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                      </select>
-                      <svg width="7" height="5" viewBox="0 0 7 5" class="pointer-events-none absolute top-1/2 right-[5px] -translate-y-1/2 text-[var(--s-dim)]" aria-hidden="true"><path d="M0 0h7L3.5 5z" fill="currentColor" /></svg>
+                    <!-- reka can't hold "" as a value: "none" stands for no parent. -->
+                    <div class="grid min-w-0 flex-1" :class="!layer.parent && '[&_button]:text-[var(--s-dim)]'">
+                      <StudioSelect
+                        :model-value="layer.parent ?? 'none'"
+                        :options="parentOptionsFor(layer).map((o) => ({ value: o.value || 'none', label: o.label }))"
+                        @update:model-value="emit('set-parent', layer.id, $event === 'none' ? null : String($event))"
+                      />
                     </div>
                   </div>
                 </div>
@@ -2716,7 +2713,7 @@ function selectAllLayers() {
                 v-for="row in rowsForLayer(layer)"
                 :key="row.key"
                 class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-[var(--s-frame)] px-1 select-none transition-colors"
-                :class="isRowSelected(row) ? 'bg-[var(--s-raise)]' : row.kind !== 'property' ? 'bg-[var(--s-tile)] hover:bg-[var(--s-inset-hover)]' : 'hover:bg-[var(--s-inset-hover)]'"
+                :class="isRowSelected(row) ? 'bg-[var(--s-raise)]' : row.kind !== 'property' ? 'bg-[var(--s-tile)]' : ''"
                 @click="onPropertyRowClick(row, $event)"
               >
                 <!-- AE keyframe navigator: ◂ previous · ◆ add/remove · next ▸ -->
@@ -2724,7 +2721,7 @@ function selectAllLayers() {
                   <template v-if="trackEnabled(row.owner, row.def.name)">
                     <button
                       type="button"
-                      class="flex size-5 items-center justify-center rounded text-neutral-subtle transition-colors hover:text-neutral-strong disabled:opacity-25"
+                      class="flex size-5 items-center justify-center rounded-none text-[var(--s-dim)] transition-colors hover:text-[var(--s-bright)] disabled:opacity-25"
                       :disabled="!hasKeyBefore(row.owner, row.def.name)"
                       aria-label="Previous keyframe"
                       @pointerdown.stop
@@ -2736,7 +2733,7 @@ function selectAllLayers() {
                     />
                     <button
                       type="button"
-                      class="flex size-5 items-center justify-center rounded text-neutral-subtle transition-colors hover:text-neutral-strong disabled:opacity-25"
+                      class="flex size-5 items-center justify-center rounded-none text-[var(--s-dim)] transition-colors hover:text-[var(--s-bright)] disabled:opacity-25"
                       :disabled="!hasKeyAfter(row.owner, row.def.name)"
                       aria-label="Next keyframe"
                       @pointerdown.stop
@@ -2751,7 +2748,7 @@ function selectAllLayers() {
                     v-if="row.kind === 'property' && row.def.name === POSITION_GROUP"
                     type="button"
                     data-drag-exclude
-                    class="flex size-5 shrink-0 items-center justify-center rounded-none text-neutral-subtle transition-colors hover:text-neutral-strong"
+                    class="flex size-5 shrink-0 items-center justify-center rounded-none text-[var(--s-dim)] transition-colors hover:text-[var(--s-bright)]"
                     :title="axisRowsOpen.has(row.owner) ? 'Hide X / Y' : 'Show X / Y separately'"
                     @pointerdown.stop
                     @click.stop="toggleAxisRows(row.owner)"
@@ -2769,7 +2766,7 @@ function selectAllLayers() {
                     v-if="row.kind === 'link'"
                     type="button"
                     data-drag-exclude
-                    class="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--s-inset-hover)]"
+                    class="flex size-4 shrink-0 items-center justify-center rounded-none transition-colors hover:bg-[var(--s-inset-hover)]"
                     :title="`Edit ${row.prefix}`"
                     @pointerdown.stop
                     @click.stop="emit('select-modulator', row.link!.sourceId)"
@@ -2777,7 +2774,7 @@ function selectAllLayers() {
                     <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
                   </button>
                   <span
-                    class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle"
+                    class="min-w-0 flex-1 truncate text-[var(--s-dim)]"
                     :style="row.kind === 'axis' ? { color: row.color } : undefined"
                   >
                     {{ row.def.label }}
@@ -2786,7 +2783,7 @@ function selectAllLayers() {
                     v-if="row.kind === 'property' && isModulated(row.owner, row.def.name)"
                     type="button"
                     data-drag-exclude
-                    class="flex h-4 shrink-0 items-center gap-0.5 rounded-full px-1 transition-colors hover:bg-[var(--s-inset-hover)]"
+                    class="flex h-4 shrink-0 items-center gap-0.5 rounded-none px-1 transition-colors hover:bg-[var(--s-inset-hover)]"
                     :class="isLinkRowsOpen(row.owner, row.def.name) && 'bg-[var(--s-inset)]'"
                     :title="`${modTitle(propertyModSources(row.owner, row.def.name)).replace(' — click to edit', '')} — click to show links`"
                     @pointerdown.stop
@@ -2805,7 +2802,7 @@ function selectAllLayers() {
                 <div class="flex w-24 shrink-0 items-center">
                 <div v-if="row.def.name === POSITION_GROUP" class="flex items-center pl-0.5">
                   <template v-for="(axis, ai) in positionAxisRows(row)" :key="axis.key">
-                    <span v-if="ai > 0" class="text-copy-xs text-neutral-subtle/50">,</span>
+                    <span v-if="ai > 0" class="text-[var(--s-dim)]/50">,</span>
                     <input
                       v-if="isEditingValue(axis.key)"
                       :ref="focusValueInput"
@@ -2860,13 +2857,13 @@ function selectAllLayers() {
               <div class="flex h-7 items-center gap-1 border-b border-[var(--s-frame)] bg-[var(--s-tile)] px-1 select-none">
                 <button
                   type="button"
-                  class="flex size-5 shrink-0 items-center justify-center rounded-none text-neutral-subtle hover:text-neutral-strong"
+                  class="flex size-5 shrink-0 items-center justify-center rounded-none text-[var(--s-dim)] hover:text-[var(--s-bright)]"
                   :title="modGroupOpen ? 'Collapse modulators' : 'Expand modulators'"
                   @click.stop="modGroupOpen = !modGroupOpen"
                 >
                   <ChevronRightIcon class="size-3.5 transition-transform" :class="modGroupOpen && 'rotate-90'" />
                 </button>
-                <span class="min-w-0 flex-1 truncate text-copy-sm text-neutral-subtle">Modulators</span>
+                <span class="min-w-0 flex-1 truncate text-[var(--s-dim)]">Modulators</span>
                 <span class="flex gap-0.5 pr-1">
                   <span
                     v-for="entry in modulatorEntries"
@@ -2881,7 +2878,7 @@ function selectAllLayers() {
                   <div class="flex h-6 w-full items-center gap-1 border-t border-[var(--s-frame)] px-1 pl-4 select-none">
                     <button
                       type="button"
-                      class="flex size-4 shrink-0 items-center justify-center text-neutral-subtle hover:text-neutral-strong"
+                      class="flex size-4 shrink-0 items-center justify-center text-[var(--s-dim)] hover:text-[var(--s-bright)]"
                       @click.stop="toggleSourceRows(entry.source.id)"
                     >
                       <ChevronRightIcon
@@ -2892,13 +2889,13 @@ function selectAllLayers() {
                     <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: entry.source.color }" />
                     <button
                       type="button"
-                      class="min-w-0 flex-1 truncate text-left text-copy-xs text-neutral-subtle hover:text-neutral-strong"
+                      class="min-w-0 flex-1 truncate text-left text-[var(--s-dim)] hover:text-[var(--s-bright)]"
                       :title="`Edit ${entry.source.label}`"
                       @click.stop="emit('select-modulator', entry.source.id)"
                     >
                       {{ entry.source.label }}
                     </button>
-                    <span class="shrink-0 pr-1 text-copy-xs text-neutral-subtle/60">
+                    <span class="shrink-0 pr-1 text-[var(--s-dim)]/60">
                       {{ entry.kind === "lfo" ? "LFO" : "Envelope" }}
                     </span>
                   </div>
@@ -2927,21 +2924,21 @@ function selectAllLayers() {
                           v-if="row.kind === 'link'"
                           type="button"
                           data-drag-exclude
-                          class="flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--s-inset-hover)]"
+                          class="flex size-4 shrink-0 items-center justify-center rounded-none transition-colors hover:bg-[var(--s-inset-hover)]"
                           :title="`Edit ${row.prefix}`"
                           @pointerdown.stop
                           @click.stop="emit('select-modulator', row.link!.sourceId)"
                         >
                           <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
                         </button>
-                        <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
+                        <span class="min-w-0 flex-1 truncate text-[var(--s-dim)]">
                           {{ row.def.label }}
                         </span>
                         <button
                           v-if="row.kind === 'property' && isModulated(row.owner, row.def.name)"
                           type="button"
                           data-drag-exclude
-                          class="flex h-4 shrink-0 items-center gap-0.5 rounded-full px-1 transition-colors hover:bg-[var(--s-inset-hover)]"
+                          class="flex h-4 shrink-0 items-center gap-0.5 rounded-none px-1 transition-colors hover:bg-[var(--s-inset-hover)]"
                           :class="isLinkRowsOpen(row.owner, row.def.name) && 'bg-[var(--s-inset)]'"
                           :title="`${modTitle(propertyModSources(row.owner, row.def.name)).replace(' — click to edit', '')} — click to show links`"
                           @pointerdown.stop
@@ -3035,13 +3032,13 @@ function selectAllLayers() {
                       class="absolute inset-y-0 left-0 flex w-2 cursor-ew-resize items-center justify-center rounded-none bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
                       @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'in', $event)"
                     >
-                      <div class="h-3 w-0.5 rounded-full bg-white/60" />
+                      <div class="h-3 w-px bg-white/60" />
                     </div>
                     <div
                       class="absolute inset-y-0 right-0 flex w-2 cursor-ew-resize items-center justify-center rounded-none bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
                       @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'out', $event)"
                     >
-                      <div class="h-3 w-0.5 rounded-full bg-white/60" />
+                      <div class="h-3 w-px bg-white/60" />
                     </div>
                   </div>
                 </div>
@@ -3089,7 +3086,7 @@ function selectAllLayers() {
                         :key="`s-${si}`"
                         :d="seg.d"
                         fill="none"
-                        :class="!(seg.color || row.color) && 'stroke-accent/40'"
+                        :class="!(seg.color || row.color) && 'stroke-[var(--s-value)]/40'"
                         :stroke="seg.color ?? row.color"
                         :stroke-opacity="seg.color ? 0.75 : row.color ? 0.6 : undefined"
                         stroke-width="1.5"
@@ -3168,7 +3165,7 @@ function selectAllLayers() {
                               :key="`s-${si}`"
                               :d="seg.d"
                               fill="none"
-                              :class="!(seg.color || row.color) && 'stroke-accent/40'"
+                              :class="!(seg.color || row.color) && 'stroke-[var(--s-value)]/40'"
                               :stroke="seg.color ?? row.color"
                               :stroke-opacity="seg.color ? 0.75 : row.color ? 0.6 : undefined"
                               stroke-width="1.5"
@@ -3194,7 +3191,7 @@ function selectAllLayers() {
 
             <div
               v-if="marquee"
-              class="pointer-events-none absolute z-30 border border-accent/80 bg-accent/10"
+              class="pointer-events-none absolute z-30 border border-[var(--s-select)]/80 bg-[var(--s-select)]/10"
               :style="marqueeStyle"
             />
 
@@ -3229,9 +3226,9 @@ function selectAllLayers() {
       <svg v-if="pickWhip" class="pointer-events-none fixed inset-0 z-[200] size-full">
         <line
           :x1="pickWhip.x0" :y1="pickWhip.y0" :x2="pickWhip.x" :y2="pickWhip.y"
-          class="stroke-accent" stroke-width="1.5" stroke-dasharray="4 3"
+          class="stroke-[var(--s-select)]" stroke-width="1.5" stroke-dasharray="4 3"
         />
-        <circle :cx="pickWhip.x" :cy="pickWhip.y" r="3" class="fill-accent" />
+        <circle :cx="pickWhip.x" :cy="pickWhip.y" r="3" class="fill-[var(--s-select)]" />
       </svg>
       <!-- Bottom bar: zoom under the time area (AE). -->
       <div class="flex h-8 shrink-0 border-t border-[var(--s-frame)] bg-[var(--s-tile)]">
@@ -3241,7 +3238,7 @@ function selectAllLayers() {
           <StudioSlider v-model="zoomSlider" :min="0" :max="1" class="w-[120px]" aria-label="Timeline zoom" />
           <StudioButton variant="ghost" square aria-label="Zoom in" @click="zoomIn"><StudioIcon name="plus" /></StudioButton>
           <StudioButton title="Fit comp to width (⇧Z)" @click="fitTimeline"><StudioIcon name="fit" /> Fit</StudioButton>
-          <span class="ml-auto text-xs text-neutral-weak tabular-nums">{{ formatTime(settings.duration) }} · {{ settings.fps }} fps</span>
+          <span class="ml-auto text-[var(--s-dim)] tabular-nums">{{ formatTime(settings.duration) }} · {{ settings.fps }} fps</span>
         </div>
       </div>
     </div>
