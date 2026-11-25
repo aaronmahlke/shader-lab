@@ -1,11 +1,18 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import tailwindcss from "@tailwindcss/vite";
 import glsl from "vite-plugin-glsl";
 
 const coreSrc = resolve(dirname(fileURLToPath(import.meta.url)), "../../packages/core/src");
 
+// Dokedu UI (tokens, Tailwind, fonts, d-* components) as a Nuxt layer.
+// Linked to the local checkout while we design; switch to the pinned git
+// dependency later: "@dokedu/ui": "github:dokedu/ui#<tag>" + extends: ["@dokedu/ui"].
+const dokeduUi = process.env.DOKEDU_UI ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../../../dokedu/ui");
+
 export default defineNuxtConfig({
+  extends: [dokeduUi],
+  // We import the kit's CSS ourselves so app tokens share one Tailwind pass.
+  dokeduUi: { css: false },
   devtools: { enabled: false },
   css: ["~/assets/css/app.css"],
   compatibilityDate: "latest",
@@ -23,7 +30,7 @@ export default defineNuxtConfig({
     transpile: ["@shader-lab/core"],
   },
   vite: {
-    plugins: [tailwindcss(), glsl()],
+    plugins: [glsl()],
     resolve: {
       alias: {
         "@shader-lab/core/server": resolve(coreSrc, "server.ts"),
@@ -61,7 +68,7 @@ export default defineNuxtConfig({
       ],
     },
   },
-  modules: ["@nuxt/fonts", "nuxt-auth-utils"],
+  modules: ["nuxt-auth-utils"],
   runtimeConfig: {
     oauth: {
       google: {

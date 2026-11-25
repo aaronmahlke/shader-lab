@@ -2,7 +2,7 @@
 import { TooltipProvider } from "reka-ui";
 
 useHead({
-  htmlAttrs: { class: "dark" },
+  htmlAttrs: { class: "dark", "data-theme": "dark" },
   bodyAttrs: { class: "bg-base-0 text-ui text-primary antialiased" },
 });
 </script>
