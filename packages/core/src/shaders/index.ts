@@ -105,6 +105,7 @@ export const INT_UNIFORMS = new Set([
   "u_light1Type",
   "u_light2Type",
   "u_light3Type",
+  "envPreset",
 ]);
 
 export const GRADIENT_RESOLUTION = 256;

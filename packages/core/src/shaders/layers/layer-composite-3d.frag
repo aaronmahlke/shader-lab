@@ -46,6 +46,14 @@ uniform float u_sizeZ;
 uniform float specular;
 uniform float shininess;
 uniform float emissive;
+// Material (PBR-lite) + environment reflections.
+uniform float bevel;          // cube edge rounding radius (scene units, × scale)
+uniform float metalness;      // 0 dielectric … 1 metal (chrome = metal + low roughness)
+uniform float roughness;      // softens reflections and highlights
+uniform float reflections;    // environment reflection strength
+uniform int envPreset;        // 0 studio (white strips), 1 neon (pink/blue), 2 spectrum
+uniform float envRotation;    // degrees around the vertical axis (animate to slide reflections)
+uniform float iridescence;    // thin-film rainbow sheen at grazing angles
 
 // Lights (flattened arrays — ESSL 1.00 friendly). Vec is a unit direction
 // TOWARD the light (directional) or a stack-space position (point).
@@ -133,6 +141,50 @@ mat3 camRotation() {
   return rz * rx * ry;
 }
 
+// --- Rounded box (SDF) ------------------------------------------------------
+
+float sdRoundBox(vec3 p, vec3 b, float r) {
+  vec3 q = abs(p) - b;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+// --- Environment (procedural studio) ----------------------------------------
+
+vec3 envStrip(float az, float el, float center, float width, float elLo, float elHi, vec3 color, float soft) {
+  float d = abs(mod(az - center + 3.14159265, 6.2831853) - 3.14159265);
+  float w = width + soft;
+  float h = 1.0 - smoothstep(width * 0.5, w * 0.5 + 0.02, d);
+  float v = smoothstep(elLo - soft, elLo + 0.02, el) * (1.0 - smoothstep(elHi - 0.02, elHi + soft, el));
+  return color * h * v;
+}
+
+vec3 environment(vec3 d, float rough) {
+  float rotA = radians(envRotation);
+  float az = atan(d.x, -d.z) + rotA;
+  float el = asin(clamp(d.y, -1.0, 1.0));
+  float soft = 0.05 + rough * 0.9;
+  // Dark studio falloff: slightly lighter overhead, darker below.
+  vec3 col = vec3(0.025, 0.022, 0.03) + vec3(0.05, 0.045, 0.06) * smoothstep(-0.2, 1.0, d.y);
+  if (envPreset == 1) {
+    col += envStrip(az, el, -0.9, 0.35, -0.2, 0.9, vec3(1.0, 0.35, 0.7) * 2.2, soft);
+    col += envStrip(az, el, 0.7, 0.25, -0.1, 1.0, vec3(0.35, 0.6, 1.0) * 1.8, soft);
+    col += envStrip(az, el, 2.4, 0.18, 0.0, 0.8, vec3(1.0) * 1.6, soft);
+    col += envStrip(az, el, 0.0, 6.4, 1.05, 1.6, vec3(0.9, 0.85, 1.0) * 0.6, soft);
+  } else if (envPreset == 2) {
+    for (int i = 0; i < 6; i++) {
+      float fi = float(i);
+      vec3 hue = 0.5 + 0.5 * cos(6.2831853 * (fi / 6.0 + vec3(0.0, 0.33, 0.67)));
+      col += envStrip(az, el, fi * 1.047, 0.22, -0.3, 0.9, hue * 2.0, soft);
+    }
+  } else {
+    col += envStrip(az, el, -0.8, 0.3, -0.15, 0.95, vec3(1.0) * 2.0, soft);
+    col += envStrip(az, el, 0.9, 0.2, 0.0, 0.9, vec3(1.0) * 1.4, soft);
+    col += envStrip(az, el, 2.5, 0.45, -0.3, 0.6, vec3(1.0) * 0.8, soft);
+    col += envStrip(az, el, 0.0, 6.4, 1.05, 1.6, vec3(1.0) * 0.7, soft);
+  }
+  return col;
+}
+
 // --- Object intersection (local space, half-extents h) ---------------------
 
 // Returns t > 0 and writes the local normal, or returns -1.
@@ -163,7 +215,7 @@ float intersectObject(vec3 ro, vec3 rd, vec3 h, out vec3 nLocal) {
     nLocal = vec3(0.0, 0.0, rd.z > 0.0 ? -1.0 : 1.0);
     return t;
   }
-  // Cube: slab method.
+  // Cube: slab method (also the bounds for the beveled march).
   vec3 inv = 1.0 / rd;
   vec3 t0 = (-h - ro) * inv;
   vec3 t1 = (h - ro) * inv;
@@ -172,8 +224,30 @@ float intersectObject(vec3 ro, vec3 rd, vec3 h, out vec3 nLocal) {
   float tN = max(max(tsm.x, tsm.y), tsm.z);
   float tF = min(min(tbg.x, tbg.y), tbg.z);
   if (tN > tF || tF <= 1e-4 || tN <= 1e-4) return -1.0;
-  nLocal = -sign(rd) * step(vec3(tN), tsm);
-  return tN;
+  float r = min(bevel * max(layerScale / 100.0, 1e-4), min(h.x, min(h.y, h.z)));
+  if (r <= 1e-5) {
+    nLocal = -sign(rd) * step(vec3(tN), tsm);
+    return tN;
+  }
+  // Rounded box: sphere-trace inside the slab interval.
+  vec3 b = h - r;
+  float t = tN;
+  for (int i = 0; i < 48; i++) {
+    vec3 p = ro + t * rd;
+    float d = sdRoundBox(p, b, r);
+    if (d < 1e-4) {
+      vec2 e = vec2(1e-4, 0.0);
+      nLocal = normalize(vec3(
+        sdRoundBox(p + e.xyy, b, r) - sdRoundBox(p - e.xyy, b, r),
+        sdRoundBox(p + e.yxy, b, r) - sdRoundBox(p - e.yxy, b, r),
+        sdRoundBox(p + e.yyx, b, r) - sdRoundBox(p - e.yyx, b, r)
+      ));
+      return t;
+    }
+    t += d;
+    if (t > tF) break;
+  }
+  return -1.0;
 }
 
 vec3 lightContribution(
@@ -201,19 +275,38 @@ vec3 lightContribution(
 
 vec3 shadeObject(vec3 hitPos, vec3 N, vec3 dir, mat3 rcam) {
   vec3 V = -dir;
-  vec3 col = albedo * u_ambient + albedo * emissive;
+  // Metals have no diffuse; their color tints the reflection instead.
+  vec3 diffuseBase = albedo * (1.0 - clamp(metalness, 0.0, 1.0));
+  vec3 col = diffuseBase * u_ambient + albedo * emissive;
   if (u_lightCount == 0) {
     // Headlight fallback so objects are never pitch black without lights.
     vec3 L = normalize(vec3(0.3, 0.45, 0.85));
     float diff = max(dot(N, L), 0.0);
     vec3 H = normalize(L + V);
-    float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * specular;
-    return albedo * (0.18 + diff) + vec3(spec) + albedo * emissive;
+    float spec = pow(max(dot(N, H), 0.0), max(shininess, 2.0)) * specular * (1.0 - roughness * 0.8);
+    col = diffuseBase * (0.18 + diff) + vec3(spec) + albedo * emissive;
+  } else {
+    if (u_lightCount > 0) col += lightContribution(diffuseBase, u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam);
+    if (u_lightCount > 1) col += lightContribution(diffuseBase, u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam);
+    if (u_lightCount > 2) col += lightContribution(diffuseBase, u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam);
+    if (u_lightCount > 3) col += lightContribution(diffuseBase, u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam);
   }
-  if (u_lightCount > 0) col += lightContribution(albedo, u_light0Type, u_light0Color, u_light0Intensity, u_light0Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 1) col += lightContribution(albedo, u_light1Type, u_light1Color, u_light1Intensity, u_light1Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 2) col += lightContribution(albedo, u_light2Type, u_light2Color, u_light2Intensity, u_light2Vec, hitPos, N, V, rcam);
-  if (u_lightCount > 3) col += lightContribution(albedo, u_light3Type, u_light3Color, u_light3Intensity, u_light3Vec, hitPos, N, V, rcam);
+
+  // Environment reflection (Schlick Fresnel; metals reflect tinted by albedo).
+  if (reflections > 0.0) {
+    float NdV = clamp(dot(N, V), 0.0, 1.0);
+    vec3 F0 = mix(vec3(0.04), albedo, clamp(metalness, 0.0, 1.0));
+    vec3 F = F0 + (1.0 - F0) * pow(1.0 - NdV, 5.0);
+    if (iridescence > 0.0) {
+      // Thin-film sheen: hue shifts with viewing angle.
+      vec3 film = 0.5 + 0.5 * cos(6.2831853 * (NdV * 1.6 + vec3(0.0, 0.33, 0.67)));
+      F = mix(F, F * 0.4 + film * (0.35 + 0.65 * (1.0 - NdV)), clamp(iridescence, 0.0, 1.0));
+    }
+    // Reflection vector in world, undo the camera so the studio stays put when the camera moves.
+    vec3 R = reflect(dir, N);
+    vec3 Rw = vec3(dot(R, rcam[0]), dot(R, rcam[1]), dot(R, rcam[2]));
+    col += environment(Rw, clamp(roughness, 0.0, 1.0)) * F * reflections;
+  }
   return col;
 }
 

@@ -683,6 +683,25 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
       { name: "specular", type: "float", label: "Specular", default: 0.5, min: 0, max: 1, step: 0.01 },
       { name: "shininess", type: "float", label: "Shininess", default: 32, min: 2, max: 128, step: 1 },
       { name: "emissive", type: "float", label: "Emissive", default: 0, min: 0, max: 1, step: 0.01 },
+      // Cube only: rounded edges (AE extrude bevel).
+      { name: "bevel", type: "float", label: "Bevel", default: 0, min: 0, max: 0.5, step: 0.001 },
+      { name: "metalness", type: "float", label: "Metalness", default: 0, min: 0, max: 1, step: 0.01 },
+      { name: "roughness", type: "float", label: "Roughness", default: 0.35, min: 0, max: 1, step: 0.01 },
+      { name: "reflections", type: "float", label: "Reflections", default: 1, min: 0, max: 3, step: 0.01 },
+      {
+        name: "envPreset",
+        type: "select",
+        label: "Environment",
+        default: 0,
+        options: [
+          { label: "Studio", value: 0 },
+          { label: "Neon", value: 1 },
+          { label: "Spectrum", value: 2 },
+        ],
+        keyframeable: false,
+      },
+      { name: "envRotation", type: "float", label: "Environment rotation", default: 0, min: -360, max: 360, step: 0.1 },
+      { name: "iridescence", type: "float", label: "Iridescence", default: 0, min: 0, max: 1, step: 0.01 },
     ],
   },
 
