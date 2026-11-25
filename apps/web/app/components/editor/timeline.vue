@@ -74,7 +74,6 @@ import {
 import { dataTransferHasComp, readCompDragPayload } from "#shared/editor/comp-drag";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
 import { POSITION_GROUP, positionAxes } from "#shared/editor/position-group";
-import { layerBlockOverlapsPrevious, layerHeaderBlockRole } from "#shared/editor/layer-block-radius";
 import {
   clampGroupBarMoveDelta,
   fitPxPerSecond,
@@ -2367,14 +2366,6 @@ function isLayerSelected(id: string): boolean {
   return selectedLayerIds.value.has(id);
 }
 
-function layerRowBlockRole(index: number) {
-  return layerHeaderBlockRole(index, selectedLayerIndices(), [...draggingIndices.value]);
-}
-
-/**
- * Returns the resulting selection so pointerdown handlers can use it right
- * away: the selection models are defineModel and only sync back next tick.
- */
 // --- Property row selection (AE: click a property = select it + all its keys) ---
 
 /** Selected property rows (row keys). Cleared when layers/keys are picked elsewhere. */
@@ -2421,6 +2412,10 @@ watch(selectedKeyframes, (keys) => {
   if (!same) selectedRowKeys.value = new Set();
 });
 
+/**
+ * Returns the resulting selection so pointerdown handlers can use it right
+ * away: the selection models are defineModel and only sync back next tick.
+ */
 function selectLayer(id: string, e?: MouseEvent): Set<string> | null {
   selectedRowKeys.value = new Set();
   const index = layerIndex(id);
@@ -2614,7 +2609,7 @@ function selectAllLayers() {
               <UiHover
                 solid
                 :active="isLayerSelected(layer.id) || draggingIndices.has(i)"
-                :block-role="layerRowBlockRole(i)"
+                radius="rounded-none"
                 class-name="bg-layer-1 group-hover/h:bg-control group-has-focus-visible/h:bg-control group-focus-within/h:bg-control"
                 active-class-name="bg-control"
                 full-width
