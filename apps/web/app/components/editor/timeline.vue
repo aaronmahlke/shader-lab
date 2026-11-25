@@ -3013,10 +3013,10 @@ function selectAllLayers() {
               >
                 <div class="relative h-7 border-b border-[var(--s-frame)] bg-[var(--s-inset)]">
                   <div
-                    class="group/bar absolute inset-y-px cursor-default rounded-none ring-1 ring-inset transition-colors"
+                    class="group/bar absolute inset-y-0 cursor-default rounded-none transition-colors"
                     :class="selectedLayerIds.has(layer.id)
-                      ? 'bg-[var(--s-fill)] ring-[var(--s-select)]'
-                      : 'bg-[var(--s-raise)] ring-black/30 hover:bg-[#56565c]'"
+                      ? 'bg-[var(--s-fill)] ring-1 ring-inset ring-[var(--s-select)]'
+                      : 'bg-[var(--s-raise)] hover:bg-[#56565c]'"
                     :style="layerBarStyle(layer)"
                     :title="`${layerInPoint(layer).toFixed(2)}s – ${layerOutPoint(layer).toFixed(2)}s (double-click to reset)`"
                     @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'move', $event)"
