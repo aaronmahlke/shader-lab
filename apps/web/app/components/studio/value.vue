@@ -15,6 +15,7 @@ const {
   defaultValue,
   align = "center",
   mods,
+  keyframe,
 } = defineProps<{
   min?: number;
   max?: number;
@@ -34,6 +35,12 @@ const {
    * Each gets its own row above the box: range band, endpoint, live marker.
    */
   mods?: { id: string; color: string; depth: number; live?: number }[];
+  /**
+   * Keyframe button right of the box (omit to hide):
+   * "off" = not animated (click: animate + key), "animated" = no key at the
+   * playhead (click: add key), "on" = key at the playhead (click: remove).
+   */
+  keyframe?: "off" | "animated" | "on";
 }>();
 const model = defineModel<number>({ required: true });
 const emit = defineEmits<{
@@ -41,6 +48,7 @@ const emit = defineEmits<{
   "gesture-end": [];
   /** Dragging a modulation row sets that LFO's depth (endpoint = pointer). */
   "update:depth": [id: string, depth: number];
+  "toggle-key": [];
 }>();
 
 const clamp = (v: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
@@ -168,8 +176,9 @@ function reset() {
       <div v-if="row.overMax" class="pointer-events-none absolute inset-y-0 right-0 w-[2px] bg-[var(--s-danger)]" title="Modulation goes above the maximum" />
       <div v-if="row.live != null" class="pointer-events-none absolute inset-y-0 w-[2px] bg-[var(--s-bright)]" :style="{ left: `calc(1px + (100% - 4px) * ${row.live})` }" />
     </div>
+  <div class="flex min-w-0 items-center gap-[3px]">
   <div
-    class="s-num relative flex min-w-0 touch-none items-center overflow-hidden rounded-[var(--s-r-ctl)] bg-[var(--s-inset)] h-[var(--s-ctl)] shadow-[inset_0_0_0_1px_var(--s-edge)] outline-none select-none hover:bg-[var(--s-inset-hover)] focus:shadow-[inset_0_0_0_1px_var(--s-ring)]"
+    class="s-num relative flex min-w-0 flex-1 min-w-0 touch-none items-center overflow-hidden rounded-[var(--s-r-ctl)] bg-[var(--s-inset)] h-[var(--s-ctl)] shadow-[inset_0_0_0_1px_var(--s-edge)] outline-none select-none hover:bg-[var(--s-inset-hover)] focus:shadow-[inset_0_0_0_1px_var(--s-ring)]"
     :class="[editing && 'shadow-[inset_0_0_0_1px_var(--s-ring)]', align === 'center' ? 'justify-center' : 'justify-start px-[5px]']"
     tabindex="0"
     role="spinbutton"
@@ -203,6 +212,18 @@ function reset() {
       class="relative"
       :class="[label && 'mr-auto', fill && ratio != null ? 'text-[var(--s-fill-txt)]' : 'text-[var(--s-txt)]']"
     >{{ text }}</span>
+  </div>
+  <button
+    v-if="keyframe"
+    type="button"
+    class="flex size-[var(--s-ctl)] shrink-0 cursor-default items-center justify-center outline-none hover:bg-[var(--s-inset-hover)] focus-visible:shadow-[inset_0_0_0_1px_var(--s-ring)]"
+    :class="keyframe === 'off' ? 'text-[var(--s-off)] hover:text-[var(--s-txt)]' : 'text-[var(--s-bright)]'"
+    :aria-label="keyframe === 'on' ? 'Remove keyframe' : keyframe === 'animated' ? 'Add keyframe' : 'Animate (add keyframe)'"
+    :title="keyframe === 'on' ? 'Remove keyframe' : keyframe === 'animated' ? 'Add keyframe' : 'Animate: add a keyframe'"
+    @click="emit('toggle-key')"
+  >
+    <StudioIcon :name="keyframe === 'on' ? 'key-filled' : 'key'" />
+  </button>
   </div>
   </div>
 </template>

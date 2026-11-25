@@ -15,6 +15,9 @@ const blurMod = ref(10);
 const opMod = ref(50);
 const scaleMod = ref(150);
 const overMod = ref(85);
+const kOff = ref(40);
+const kState = ref<'off' | 'animated' | 'on'>('off');
+function cycleKey() { kState.value = kState.value === 'off' ? 'on' : kState.value === 'on' ? 'animated' : 'on'; }
 const blurDepth = ref(-4);
 let raf = 0;
 onMounted(() => {
@@ -88,6 +91,14 @@ function setDepth(id: string, d: number) {
         <StudioField label="Range only (not playing)">
           <StudioValue v-model="opMod" :min="0" :max="100" :step="1" :precision="0" unit="%" :mods="[{ id: 'a', color: '#5fd0a8', depth: depthA }]" @update:depth="setDepth" />
         </StudioField>
+      </div>
+    </KitchenSection>
+    <KitchenSection title="Keyframes" description="Diamond right of the box. Dim outline = not animated (click: start animating + key). Outline = animated, no key at the playhead (click: add). Filled = key at the playhead (click: remove).">
+      <div class="grid w-full grid-cols-3 gap-[6px]">
+        <StudioField label="Not animated"><StudioValue :model-value="40" :min="0" :max="100" :step="1" :precision="0" unit="%" keyframe="off" /></StudioField>
+        <StudioField label="Animated"><StudioValue :model-value="40" :min="0" :max="100" :step="1" :precision="0" unit="%" keyframe="animated" /></StudioField>
+        <StudioField label="Key at playhead"><StudioValue :model-value="40" :min="0" :max="100" :step="1" :precision="0" unit="%" keyframe="on" /></StudioField>
+        <StudioField label="Try it"><StudioValue v-model="kOff" :min="0" :max="100" :step="1" :precision="0" unit="%" :keyframe="kState" @toggle-key="cycleKey" /></StudioField>
       </div>
     </KitchenSection>
   </KitchenPage>
