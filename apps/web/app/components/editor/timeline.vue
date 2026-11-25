@@ -812,7 +812,6 @@ const POSITION_GROUP_DEF: LayerUniformDef = { name: POSITION_GROUP, label: "Posi
 /** Timeline properties: X/Y/Z collapse into one linked Position unless separated. */
 function keyframeableUniforms(layer: LayerInstance) {
   const raw = rawKeyframeableUniforms(layer);
-  if (layer.separateDimensions) return raw;
   const axes = new Set(positionAxes(layer));
   if (axes.size === 0) return raw;
   const out: LayerUniformDef[] = [];
@@ -830,9 +829,6 @@ function axesFor(owner: string, paramName: string): string[] {
   return layer ? positionAxes(layer) : [];
 }
 
-function isPositionRowParam(paramName: string): boolean {
-  return paramName === POSITION_GROUP || paramName.startsWith("layerPosition");
-}
 
 /** Keys of a row: the union over its axes (one diamond per time). */
 function rowKeys(owner: string, paramName: string): Keyframe[] {
@@ -855,41 +851,14 @@ function axisRefsAt(owner: string, paramName: string, time: number): KeyframeSel
     .map((axis) => ({ layerId: owner, paramName: axis, time }));
 }
 
-/** Separate dimensions: X/Y/Z rows, keys stay as they are. */
-function separateDimensions(layer: LayerInstance) {
-  layer.separateDimensions = true;
-  history?.record();
-}
+/** Position rows folded open into per-axis rows (layer ids). */
+const axisRowsOpen = ref<Set<string>>(new Set());
 
-/**
- * Link dimensions (AE): every axis gets a key wherever any axis has one,
- * holding that axis's value there, so the merged Position reads the same.
- */
-function linkDimensions(layer: LayerInstance) {
-  const axes = positionAxes(layer);
-  const active = axes.filter((a) => trackEnabled(layer.id, a));
-  if (active.length > 0) {
-    const times = [...new Set(
-      active.flatMap((a) => findPropertyTrack(tracks.value, layer.id, a)!.keys.map((k) => k.time)),
-    )];
-    let next = tracks.value;
-    for (const axis of axes) {
-      const staticValue = typeof layer.values[axis] === "number" ? (layer.values[axis] as number) : 0;
-      const track = findPropertyTrack(next, layer.id, axis);
-      const valueAt = (t: number) => evaluatePropertyTrack(track, t, staticValue);
-      if (!isPropertyTrackActive(track)) {
-        next = setTrackEnabled(next, layer.id, axis, true, staticValue, times[0] ?? 0);
-      }
-      for (const t of times) {
-        if (!hasKeyframeAt(findPropertyTrack(next, layer.id, axis), t)) {
-          next = upsertKeyframe(next, layer.id, axis, t, valueAt(t));
-        }
-      }
-    }
-    tracks.value = next;
-  }
-  delete layer.separateDimensions;
-  history?.record();
+function toggleAxisRows(layerId: string) {
+  const next = new Set(axisRowsOpen.value);
+  if (next.has(layerId)) next.delete(layerId);
+  else next.add(layerId);
+  axisRowsOpen.value = next;
 }
 
 function visibleProperties(layer: LayerInstance) {
@@ -1088,7 +1057,8 @@ type TimelineRow = {
   key: string;
   owner: string;
   def: LayerUniformDef;
-  kind: "property" | "link" | "source";
+  /** "axis": a position axis folded out under the linked Position row (edits that axis only). */
+  kind: "property" | "axis" | "link" | "source";
   layer?: LayerInstance;
   link?: ModulationAssignment;
   color?: string;
@@ -1190,7 +1160,19 @@ function rowsForLayer(layer: LayerInstance): TimelineRow[] {
   const rows: TimelineRow[] = [];
   for (const def of visibleProperties(layer)) {
     if (!showPropertyRow(layer, def.name)) continue;
-    rows.push(propertyRow(layer, def));
+    const row = propertyRow(layer, def);
+    rows.push(row);
+    if (def.name === POSITION_GROUP && axisRowsOpen.value.has(layer.id)) {
+      for (const axisRow of positionAxisRows(row)) {
+        rows.push({
+          ...axisRow,
+          key: `${axisRow.key}:axis`,
+          kind: "axis",
+          color: AXIS_COLORS[axisRow.def.name],
+          def: { ...axisRow.def, label: axisRow.def.name.slice(-1) },
+        });
+      }
+    }
     if (isLinkRowsOpen(layer.id, def.name) && isModulated(layer.id, def.name)) {
       rows.push(...linkRows(layer, def));
     }
@@ -1454,11 +1436,12 @@ function keyframeEasingId(layerId: string, paramName: string, time: number): str
 
 // --- Timeline value editing (scrub + click to type) ---
 
-const editingValue = ref<{ layerId: string; paramName: string; text: string } | null>(null);
+const editingValue = ref<{ rowKey: string; layerId: string; paramName: string; text: string } | null>(null);
 // layerId here is the row owner (layer id or link/modulator track id).
 
-function isEditingValue(layerId: string, paramName: string): boolean {
-  return editingValue.value?.layerId === layerId && editingValue.value?.paramName === paramName;
+/** By row key: the same param can show in two rows (Position and its X/Y row). */
+function isEditingValue(rowKey: string): boolean {
+  return editingValue.value?.rowKey === rowKey;
 }
 
 function defStep(def: LayerUniformDef): number {
@@ -1484,7 +1467,7 @@ function writeParamValue(row: TimelineRow, value: number) {
     // One write: `tracks` is a v-model, so it reads stale until the parent updates.
     let next = tracks.value;
     // Linked Position: one keyframe holds every axis (AE).
-    if (row.kind === "property" && row.layer && !row.layer.separateDimensions && def.name.startsWith("layerPosition")) {
+    if (row.kind === "property" && row.layer && def.name.startsWith("layerPosition")) {
       for (const axis of positionAxes(row.layer)) {
         if (axis === def.name) continue;
         const axisRow = positionAxisRows({ ...row, def: POSITION_GROUP_DEF }).find((r) => r.def.name === axis);
@@ -1543,6 +1526,7 @@ function onValuePointerDown(row: TimelineRow, e: PointerEvent) {
 function openValueEditor(row: TimelineRow) {
   const current = rowValue(row);
   editingValue.value = {
+    rowKey: row.key,
     layerId: row.owner,
     paramName: row.def.name,
     text: String(Number(current.toFixed(4))),
@@ -2601,6 +2585,7 @@ function selectAllLayers() {
                 </div>
                 <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1" :class="row.kind !== 'property' && 'pl-3'">
                   <UiStopwatchButton
+                    v-if="row.kind !== 'axis'"
                     data-drag-exclude
                     :active="trackEnabled(row.owner, row.def.name)"
                     @toggle="onRowStopwatch(row)"
@@ -2616,23 +2601,21 @@ function selectAllLayers() {
                   >
                     <span class="size-1.5 shrink-0 rounded-full" :style="{ backgroundColor: row.color }" />
                   </button>
-                  <UiContextMenu v-if="row.kind === 'property' && row.layer && isPositionRowParam(row.def.name)">
-                    <span
-                      class="block min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle"
-                      :title="row.def.name === POSITION_GROUP ? 'Right-click to separate dimensions' : 'Right-click to link dimensions'"
-                    >
-                      {{ row.def.label }}
-                    </span>
-                    <template #menu>
-                      <UiContextMenuItem v-if="row.def.name === POSITION_GROUP" @click="separateDimensions(row.layer!)">
-                        Separate Dimensions
-                      </UiContextMenuItem>
-                      <UiContextMenuItem v-else @click="linkDimensions(row.layer!)">
-                        Link Dimensions
-                      </UiContextMenuItem>
-                    </template>
-                  </UiContextMenu>
-                  <span v-else class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
+                  <button
+                    v-if="row.kind === 'property' && row.def.name === POSITION_GROUP"
+                    type="button"
+                    data-drag-exclude
+                    class="flex size-4 shrink-0 items-center justify-center rounded-sm text-neutral-subtle transition-colors hover:text-neutral-strong"
+                    :title="axisRowsOpen.has(row.owner) ? 'Hide X / Y' : 'Show X / Y separately'"
+                    @pointerdown.stop
+                    @click.stop="toggleAxisRows(row.owner)"
+                  >
+                    <ChevronRightIcon class="size-3 transition-transform" :class="axisRowsOpen.has(row.owner) && 'rotate-90'" />
+                  </button>
+                  <span
+                    class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle"
+                    :style="row.kind === 'axis' ? { color: row.color } : undefined"
+                  >
                     {{ row.def.label }}
                   </span>
                   <button
@@ -2658,7 +2641,7 @@ function selectAllLayers() {
                   <template v-for="(axis, ai) in positionAxisRows(row)" :key="axis.key">
                     <span v-if="ai > 0" class="text-copy-xs text-neutral-subtle/50">,</span>
                     <input
-                      v-if="isEditingValue(axis.owner, axis.def.name)"
+                      v-if="isEditingValue(axis.key)"
                       :ref="focusValueInput"
                       v-model="editingValue!.text"
                       data-drag-exclude
@@ -2682,7 +2665,7 @@ function selectAllLayers() {
                   </template>
                 </div>
                 <input
-                  v-else-if="isEditingValue(row.owner, row.def.name)"
+                  v-else-if="isEditingValue(row.key)"
                   :ref="focusValueInput"
                   v-model="editingValue!.text"
                   data-drag-exclude
@@ -2806,7 +2789,7 @@ function selectAllLayers() {
                         </button>
                       </div>
                       <input
-                        v-if="isEditingValue(row.owner, row.def.name)"
+                        v-if="isEditingValue(row.key)"
                         :ref="focusValueInput"
                         v-model="editingValue!.text"
                         data-drag-exclude
