@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {
+  ChevronLeftIcon,
+  MagnifyingGlassIcon,
   ChevronRightIcon,
   PlayIcon,
   PauseIcon,
@@ -112,6 +114,8 @@ type Emits = {
   /** A comp was dragged in from the project panel; the page owns the insert. */
   "insert-composition": [payload: { compId: string; name: string; index: number }];
   "open-comp": [layer: LayerInstance, newTab: boolean];
+  /** Parent column changed (AE Parent & Link). */
+  "set-parent": [layerId: string, parentId: string | null];
   /** Modulator pill clicked: open that LFO/envelope in the inspector. */
   "select-modulator": [sourceId: string];
 };
@@ -121,7 +125,7 @@ const expanded = ref<Set<string>>(new Set());
 const keyframesRevealed = ref<Set<string>>(new Set());
 /** U-view rows that stay visible after stopwatch off until layer collapses. */
 const pinnedUViewProperties = ref<Set<string>>(new Set());
-const labelWidth = 208;
+const labelWidth = 300;
 
 const PLAYHEAD_HEAD =
   "M0.31938 3.08047C-0.535142 1.74938 0.420642 0 2.00241 0H7.68118C9.26295 0 10.2187 1.74938 9.36421 3.08047L5.95419 8.39224C5.71104 8.77099 5.29188 9 4.8418 9C4.39171 9 3.97256 8.77099 3.72941 8.39224L0.31938 3.08047Z";
@@ -1880,6 +1884,95 @@ function isKeyedAtPlayhead(layerId: string, paramName: string): boolean {
   );
 }
 
+/** All key times of a row (linked Position: every axis), sorted, unique. */
+function rowKeyTimes(layerId: string, paramName: string): number[] {
+  const times = new Set<number>();
+  for (const axis of axesFor(layerId, paramName)) {
+    for (const k of findPropertyTrack(tracks.value, layerId, axis)?.keys ?? []) times.add(k.time);
+  }
+  return [...times].sort((a, b) => a - b);
+}
+
+/** AE keyframe navigator: jump the playhead to the previous / next key. */
+function jumpToKey(layerId: string, paramName: string, dir: -1 | 1) {
+  const t = currentTime.value;
+  const times = rowKeyTimes(layerId, paramName);
+  const target = dir < 0
+    ? [...times].reverse().find((k) => k < t - 1e-6)
+    : times.find((k) => k > t + 1e-6);
+  if (target != null) currentTime.value = target;
+}
+
+function hasKeyBefore(layerId: string, paramName: string): boolean {
+  return rowKeyTimes(layerId, paramName).some((k) => k < currentTime.value - 1e-6);
+}
+
+function hasKeyAfter(layerId: string, paramName: string): boolean {
+  return rowKeyTimes(layerId, paramName).some((k) => k > currentTime.value + 1e-6);
+}
+
+// --- Search (⌘F): filter layers by name or type ---
+
+const search = ref("");
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+function layerMatchesSearch(layer: LayerInstance): boolean {
+  const q = search.value.trim().toLowerCase();
+  if (!q) return true;
+  return layerLabel(layer).toLowerCase().includes(q) || layer.type.toLowerCase().includes(q);
+}
+
+// --- Animated only (toolbar toggle = U for every animated layer) ---
+
+const animatedOnly = computed(() => {
+  const animated = layers.value.filter((l) => enabledTracksForLayer(l.id).length > 0);
+  return animated.length > 0 && animated.every((l) => keyframesRevealed.value.has(l.id));
+});
+
+function toggleAnimatedOnly() {
+  const animated = layers.value.filter((l) => enabledTracksForLayer(l.id).length > 0).map((l) => l.id);
+  if (animatedOnly.value) collapseLayers(animated);
+  else revealUViewLayers(animated);
+}
+
+// --- Parent column ---
+
+/** Layers that can parent `layer`: not itself, not one of its descendants. */
+function parentOptionsFor(layer: LayerInstance): { value: string; label: string }[] {
+  const descendants = new Set<string>([layer.id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const l of layers.value) {
+      if (l.parent && descendants.has(l.parent) && !descendants.has(l.id)) {
+        descendants.add(l.id);
+        grew = true;
+      }
+    }
+  }
+  return [
+    { value: "", label: "None" },
+    ...layers.value.filter((l) => !descendants.has(l.id)).map((l) => ({ value: l.id, label: layerLabel(l) })),
+  ];
+}
+
+// --- Zoom slider (log scale between min and max) ---
+
+const zoomSlider = computed({
+  get: () =>
+    Math.log(pxPerSecond.value / MIN_PX_PER_SECOND) / Math.log(MAX_PX_PER_SECOND / MIN_PX_PER_SECOND),
+  set: (v: number) => {
+    const body = bodyScrollRef.value;
+    const next = MIN_PX_PER_SECOND * Math.pow(MAX_PX_PER_SECOND / MIN_PX_PER_SECOND, v);
+    if (!body) {
+      pxPerSecond.value = next;
+      return;
+    }
+    const rect = body.getBoundingClientRect();
+    zoomAt(next / pxPerSecond.value, rect.left + rect.width / 2);
+  },
+});
+
 function keyLeft(time: number): string {
   return `${timeToX(time)}px`;
 }
@@ -1897,6 +1990,17 @@ registerKeyboard({
     if (e.key !== "Enter" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
     if (selectedKeyframes.value.length > 0 || !selectedLayerId.value) return false;
     startRenameSelectedLayer();
+    return true;
+  },
+});
+
+registerKeyboard({
+  id: "timeline:search",
+  priority: EditorKeyboardPriority.timeline,
+  handle(e) {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "f") return false;
+    searchInputRef.value?.focus();
+    searchInputRef.value?.select();
     return true;
   },
 });
@@ -2332,65 +2436,66 @@ function selectAllLayers() {
 
 <template>
   <div class="flex h-full min-h-0 select-none flex-col bg-layer-1">
-    <!-- Transport -->
-    <div class="flex shrink-0 items-center gap-2 border-b border-neutral px-2 py-1.5">
-      <UiButton variant="ghost" size="sm" :icon-left="playing ? PauseIcon : PlayIcon" @click="togglePlay" />
-      <span class="font-mono text-copy-xs text-neutral-strong">{{ formatTime(currentTime) }}</span>
-      <input
-        v-if="editingDuration !== null"
-        :ref="focusValueInput"
-        v-model="editingDuration"
-        class="w-14 shrink-0 rounded-sm bg-control px-1 text-right font-mono text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
-        spellcheck="false"
-        title="Composition duration (seconds)"
-        @keydown.enter.stop.prevent="commitDurationEditor"
-        @keydown.esc.stop.prevent="cancelDurationEditor"
-        @keydown.stop
-        @blur="commitDurationEditor"
-        @pointerdown.stop
-      />
-      <span
-        v-else
-        class="cursor-text rounded-sm px-1 text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
-        title="Click to edit composition duration"
-        @click="openDurationEditor"
-      >/ {{ formatTime(settings.duration) }}</span>
-      <div class="ml-auto flex items-center gap-0.5">
-        <UiButton
-          variant="option"
-          size="sm"
-          :active="snapping"
-          :icon-left="MagnetIcon"
-          :title="snapping ? 'Snapping on (hold ⌥ to bypass)' : 'Snapping off'"
-          @click="snapping = !snapping"
-        />
-        <UiButton
-          variant="option"
-          size="sm"
-          :active="!!settings.motionBlur"
-          :icon-left="MotionBlurIcon"
-          :title="settings.motionBlur ? 'Motion blur on' : 'Motion blur off'"
-          @click="toggleMotionBlur"
-        />
-        <UiButton variant="ghost" size="sm" title="Fit composition to view (⇧Z)" @click="fitTimeline">Fit</UiButton>
-        <UiButton variant="ghost" size="sm" :icon-left="MinusIcon" title="Zoom out (⌥ scroll)" @click="zoomOut" />
-        <span class="min-w-10 text-center font-mono text-copy-xs text-neutral-subtle">{{ zoomPercent }}%</span>
-        <UiButton variant="ghost" size="sm" :icon-left="PlusIcon" title="Zoom in (⌥ scroll)" @click="zoomIn" />
-      </div>
-      <span class="text-copy-xs text-neutral-subtle">{{ settings.fps }} fps</span>
-    </div>
-
     <div class="flex min-h-0 flex-1 flex-col">
       <!-- Header row -->
       <div class="flex shrink-0 min-w-0">
+        <!-- AE-style header: time, search, view toggles; column labels below. -->
         <div
-          class="h-7 shrink-0 border-b border-r border-neutral bg-layer-2"
+          class="flex h-[60px] shrink-0 flex-col border-b border-r border-neutral-subtle bg-layer-1"
           :style="{ width: `${labelWidth}px` }"
-        />
+        >
+          <div class="flex h-9 items-center gap-1.5 px-2">
+            <span
+              class="w-16 shrink-0 font-mono text-sm font-semibold text-accent tabular-nums"
+              :title="`${formatTime(currentTime)} / ${formatTime(settings.duration)} · ${settings.fps} fps`"
+            >{{ formatTime(currentTime) }}</span>
+            <div class="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-md bg-tint-subtle px-1.5 focus-within:ring-1 focus-within:ring-focus">
+              <MagnifyingGlassIcon class="size-3 shrink-0 text-neutral-weak" />
+              <input
+                ref="searchInputRef"
+                v-model="search"
+                type="text"
+                placeholder="Search"
+                spellcheck="false"
+                class="min-w-0 flex-1 bg-transparent text-xs text-neutral-strong outline-none placeholder:text-neutral-weak"
+                @keydown.stop
+                @keydown.esc="search = ''; ($event.target as HTMLInputElement).blur()"
+              />
+            </div>
+            <d-tooltip content="Animated properties only (U)">
+              <button
+                type="button"
+                aria-label="Animated properties only"
+                class="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors"
+                :class="animatedOnly ? 'bg-tint text-accent' : 'text-neutral-subtle hover:bg-tint-subtle hover:text-neutral-strong'"
+                @click="toggleAnimatedOnly"
+              >
+                <svg viewBox="0 0 10 10" class="size-2.5"><path d="M5 0.8 9.2 5 5 9.2 0.8 5Z" :fill="animatedOnly ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.3" /></svg>
+              </button>
+            </d-tooltip>
+            <d-tooltip :content="snapping ? 'Snapping on (hold ⌥ to bypass)' : 'Snapping off'">
+              <button
+                type="button"
+                aria-label="Snapping"
+                class="flex size-6 shrink-0 items-center justify-center rounded-md transition-colors"
+                :class="snapping ? 'bg-tint text-accent' : 'text-neutral-subtle hover:bg-tint-subtle hover:text-neutral-strong'"
+                @click="snapping = !snapping"
+              >
+                <UIcon name="i-lucide-magnet" class="size-3.5" />
+              </button>
+            </d-tooltip>
+          </div>
+          <div class="flex h-6 items-center gap-0.5 px-1 text-[11px] text-neutral-weak select-none">
+            <span class="w-6 shrink-0" />
+            <span class="w-5 shrink-0" />
+            <span class="min-w-0 flex-1 px-1">Layer</span>
+            <span class="w-24 shrink-0 px-1">Parent</span>
+          </div>
+        </div>
 
         <div
           ref="rulerScrollRef"
-          class="h-7 min-w-0 flex-1 cursor-ew-resize touch-none overflow-x-auto overflow-y-hidden border-b border-neutral bg-layer-2 select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          class="h-[60px] min-w-0 flex-1 cursor-ew-resize touch-none overflow-x-auto overflow-y-hidden border-b border-neutral-subtle bg-layer-1 select-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           @scroll="onRulerScroll"
           @pointerdown="onRulerPointerDown"
         >
@@ -2453,6 +2558,7 @@ function selectAllLayers() {
             <div
               v-for="(layer, i) in layers"
               :key="layer.id"
+              v-show="layerMatchesSearch(layer)"
               class="layer-group relative"
               :class="[
                 !layer.enabled && 'opacity-50',
@@ -2474,6 +2580,16 @@ function selectAllLayers() {
                   @click="selectLayer(layer.id, $event)"
                   @dblclick.capture="onLayerRowDblClick(layer, $event)"
                 >
+                  <button
+                    type="button"
+                    data-drag-exclude
+                    class="flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-colors hover:bg-tint"
+                    :class="layer.enabled ? 'text-neutral-subtle hover:text-neutral-strong' : 'text-neutral-weak'"
+                    :aria-label="layer.enabled ? 'Hide layer' : 'Show layer'"
+                    @click.stop="toggleLayerEnabled(layer)"
+                  >
+                    <component :is="layer.enabled ? EyeIcon : EyeSlashIcon" class="size-3.5" />
+                  </button>
                   <button
                     type="button"
                     data-drag-exclude
@@ -2513,63 +2629,17 @@ function selectAllLayers() {
                   >
                     {{ enabledTracksForLayer(layer.id).length }}
                   </span>
-                  <!-- 3D switch. Members of a contiguous 3D run share a connected
-                       accent chip behind their cubes (one depth-sorted space). -->
-                  <span
-                    v-if="supports3D(layer) || isLayer3D(layer)"
-                    data-drag-exclude
-                    class="flex h-full shrink-0 items-stretch self-stretch"
-                    :class="threeDBracket(i) && 'bg-accent/15'"
-                    :style="
-                      threeDBracket(i)
-                        ? {
-                            borderTopLeftRadius: threeDBracket(i)!.first ? '6px' : '0',
-                            borderTopRightRadius: threeDBracket(i)!.first ? '6px' : '0',
-                            borderBottomLeftRadius: threeDBracket(i)!.last ? '6px' : '0',
-                            borderBottomRightRadius: threeDBracket(i)!.last ? '6px' : '0',
-                          }
-                        : undefined
-                    "
-                  >
-                    <button
-                      v-if="supports3D(layer)"
-                      type="button"
-                      title="3D layer"
-                      class="flex w-6 shrink-0 cursor-pointer items-center justify-center outline-none transition-colors duration-100"
-                      :class="
-                        layer.is3D
-                          ? 'text-accent'
-                          : 'text-neutral-subtle opacity-0 hover:text-neutral-strong group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
-                      "
-                      @click.stop="toggleLayer3D(layer)"
+                  <div class="w-24 shrink-0" data-drag-exclude @click.stop @pointerdown.stop>
+                    <select
+                      class="h-6 w-full cursor-pointer truncate rounded-md bg-transparent px-1 text-xs outline-none transition-colors hover:bg-tint"
+                      :class="layer.parent ? 'text-neutral-strong' : 'text-neutral-weak'"
+                      :value="layer.parent ?? ''"
+                      :title="layer.parent ? `Parent: ${layerLabel(layers.find((l) => l.id === layer.parent)!)}` : 'No parent'"
+                      @change="emit('set-parent', layer.id, ($event.target as HTMLSelectElement).value || null)"
                     >
-                      <component
-                        :is="layer.is3D ? CubeIcon : CubeTransparentIcon"
-                        class="size-4 shrink-0"
-                        aria-hidden="true"
-                      />
-                    </button>
-                    <span
-                      v-else
-                      title="Always a 3D layer"
-                      class="flex w-6 shrink-0 cursor-default items-center justify-center text-accent"
-                    >
-                      <CubeIcon class="size-4 shrink-0" aria-hidden="true" />
-                    </span>
-                  </span>
-                  <UiButton
-                    variant="ghost"
-                    size="sm"
-                    data-drag-exclude
-                    class="!size-6 shrink-0"
-                    :class="
-                      layer.enabled &&
-                      'opacity-0 group-hover/h:opacity-100 group-data-[active=true]/h:opacity-100 group-focus-within/h:opacity-100'
-                    "
-                    :icon-left="layer.enabled ? EyeIcon : EyeSlashIcon"
-                    :title="layer.enabled ? 'Hide layer' : 'Show layer'"
-                    @click.stop="toggleLayerEnabled(layer)"
-                  />
+                      <option v-for="opt in parentOptionsFor(layer)" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                    </select>
+                  </div>
                 </div>
               </UiHover>
 
@@ -2579,13 +2649,30 @@ function selectAllLayers() {
                 class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
                 :class="row.kind !== 'property' && 'bg-layer-1/40'"
               >
-                <div class="flex size-5 shrink-0 items-center justify-center">
-                  <UiKeyframeButton
-                    v-if="trackEnabled(row.owner, row.def.name)"
-                    data-drag-exclude
-                    :active="isKeyedAtPlayhead(row.owner, row.def.name)"
-                    @toggle="onRowKeyframe(row)"
-                  />
+                <!-- AE keyframe navigator: ◂ previous · ◆ add/remove · next ▸ -->
+                <div class="flex w-[60px] shrink-0 items-center justify-center" data-drag-exclude>
+                  <template v-if="trackEnabled(row.owner, row.def.name)">
+                    <button
+                      type="button"
+                      class="flex size-5 items-center justify-center rounded text-neutral-subtle transition-colors hover:text-neutral-strong disabled:opacity-25"
+                      :disabled="!hasKeyBefore(row.owner, row.def.name)"
+                      aria-label="Previous keyframe"
+                      @pointerdown.stop
+                      @click.stop="jumpToKey(row.owner, row.def.name, -1)"
+                    ><ChevronLeftIcon class="size-3" /></button>
+                    <UiKeyframeButton
+                      :active="isKeyedAtPlayhead(row.owner, row.def.name)"
+                      @toggle="onRowKeyframe(row)"
+                    />
+                    <button
+                      type="button"
+                      class="flex size-5 items-center justify-center rounded text-neutral-subtle transition-colors hover:text-neutral-strong disabled:opacity-25"
+                      :disabled="!hasKeyAfter(row.owner, row.def.name)"
+                      aria-label="Next keyframe"
+                      @pointerdown.stop
+                      @click.stop="jumpToKey(row.owner, row.def.name, 1)"
+                    ><ChevronRightIcon class="size-3" /></button>
+                  </template>
                 </div>
                 <div class="flex min-w-0 flex-1 items-center gap-0.5 px-1" :class="row.kind !== 'property' && 'pl-3'">
                   <UiStopwatchButton
@@ -2746,7 +2833,7 @@ function selectAllLayers() {
                       class="flex h-6 w-full cursor-default items-center gap-0.5 border-t border-neutral/50 px-1 select-none"
                       :class="row.kind !== 'property' && 'bg-layer-1/40'"
                     >
-                      <div class="flex size-5 shrink-0 items-center justify-center">
+                      <div class="flex w-[60px] shrink-0 items-center justify-center">
                         <UiKeyframeButton
                           v-if="trackEnabled(row.owner, row.def.name)"
                           data-drag-exclude
@@ -2838,6 +2925,7 @@ function selectAllLayers() {
             <div class="min-h-full">
               <div
                 v-for="layer in layers"
+                v-show="layerMatchesSearch(layer)"
                 :key="`t-${layer.id}`"
                 class="layer-group"
                 :class="!layer.enabled && 'opacity-50'"
@@ -3052,6 +3140,31 @@ function selectAllLayers() {
               :style="{ left: `${playheadX}px` }"
             />
           </div>
+        </div>
+      </div>
+      <!-- Bottom bar: zoom under the time area (AE). -->
+      <div class="flex h-8 shrink-0 border-t border-neutral-subtle bg-layer-1">
+        <div class="shrink-0 border-r border-neutral-subtle" :style="{ width: `${labelWidth}px` }" />
+        <div class="flex min-w-0 flex-1 items-center gap-1 px-2">
+          <button type="button" class="flex size-6 items-center justify-center rounded-md text-neutral-subtle hover:bg-tint hover:text-neutral-strong" aria-label="Zoom out" @click="zoomOut">
+            <MinusIcon class="size-3" />
+          </button>
+          <input
+            v-model.number="zoomSlider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.001"
+            class="h-1 w-32 cursor-pointer accent-neutral-500"
+            aria-label="Timeline zoom"
+          />
+          <button type="button" class="flex size-6 items-center justify-center rounded-md text-neutral-subtle hover:bg-tint hover:text-neutral-strong" aria-label="Zoom in" @click="zoomIn">
+            <PlusIcon class="size-3" />
+          </button>
+          <d-tooltip content="Fit comp to width (⇧Z)">
+            <button type="button" class="ml-1 rounded-md px-1.5 py-0.5 text-xs text-neutral-subtle hover:bg-tint hover:text-neutral-strong" @click="fitTimeline">Fit</button>
+          </d-tooltip>
+          <span class="ml-auto text-[11px] text-neutral-weak tabular-nums">{{ formatTime(settings.duration) }} · {{ settings.fps }} fps</span>
         </div>
       </div>
     </div>

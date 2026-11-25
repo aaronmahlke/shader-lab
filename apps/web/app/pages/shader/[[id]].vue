@@ -2250,6 +2250,7 @@ registerKeyboard({
             @precompose="precomposeLayers"
             @insert-composition="insertCompositionLayer"
             @open-comp="openNestedComp"
+            @set-parent="(layerId, parentId) => setLayerParent(layerId, parentId, null)"
           />
           </div>
         </div>
