@@ -20,11 +20,12 @@ const emit = defineEmits<Emits>();
 <template>
   <button
     type="button"
-    class="flex size-5 shrink-0 items-center justify-center rounded outline-none disabled:opacity-40"
+    class="flex size-[16px] shrink-0 cursor-default items-center justify-center outline-none hover:bg-[var(--s-inset-hover)] disabled:opacity-40"
+    :class="active ? 'text-[var(--s-bright)]' : 'text-[var(--s-txt)]'"
     :disabled="disabled"
     :title="title"
     @click.stop="emit('toggle')"
   >
-    <UiKeyframeDiamond class="size-2" :at-playhead="active" />
+    <StudioIcon :name="active ? 'key-filled' : 'key'" />
   </button>
 </template>

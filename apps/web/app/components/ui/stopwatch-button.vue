@@ -15,11 +15,11 @@ const emit = defineEmits<Emits>();
 <template>
   <button
     type="button"
-    class="flex size-5 shrink-0 items-center justify-center rounded outline-none"
-    :class="active ? '' : 'text-neutral-subtle hover:text-neutral-strong'"
+    class="flex size-[16px] shrink-0 cursor-default items-center justify-center outline-none hover:bg-[var(--s-inset-hover)]"
+    :class="active ? 'text-[var(--s-accent)]' : 'text-[var(--s-dim)] hover:text-[var(--s-txt)]'"
     :title="title"
     @click.stop="emit('toggle')"
   >
-    <UiStopwatchDot :active="active" />
+    <StudioIcon name="stopwatch" />
   </button>
 </template>
