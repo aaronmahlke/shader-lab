@@ -1393,49 +1393,45 @@ function applyKeyframeEasing(
   history?.record();
 }
 
-/** Mini value curves drawn between adjacent keys in a property row. */
+/**
+ * Value line for a property row: one continuous path through all keys (the
+ * whole journey), scaled to the track's own min/max so highs and lows read
+ * true. Linked Position draws one line per animated axis.
+ */
 function segmentPaths(layerId: string, paramName: string): string[] {
-  // Linked Position: draw the first animated axis.
-  const axis =
-    axesFor(layerId, paramName).find((a) => isPropertyTrackActive(findPropertyTrack(tracks.value, layerId, a))) ??
-    paramName;
-  const track = findPropertyTrack(tracks.value, layerId, axis);
-  if (!track || track.keys.length < 2) return [];
-
-  const keys = [...track.keys].sort((a, b) => a.time - b.time);
   const top = 5;
   const bottom = PROP_ROW_H - 5;
   const paths: string[] = [];
+  for (const axis of axesFor(layerId, paramName)) {
+    const track = findPropertyTrack(tracks.value, layerId, axis);
+    if (!isPropertyTrackActive(track) || track!.keys.length < 2) continue;
+    const keys = [...track!.keys].sort((a, b) => a.time - b.time);
+    const t0 = keys[0]!.time;
+    const t1 = keys[keys.length - 1]!.time;
+    const x0 = timeToX(t0);
+    const x1 = timeToX(t1);
+    if (x1 - x0 < 2) continue;
 
-  for (let i = 0; i < keys.length - 1; i++) {
-    const a = keys[i]!;
-    const b = keys[i + 1]!;
-    const x0 = timeToX(a.time);
-    const x1 = timeToX(b.time);
-    if (x1 - x0 < 6) continue;
-
-    if (Math.abs(b.value - a.value) < 1e-9) {
-      const mid = (top + bottom) / 2;
-      paths.push(`M ${x0.toFixed(1)} ${mid} L ${x1.toFixed(1)} ${mid}`);
-      continue;
+    // Sample every ~2px; also hit each key exactly (holds step there).
+    const times: number[] = [];
+    const steps = Math.max(2, Math.ceil((x1 - x0) / 2));
+    for (let i = 0; i <= steps; i++) times.push(t0 + ((t1 - t0) * i) / steps);
+    for (const k of keys) times.push(k.time, k.time - 1e-6);
+    times.sort((a, b) => a - b);
+    const values = times.map((t) => evaluateKeyframes(keys, Math.max(t0, t), keys[0]!.value));
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    if (max - min < 1e-9) {
+      min -= 1;
+      max += 1;
     }
-
-    const rising = b.value > a.value;
-    const yStart = rising ? bottom : top;
-    const yEnd = rising ? top : bottom;
-    const steps = 24;
-    const points: string[] = [];
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const value = evaluateKeyframes([a, b], a.time + t * (b.time - a.time), a.value);
-      const norm = (value - a.value) / (b.value - a.value);
-      const x = x0 + (x1 - x0) * t;
-      const y = yStart + (yEnd - yStart) * norm;
-      points.push(`${x.toFixed(1)} ${y.toFixed(1)}`);
-    }
+    const points = times.map((t, i) => {
+      const x = (Math.max(t0, t) - t0) * pxPerSecond.value + x0;
+      const y = bottom - ((values[i]! - min) / (max - min)) * (bottom - top);
+      return `${x.toFixed(1)} ${y.toFixed(1)}`;
+    });
     paths.push(`M ${points.join(" L ")}`);
   }
-
   return paths;
 }
 
@@ -2932,6 +2928,7 @@ function selectAllLayers() {
                         v-for="(seg, si) in segmentPaths(row.owner, row.def.name)"
                         :key="`s-${si}`"
                         :d="seg"
+                        :opacity="si === 0 ? 1 : 0.5"
                         fill="none"
                         :class="!row.color && 'stroke-accent/40'"
                         :stroke="row.color"
@@ -3011,6 +3008,7 @@ function selectAllLayers() {
                               v-for="(seg, si) in segmentPaths(row.owner, row.def.name)"
                               :key="`s-${si}`"
                               :d="seg"
+                              :opacity="si === 0 ? 1 : 0.5"
                               fill="none"
                               :class="!row.color && 'stroke-accent/40'"
                               :stroke="row.color"
