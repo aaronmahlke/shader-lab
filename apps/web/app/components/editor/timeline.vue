@@ -38,6 +38,8 @@ import {
 import {
   EASING_PRESETS,
   LAYER_TEMPLATES,
+  ModulationEngine,
+  linksFor,
   evaluateKeyframes,
   evaluatePropertyTrack,
   find3DRuns,
@@ -54,6 +56,9 @@ import {
   upsertKeyframe,
   type CompositionSettings,
   type CubicBezierEase,
+  type EnvelopeSource,
+  type LFOSource,
+  type ModulationAssignment,
   type Keyframe,
   type KeyframeEasing,
   type LayerInstance,
@@ -94,6 +99,8 @@ type Emits = {
   precompose: [layerIds: string[]];
   /** A comp was dragged in from the project panel; the page owns the insert. */
   "insert-composition": [payload: { compId: string; name: string; index: number }];
+  /** Modulator pill clicked: open that LFO/envelope in the inspector. */
+  "select-modulator": [sourceId: string];
 };
 
 const expanded = ref<Set<string>>(new Set());
@@ -129,8 +136,11 @@ const playing = defineModel<boolean>("playing", { required: true });
 const pxPerSecond = defineModel<number>("pxPerSecond", { default: DEFAULT_PX_PER_SECOND });
 const snapping = defineModel<boolean>("snapping", { default: true });
 
-const { settings } = defineProps<{
+const { settings, lfos = [], envelopes = [], assignments = [] } = defineProps<{
   settings: CompositionSettings;
+  lfos?: LFOSource[];
+  envelopes?: EnvelopeSource[];
+  assignments?: ModulationAssignment[];
 }>();
 
 const emit = defineEmits<Emits>();
@@ -783,7 +793,11 @@ function showPropertyRow(layer: LayerInstance, paramName: string): boolean {
   if (isExpanded(layer.id)) return true;
   if (!isKeyframesRevealed(layer.id)) return false;
   const track = findPropertyTrack(tracks.value, layer.id, paramName);
-  return isPropertyTrackActive(track) || isPinnedInUView(layer.id, paramName);
+  return (
+    isPropertyTrackActive(track) ||
+    isModulated(layer.id, paramName) ||
+    isPinnedInUView(layer.id, paramName)
+  );
 }
 
 function trackEnabled(layerId: string, paramName: string): boolean {
@@ -813,7 +827,9 @@ watch(
       const hasRows = keyframeableUniforms(layer).some((def) => {
         const track = findPropertyTrack(tracks.value, layer.id, def.name);
         return (
-          isPropertyTrackActive(track) || nextPins.has(uViewPropertyKey(layer.id, def.name))
+          isPropertyTrackActive(track) ||
+          isModulated(layer.id, def.name) ||
+          nextPins.has(uViewPropertyKey(layer.id, def.name))
         );
       });
       if (!hasRows) {
@@ -834,6 +850,121 @@ watch(
   },
   { deep: true },
 );
+
+// --- Modulators (LFOs / envelopes) ---
+
+type ModSource = { id: string; label: string; color: string };
+
+const modSources = computed(
+  () => new Map<string, ModSource>([...lfos, ...envelopes].map((s) => [s.id, s])),
+);
+
+function propertyLinks(layerId: string, paramName: string): ModulationAssignment[] {
+  return linksFor(assignments, layerId, paramName).filter((a) => modSources.value.has(a.sourceId));
+}
+
+function isModulated(layerId: string, paramName: string): boolean {
+  return propertyLinks(layerId, paramName).length > 0;
+}
+
+function uniqueSources(links: ModulationAssignment[]): ModSource[] {
+  const seen = new Map<string, ModSource>();
+  for (const link of links) {
+    const source = modSources.value.get(link.sourceId);
+    if (source) seen.set(source.id, source);
+  }
+  return [...seen.values()];
+}
+
+function propertyModSources(layerId: string, paramName: string): ModSource[] {
+  return uniqueSources(propertyLinks(layerId, paramName));
+}
+
+/** Modulators driving any timeline property of the layer (for the collapsed bar). */
+function layerModSources(layer: LayerInstance): ModSource[] {
+  const names = new Set(keyframeableUniforms(layer).map((d) => d.name));
+  return uniqueSources(assignments.filter((a) => a.layerId === layer.id && names.has(a.paramName)));
+}
+
+function modTitle(sources: ModSource[]): string {
+  return `Modulated by ${sources.map((s) => s.label).join(", ")} — click to edit`;
+}
+
+type ModCurve = { base: string; mod: string; color: string };
+
+/**
+ * Per modulated property: the base (static/keyframes) and the final value
+ * (base + links) sampled across the comp, normalized to the row height.
+ * Independent of the playhead, so scrubbing doesn't resample.
+ */
+const modulationCurves = computed(() => {
+  const curves = new Map<string, ModCurve>();
+  if (assignments.length === 0) return curves;
+
+  type Target = { layer: LayerInstance; paramName: string; staticBase: number; color: string };
+  const targets: Target[] = [];
+  for (const layer of layers.value) {
+    for (const def of keyframeableUniforms(layer)) {
+      const sources = propertyModSources(layer.id, def.name);
+      if (sources.length === 0) continue;
+      const raw = layer.values[def.name];
+      const staticBase = typeof raw === "number" ? raw : Number(def.default ?? 0);
+      targets.push({ layer, paramName: def.name, staticBase, color: sources[0]!.color });
+    }
+  }
+  if (targets.length === 0) return curves;
+
+  const engine = new ModulationEngine();
+  engine.setConfig({ layers: layers.value, lfos, envelopes, assignments, tracks: tracks.value });
+
+  const duration = Math.max(settings.duration, 1e-3);
+  const samples = Math.max(32, Math.min(800, Math.round((duration * pxPerSecond.value) / 2)));
+  const times = Array.from({ length: samples }, (_, i) => (duration * i) / (samples - 1));
+  const base = targets.map(() => new Array<number>(samples));
+  const mod = targets.map(() => new Array<number>(samples));
+
+  times.forEach((t, i) => {
+    engine.sampleAt(t);
+    targets.forEach((target, ti) => {
+      const track = findPropertyTrack(tracks.value, target.layer.id, target.paramName);
+      const b = evaluatePropertyTrack(track, t, target.staticBase);
+      base[ti]![i] = b;
+      mod[ti]![i] = engine.getModulatedValue(target.layer.id, target.paramName, b);
+    });
+  });
+
+  const top = 4;
+  const bottom = PROP_ROW_H - 4;
+  targets.forEach((target, ti) => {
+    const all = [...base[ti]!, ...mod[ti]!];
+    let min = Math.min(...all);
+    let max = Math.max(...all);
+    if (max - min < 1e-9) {
+      min -= 1;
+      max += 1;
+    }
+    const toPath = (values: number[]) =>
+      "M " +
+      values
+        .map((v, i) => {
+          const x = times[i]! * pxPerSecond.value;
+          const y = bottom - ((v - min) / (max - min)) * (bottom - top);
+          return `${x.toFixed(1)} ${y.toFixed(1)}`;
+        })
+        .join(" L ");
+    curves.set(`${target.layer.id}:${target.paramName}`, {
+      base: toPath(base[ti]!),
+      mod: toPath(mod[ti]!),
+      color: target.color,
+    });
+  });
+
+  return curves;
+});
+
+function modulationCurve(layerId: string, paramName: string): ModCurve | undefined {
+  return modulationCurves.value.get(`${layerId}:${paramName}`);
+}
 
 function valueAt(layer: LayerInstance, paramName: string, fallback: number): number {
   const track = findPropertyTrack(tracks.value, layer.id, paramName);
@@ -2038,6 +2169,22 @@ function selectAllLayers() {
                     <span class="min-w-0 flex-1 truncate text-copy-xs text-neutral-subtle">
                       {{ def.label }}
                     </span>
+                    <button
+                      v-if="isModulated(layer.id, def.name)"
+                      type="button"
+                      data-drag-exclude
+                      class="flex h-4 shrink-0 items-center gap-0.5 rounded-full px-1 transition-colors hover:bg-control"
+                      :title="modTitle(propertyModSources(layer.id, def.name))"
+                      @pointerdown.stop
+                      @click.stop="emit('select-modulator', propertyModSources(layer.id, def.name)[0]!.id)"
+                    >
+                      <span
+                        v-for="src in propertyModSources(layer.id, def.name)"
+                        :key="src.id"
+                        class="size-1.5 shrink-0 rounded-full"
+                        :style="{ backgroundColor: src.color }"
+                      />
+                    </button>
                   </div>
                   <input
                     v-if="isEditingValue(layer.id, def.name)"
@@ -2098,6 +2245,18 @@ function selectAllLayers() {
                     @dblclick.stop="resetLayerTiming(layer)"
                   >
                     <div
+                      v-if="layerModSources(layer).length"
+                      class="pointer-events-none absolute top-1/2 left-3 flex -translate-y-1/2 gap-0.5"
+                      :title="modTitle(layerModSources(layer))"
+                    >
+                      <span
+                        v-for="src in layerModSources(layer)"
+                        :key="src.id"
+                        class="size-1.5 rounded-full ring-1 ring-black/30"
+                        :style="{ backgroundColor: src.color }"
+                      />
+                    </div>
+                    <div
                       class="absolute inset-y-0 left-0 flex w-2 cursor-ew-resize items-center justify-center rounded-l-[5px] bg-white/10 opacity-0 transition-opacity group-hover/bar:opacity-100"
                       @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'in', $event)"
                     >
@@ -2121,14 +2280,33 @@ function selectAllLayers() {
                       class="pointer-events-none absolute inset-0 size-full"
                       aria-hidden="true"
                     >
-                      <path
-                        v-for="(seg, si) in segmentPaths(layer.id, def.name)"
-                        :key="`s-${si}`"
-                        :d="seg"
-                        fill="none"
-                        class="stroke-accent/40"
-                        stroke-width="1.5"
-                      />
+                      <template v-if="modulationCurve(layer.id, def.name)">
+                        <path
+                          :d="modulationCurve(layer.id, def.name)!.base"
+                          fill="none"
+                          class="stroke-white/15"
+                          stroke-width="1"
+                          stroke-dasharray="2 2"
+                        />
+                        <path
+                          :d="modulationCurve(layer.id, def.name)!.mod"
+                          fill="none"
+                          :stroke="modulationCurve(layer.id, def.name)!.color"
+                          stroke-opacity="0.85"
+                          stroke-width="1.25"
+                          stroke-linejoin="round"
+                        />
+                      </template>
+                      <template v-else>
+                        <path
+                          v-for="(seg, si) in segmentPaths(layer.id, def.name)"
+                          :key="`s-${si}`"
+                          :d="seg"
+                          fill="none"
+                          class="stroke-accent/40"
+                          stroke-width="1.5"
+                        />
+                      </template>
                     </svg>
                     <UiContextMenu
                       v-for="key in findPropertyTrack(tracks, layer.id, def.name)?.keys ?? []"
