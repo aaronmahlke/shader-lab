@@ -3,17 +3,20 @@ import type { ModulationEngine } from "../modulation/engine";
 import type { PropertyTrack } from "../types/animation";
 import { evaluatePropertyTrack, findPropertyTrack } from "./property-tracks";
 
-/** Build a modulation fn: keyframed params override LFO when stopwatch is on. */
+/**
+ * Build the per-frame modulation fn: the base is the keyframed value when the
+ * stopwatch is on (else the static value), and modulator links stack on top.
+ */
 export function createAnimatedModulationFn(
   time: number,
   tracks: PropertyTrack[],
-  lfoEngine: ModulationEngine,
+  engine: ModulationEngine,
 ): ModulationFn {
+  engine.setTracks(tracks);
+  engine.ensureSampled(time);
   return (layerId, paramName, baseValue) => {
     const track = findPropertyTrack(tracks, layerId, paramName);
-    if (track?.enabled) {
-      return evaluatePropertyTrack(track, time, baseValue);
-    }
-    return lfoEngine.getModulatedValue(layerId, paramName, baseValue);
+    const base = track?.enabled ? evaluatePropertyTrack(track, time, baseValue) : baseValue;
+    return engine.getModulatedValue(layerId, paramName, base);
   };
 }

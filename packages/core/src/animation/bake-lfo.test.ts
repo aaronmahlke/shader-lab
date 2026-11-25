@@ -53,8 +53,7 @@ function configWith(overrides: Partial<CompositionConfig> = {}): CompositionConf
 /** What the renderer would see at `time` for the given config. */
 function valueAt(config: CompositionConfig, layerId: string, paramName: string, time: number, base: number) {
   const engine = new ModulationEngine();
-  engine.setLfos(config.lfos);
-  engine.setAssignments(config.assignments);
+  engine.setConfig(config);
   engine.sampleAt(time);
   return createAnimatedModulationFn(time, config.tracks ?? [], engine)(layerId, paramName, base);
 }
@@ -295,5 +294,63 @@ describe("bakeLfoAssignments", () => {
       "missing-source",
       "unknown-param",
     ]);
+  });
+
+  it("bakes keyframes and links together when overwriting", () => {
+    const config = configWith({
+      tracks: [
+        {
+          layerId: "distortion-1",
+          paramName: "amplitude",
+          enabled: true,
+          keys: [{ time: 0, value: 0.2, ease: "linear" }, { time: 4, value: 1, ease: "linear" }],
+        },
+      ],
+    });
+    const { config: result } = bakeLfoAssignments(config, { overwrite: true, tolerance: 0 });
+    for (const t of [0.5, 1.7, 3.2]) {
+      expect(valueAt(result, "distortion-1", "amplitude", t, 0.4)).toBeCloseTo(
+        valueAt(config, "distortion-1", "amplitude", t, 0.4),
+        6,
+      );
+    }
+  });
+
+  it("folds every link on a property into one track and keeps unselected links live", () => {
+    const config = configWith({
+      lfos: [lfo(), lfo({ id: "lfo-2", rate: 1.5 }), lfo({ id: "lfo-3", rate: 0.25 })],
+      assignments: [
+        { sourceId: "lfo-1", layerId: "distortion-1", paramName: "amplitude", depth: 0.3 },
+        { sourceId: "lfo-2", layerId: "distortion-1", paramName: "amplitude", depth: -0.1 },
+        { sourceId: "lfo-3", layerId: "distortion-1", paramName: "amplitude", depth: 0.2 },
+      ],
+    });
+    const { config: result, baked } = bakeLfoAssignments(config, {
+      tolerance: 0,
+      filter: (a) => a.sourceId !== "lfo-3",
+    });
+    expect(baked.length).toBe(1);
+    expect(result.assignments.map((a) => a.sourceId)).toEqual(["lfo-3"]);
+    for (const t of [0.3, 1.1, 2.9]) {
+      expect(valueAt(result, "distortion-1", "amplitude", t, 0.4)).toBeCloseTo(
+        valueAt(config, "distortion-1", "amplitude", t, 0.4),
+        6,
+      );
+    }
+  });
+
+  it("bakes envelope links", () => {
+    const config = configWith({
+      envelopes: [{ id: "env-1", label: "Hit", color: "#fff", attack: 0.5, decay: 0.5, sustain: 0.4, gate: 2, release: 1 }],
+      assignments: [{ sourceId: "env-1", layerId: "distortion-1", paramName: "amplitude", depth: 0.5 }],
+    });
+    const { config: result } = bakeLfoAssignments(config, { tolerance: 0 });
+    expect(result.assignments).toEqual([]);
+    for (const t of [0.25, 0.75, 2.5]) {
+      expect(valueAt(result, "distortion-1", "amplitude", t, 0.4)).toBeCloseTo(
+        valueAt(config, "distortion-1", "amplitude", t, 0.4),
+        6,
+      );
+    }
   });
 });

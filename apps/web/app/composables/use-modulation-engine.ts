@@ -2,6 +2,8 @@ import {
   ModulationEngine,
   evaluateWavePoints,
   createAnimatedModulationFn,
+  type EnvelopeSource,
+  type LayerInstance,
   type LFOSource,
   type ModulationAssignment,
   type PropertyTrack,
@@ -50,6 +52,9 @@ export function useModulationEngine(
   options: {
     clockTime?: Ref<number>;
     tracks?: Ref<PropertyTrack[]>;
+    /** For links on the layer time base (offset by the layer in-point). */
+    layers?: Ref<LayerInstance[]>;
+    envelopes?: Ref<EnvelopeSource[]>;
   } = {},
 ) {
   const engine = new ModulationEngine();
@@ -58,18 +63,23 @@ export function useModulationEngine(
 
   let animationId: number | null = null;
   let startTime = 0;
+  /** Last sampled time; the clock when there is no external `clockTime`. */
+  let sampledTime = 0;
 
   watch(lfos, (v) => engine.setLfos(v), { deep: true, immediate: true });
   watch(assignments, (v) => engine.setAssignments(v), { deep: true, immediate: true });
+  if (options.layers) watch(options.layers, (v) => engine.setLayers(v), { deep: true, immediate: true });
+  if (options.envelopes) watch(options.envelopes, (v) => engine.setEnvelopes(v), { deep: true, immediate: true });
 
   function sampleLfosAtTime(clockSeconds: number) {
+    sampledTime = clockSeconds;
     engine.sampleAt(clockSeconds);
     lfoValues.value = engine.getLfoValues();
   }
 
   function getModulatedValue(layerId: string, paramName: string, baseValue: number): number {
     const tracks = options.tracks?.value ?? [];
-    const time = options.clockTime?.value ?? 0;
+    const time = options.clockTime?.value ?? sampledTime;
     const fn = createAnimatedModulationFn(time, tracks, engine);
     return fn(layerId, paramName, baseValue);
   }

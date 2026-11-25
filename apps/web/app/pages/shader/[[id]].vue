@@ -250,7 +250,7 @@ const draggingLfoId = ref<string | null>(null);
 const { lfoValues, getModulatedValue, modFn, sampleLfosAtTime } = useModulationEngine(
   lfos,
   assignments,
-  { clockTime: currentTime, tracks },
+  { clockTime: currentTime, tracks, layers },
 );
 
 provide("lfoValues", lfoValues);

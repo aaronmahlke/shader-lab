@@ -84,15 +84,56 @@ export function evaluateKeyframes(keys: Keyframe[], time: number, fallback: numb
     if (time >= a.time && time <= b.time) {
       const span = b.time - a.time;
       if (span <= 1e-9) return b.value;
-      const raw = (time - a.time) / span;
-      const eased = a.curve
-        ? evaluateCubicBezier(a.curve, raw)
-        : easeProgress(raw, a.ease ?? "linear");
-      return a.value + (b.value - a.value) * eased;
+      return a.value + (b.value - a.value) * segmentProgress(a, (time - a.time) / span);
     }
   }
 
   return sorted[sorted.length - 1]!.value;
+}
+
+/** Eased 0..1 progress of the segment that starts at `key`. */
+function segmentProgress(key: Keyframe, raw: number): number {
+  return key.curve ? evaluateCubicBezier(key.curve, raw) : easeProgress(raw, key.ease ?? "linear");
+}
+
+const INTEGRATION_STEPS = 32; // Simpson subdivisions per keyframe segment (even)
+
+/**
+ * ∫ keyframes(τ) dτ from `from` to `to` (signed). Constant before the first and
+ * after the last key; eased segments use Simpson's rule on the segment's own
+ * easing, so hold keys integrate exactly. Deterministic for scrub and export.
+ */
+export function integrateKeyframes(keys: Keyframe[], from: number, to: number, fallback: number): number {
+  if (to < from) return -integrateKeyframes(keys, to, from, fallback);
+  if (to === from) return 0;
+  if (keys.length === 0) return fallback * (to - from);
+
+  const sorted = [...keys].sort((a, b) => a.time - b.time);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+  let total = 0;
+
+  if (from < first.time) total += first.value * (Math.min(to, first.time) - from);
+  if (to > last.time) total += last.value * (to - Math.max(from, last.time));
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i]!;
+    const b = sorted[i + 1]!;
+    const span = b.time - a.time;
+    const lo = Math.max(from, a.time);
+    const hi = Math.min(to, b.time);
+    if (span <= 1e-9 || hi <= lo) continue;
+
+    const f = (time: number) => a.value + (b.value - a.value) * segmentProgress(a, (time - a.time) / span);
+    const h = (hi - lo) / INTEGRATION_STEPS;
+    let sum = f(lo) + f(hi);
+    for (let s = 1; s < INTEGRATION_STEPS; s++) {
+      sum += f(lo + s * h) * (s % 2 === 0 ? 2 : 4);
+    }
+    total += (sum * h) / 3;
+  }
+
+  return total;
 }
 
 export function evaluatePropertyTrack(

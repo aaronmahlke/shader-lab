@@ -149,9 +149,45 @@ export type LFOSource = {
   mode: LFOPlaybackMode;
 };
 
+/**
+ * ADSR envelope modulator. Each trigger opens a gate for `gate` seconds:
+ * attack ramps to 1, decay falls to `sustain`, and once the gate closes the
+ * level releases to 0. A retrigger starts its attack from the current level.
+ */
+export type EnvelopeSource = {
+  id: string;
+  label: string;
+  color: string;
+  attack: number;   // seconds
+  decay: number;    // seconds
+  sustain: number;  // 0-1 level held while the gate is open
+  gate: number;     // seconds the gate stays open per trigger
+  release: number;  // seconds
+  /** Trigger times in the link's time base (seconds). Defaults to [0]. */
+  triggers?: number[];
+};
+
+/**
+ * Clock a link reads its modulator on. "layer" restarts at the target
+ * layer's in-point (envelope triggers become relative to it).
+ */
+export type ModulationTimeBase = "comp" | "layer";
+
+/**
+ * Link from a modulator (LFO or envelope) to any numeric property. Links
+ * stack on top of the property's base (static value or keyframes):
+ * `value = base + Σ depth × signal`. `depth` and `enabled` can be keyframed
+ * through `linkTrackLayerId(link)` tracks.
+ */
 export type ModulationAssignment = {
+  /** Stable id for link tracks. Falls back to source/layer/param when missing. */
+  id?: string;
   sourceId: string;
   layerId: string;
   paramName: string;
   depth: number;   // signed: positive = endpoint above base, negative = endpoint below base
+  /** Off = link contributes nothing. Defaults to true. */
+  enabled?: boolean;
+  /** Defaults to "comp". */
+  timeBase?: ModulationTimeBase;
 };

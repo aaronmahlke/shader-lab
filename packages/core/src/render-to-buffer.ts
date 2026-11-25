@@ -38,8 +38,7 @@ export async function renderCompositionToBuffer(
   }
 
   const engine = new ModulationEngine();
-  engine.setLfos(config.lfos);
-  engine.setAssignments(config.assignments);
+  engine.setConfig(config);
   engine.sampleAt(time);
   const modFn = createAnimatedModulationFn(time, config.tracks ?? [], engine);
   const registry = options.compositions ?? {};

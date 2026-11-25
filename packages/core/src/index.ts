@@ -23,8 +23,7 @@ export function createComposition(
   options: CompositionRendererOptions & { autoplay?: boolean } = {},
 ): CompositionHandle {
   const engine = new ModulationEngine();
-  engine.setLfos(config.lfos);
-  engine.setAssignments(config.assignments);
+  engine.setConfig(config);
 
   let currentConfig = config;
   let animationId: number | null = null;
@@ -38,7 +37,7 @@ export function createComposition(
     getModulatedValue: engine.getModulatedValue,
   });
 
-  /** Keyframed params win over LFOs, same as the editor and headless export. */
+  /** Keyframes set the base, modulators stack on top — same as the editor and headless export. */
   function modulationAt(time: number): ModulationFn {
     engine.sampleAt(time);
     return createAnimatedModulationFn(time, currentConfig.tracks ?? [], engine);
@@ -75,8 +74,7 @@ export function createComposition(
     },
     updateConfig(newConfig: CompositionConfig) {
       currentConfig = newConfig;
-      engine.setLfos(newConfig.lfos);
-      engine.setAssignments(newConfig.assignments);
+      engine.setConfig(newConfig);
     },
     getCanvas() {
       return renderer.getCanvas();
@@ -92,6 +90,7 @@ export {
   evaluateKeyframes,
   evaluatePropertyTrack,
   findPropertyTrack,
+  integrateKeyframes,
   hasKeyframeAt,
   isPropertyTrackActive,
   removeKeyframeAt,
@@ -173,7 +172,9 @@ export type {
   LayerTemplate,
   RenderPass,
   LFOSource,
+  EnvelopeSource,
   ModulationAssignment,
+  ModulationTimeBase,
   WavePoint,
   LFOWaveShape,
   LFOPlaybackMode,
@@ -239,7 +240,10 @@ export type {
   MediaSourceFrame,
 } from "./renderer/component-source";
 
-export { applyModulation } from "./modulation/modulation";
+export { applyModulation, isZeroBaseDisabled } from "./modulation/modulation";
+export { evaluateEnvelope } from "./modulation/envelope";
+export type { EnvelopeShape } from "./modulation/envelope";
+export { linkKey, linkTrackLayerId, linksFor, sourceTrackLayerId } from "./modulation/engine";
 export {
   evaluateLfoWave,
   evaluateWavePoints,

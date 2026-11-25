@@ -71,8 +71,7 @@ export function createNestedResolvers(opts: NestedResolverOptions): {
 
     const localTime = opts.time - timeShift;
     const engine = new ModulationEngine();
-    engine.setLfos(config.lfos ?? []);
-    engine.setAssignments(config.assignments ?? []);
+    engine.setConfig(config);
     engine.sampleAt(Math.max(localTime, 0));
     const modFn = createAnimatedModulationFn(Math.max(localTime, 0), config.tracks ?? [], engine);
 

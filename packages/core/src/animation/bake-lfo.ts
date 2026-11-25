@@ -3,7 +3,8 @@ import type { Keyframe, PropertyTrack } from "../types/animation";
 import type { LayerInstance, ModulationAssignment } from "../types/editor";
 import type { MeshPoint } from "../types/mesh";
 import { DEFAULT_COMPOSITION_SETTINGS } from "../types/animation";
-import { ModulationEngine } from "../modulation/engine";
+import { ModulationEngine, linkTrackLayerId } from "../modulation/engine";
+import { evaluatePropertyTrack } from "./property-tracks";
 import { findLayerParamDef } from "../compiler/universal-uniforms";
 
 export type BakeLfoOptions = {
@@ -121,13 +122,14 @@ function simplify(times: number[], values: number[], epsilon: number): Keyframe[
 }
 
 /**
- * Freeze LFO assignments into keyframes on the timeline.
+ * "Convert to keyframes": freeze modulator links into keyframe tracks.
  *
- * Samples each assignment through the same `ModulationEngine` the renderer
- * uses, so the baked track reproduces what playback showed, then thins the
- * samples down to the keys an editor can actually work with. Baked assignments
- * are removed from the config; their LFO sources are left in place because
- * other assignments (or the user) may still want them.
+ * An explicit interop/export command, not how modulation integrates — live
+ * links stack on keyframes at render time. Samples each property through the
+ * same `ModulationEngine` the renderer uses (base keyframes + selected links,
+ * including keyframed depth/enabled), so the baked track reproduces playback,
+ * then thins the samples to editable keys. Baked links and their link tracks
+ * are removed; modulator sources stay because other links may use them.
  */
 export function bakeLfoAssignments(
   config: CompositionConfig,
@@ -141,26 +143,46 @@ export function bakeLfoAssignments(
 
   const baked: BakedTrack[] = [];
   const skipped: SkippedAssignment[] = [];
-  const targets: Array<{ assignment: ModulationAssignment; base: number }> = [];
+  const sourceIds = new Set([
+    ...config.lfos.map((lfo) => lfo.id),
+    ...(config.envelopes ?? []).map((env) => env.id),
+  ]);
+
+  // One baked track per property; every selected link on it is folded in.
+  type Target = {
+    layerId: string;
+    paramName: string;
+    base: number;
+    track: PropertyTrack | undefined;
+    links: ModulationAssignment[];
+  };
+  const targets = new Map<string, Target>();
 
   for (const assignment of config.assignments) {
     if (options.filter && !options.filter(assignment)) continue;
 
     const where = { layerId: assignment.layerId, paramName: assignment.paramName };
+    const key = `${assignment.layerId}:${assignment.paramName}`;
+    const target = targets.get(key);
+    if (target) {
+      if (sourceIds.has(assignment.sourceId)) target.links.push(assignment);
+      else skipped.push({ ...where, reason: "missing-source" });
+      continue;
+    }
+
     const layer = config.layers.find((l) => l.id === assignment.layerId);
     if (!layer) {
       skipped.push({ ...where, reason: "missing-layer" });
       continue;
     }
-    if (!config.lfos.some((lfo) => lfo.id === assignment.sourceId)) {
+    if (!sourceIds.has(assignment.sourceId)) {
       skipped.push({ ...where, reason: "missing-source" });
       continue;
     }
     const existing = tracks.find(
       (t) => t.layerId === assignment.layerId && t.paramName === assignment.paramName,
     );
-    // An enabled track wins over the LFO even with no keys, so baking over one
-    // would change what playback shows.
+    // Baking replaces the property's track; keep hand-set keys unless asked.
     if (existing?.enabled && !options.overwrite) {
       skipped.push({ ...where, reason: "existing-keyframes" });
       continue;
@@ -171,43 +193,50 @@ export function bakeLfoAssignments(
       continue;
     }
 
-    targets.push({ assignment, base });
+    targets.set(key, {
+      ...where,
+      base,
+      track: existing?.enabled ? existing : undefined,
+      links: [assignment],
+    });
   }
 
-  if (targets.length === 0) {
+  if (targets.size === 0) {
     return { config, baked, skipped };
   }
 
+  const bakedLinks = new Set([...targets.values()].flatMap((t) => t.links));
+
+  // Only the baked links are sampled; links left in place keep stacking live
+  // on top of the baked track, so playback is unchanged either way.
   const engine = new ModulationEngine();
-  engine.setLfos(config.lfos);
-  engine.setAssignments(config.assignments);
+  engine.setConfig({ ...config, assignments: [...bakedLinks] });
 
   const frames = Math.max(2, Math.ceil(duration * fps) + 1);
   const times: number[] = [];
-  const series = targets.map(() => [] as number[]);
+  const list = [...targets.values()];
+  const series = list.map(() => [] as number[]);
 
   for (let frame = 0; frame < frames; frame++) {
     const time = duration === 0 ? 0 : Math.min(duration, frame / fps);
     times.push(time);
     engine.sampleAt(time);
-    for (let i = 0; i < targets.length; i++) {
-      const { assignment, base } = targets[i]!;
-      series[i]!.push(
-        engine.getModulatedValue(assignment.layerId, assignment.paramName, base),
-      );
+    for (let i = 0; i < list.length; i++) {
+      const target = list[i]!;
+      const base = evaluatePropertyTrack(target.track, time, target.base);
+      series[i]!.push(engine.getModulatedValue(target.layerId, target.paramName, base));
     }
   }
 
+  const bakedKeys = new Set(list.map((t) => `${t.layerId}:${t.paramName}`));
+  const linkTrackLayers = new Set([...bakedLinks].map(linkTrackLayerId));
   let nextTracks = tracks.filter(
     (track) =>
-      !targets.some(
-        ({ assignment }) =>
-          assignment.layerId === track.layerId && assignment.paramName === track.paramName,
-      ),
+      !bakedKeys.has(`${track.layerId}:${track.paramName}`) && !linkTrackLayers.has(track.layerId),
   );
 
-  for (let i = 0; i < targets.length; i++) {
-    const { assignment } = targets[i]!;
+  for (let i = 0; i < list.length; i++) {
+    const target = list[i]!;
     const values = series[i]!;
     const min = Math.min(...values);
     const max = Math.max(...values);
@@ -218,27 +247,22 @@ export function bakeLfoAssignments(
         ? [{ time: 0, value: values[0]!, ease: "linear" }]
         : simplify(times, values, tolerance * swing);
 
-    const track: PropertyTrack = {
-      layerId: assignment.layerId,
-      paramName: assignment.paramName,
-      enabled: true,
-      keys,
-    };
-    nextTracks = [...nextTracks, track];
+    nextTracks = [
+      ...nextTracks,
+      { layerId: target.layerId, paramName: target.paramName, enabled: true, keys },
+    ];
     baked.push({
-      layerId: assignment.layerId,
-      paramName: assignment.paramName,
+      layerId: target.layerId,
+      paramName: target.paramName,
       keys: keys.length,
       samples: values.length,
     });
   }
 
-  const bakedSet = new Set(targets.map(({ assignment }) => assignment));
-
   return {
     config: {
       ...config,
-      assignments: config.assignments.filter((a) => !bakedSet.has(a)),
+      assignments: config.assignments.filter((a) => !bakedLinks.has(a)),
       tracks: nextTracks,
     },
     baked,

@@ -1,47 +1,138 @@
-import type { LFOSource, ModulationAssignment } from "../types/editor";
+import type { PropertyTrack } from "../types/animation";
+import type { CompositionConfig } from "../types/composition";
+import type { EnvelopeSource, LayerInstance, LFOSource, ModulationAssignment } from "../types/editor";
 import type { ModulationFn } from "../compiler/compile-passes";
-import { applyModulation } from "./modulation";
+import { evaluatePropertyTrack, findPropertyTrack, integrateKeyframes } from "../animation/property-tracks";
+import { isZeroBaseDisabled } from "./modulation";
 import { evaluateLfoWave, getLfoWaveShape } from "./lfo-wave";
+import { evaluateEnvelope } from "./envelope";
 
+/** Track `layerId` for a modulator's own params (LFO: rate, phase; envelope: attack, decay, sustain, gate, release). */
+export function sourceTrackLayerId(sourceId: string): string {
+  return `mod:${sourceId}`;
+}
+
+/** Stable key for a link; used for its keyframe tracks. */
+export function linkKey(link: ModulationAssignment): string {
+  return link.id ?? `${link.sourceId}>${link.layerId}>${link.paramName}`;
+}
+
+/** Track `layerId` for a link's params (`depth`, `enabled` — enabled is on when ≥ 0.5). */
+export function linkTrackLayerId(link: ModulationAssignment): string {
+  return `link:${linkKey(link)}`;
+}
+
+/** Links targeting a property, in stack order. */
+export function linksFor(
+  links: readonly ModulationAssignment[],
+  layerId: string,
+  paramName: string,
+): ModulationAssignment[] {
+  return links.filter((a) => a.layerId === layerId && a.paramName === paramName);
+}
+
+/** Wave phase (0..1, before playback mode) after `cycles` LFO cycles. */
+function wavePosition(lfo: LFOSource, cycles: number): number {
+  if (lfo.mode === "pingpong") {
+    const raw = ((cycles % 2) + 2) % 2;
+    return raw > 1 ? 2 - raw : raw;
+  }
+  return ((cycles % 1) + 1) % 1;
+}
+
+/**
+ * Evaluates modulators (LFOs, envelopes) and stacks their links on top of a
+ * property's base value. Modulator params and link depth/enabled read from
+ * keyframe tracks when present, so everything on a link is animatable.
+ */
 export class ModulationEngine {
   private lfos: LFOSource[] = [];
+  private envelopes: EnvelopeSource[] = [];
   private assignments: ModulationAssignment[] = [];
+  private tracks: PropertyTrack[] = [];
+  private layerIn = new Map<string, number>();
   private lfoValues: Record<string, number> = {};
+  private time = 0;
+  private sampled = false;
+  /** Per-frame cache: `${sourceId}@${localTime}` → signal. */
+  private cache = new Map<string, number>();
 
   setLfos(lfos: LFOSource[]): void {
     this.lfos = lfos;
+    this.invalidate();
+  }
+
+  setEnvelopes(envelopes: EnvelopeSource[]): void {
+    this.envelopes = envelopes;
+    this.invalidate();
   }
 
   setAssignments(assignments: ModulationAssignment[]): void {
     this.assignments = assignments;
   }
 
+  /** Keyframe tracks (link + modulator param tracks are read from here). */
+  setTracks(tracks: PropertyTrack[]): void {
+    if (tracks === this.tracks) return;
+    this.tracks = tracks;
+    this.invalidate();
+  }
+
+  /** Layers, for links on the "layer" time base (offset by the layer's in-point). */
+  setLayers(layers: LayerInstance[]): void {
+    this.layerIn = new Map(layers.map((l) => [l.id, l.timing?.in ?? 0]));
+  }
+
+  /** Load everything modulation reads from a composition. */
+  setConfig(config: Pick<CompositionConfig, "layers" | "lfos" | "envelopes" | "assignments" | "tracks">): void {
+    this.lfos = config.lfos ?? [];
+    this.envelopes = config.envelopes ?? [];
+    this.assignments = config.assignments ?? [];
+    this.tracks = config.tracks ?? [];
+    this.setLayers(config.layers ?? []);
+    this.invalidate();
+  }
+
   sampleAt(clockSeconds: number): void {
+    this.time = clockSeconds;
+    this.sampled = true;
+    this.cache.clear();
+
     const values: Record<string, number> = {};
-
-    for (const lfo of this.lfos) {
-      const phaseOffset = lfo.phase / 360;
-      const rawT = lfo.mode === "pingpong"
-        ? (clockSeconds * lfo.rate + phaseOffset) % 2
-        : (clockSeconds * lfo.rate + phaseOffset) % 1;
-      const t = lfo.mode === "pingpong" && rawT > 1 ? 2 - rawT : rawT;
-      const clampedT = Math.max(0, Math.min(1, t));
-      values[lfo.id] = evaluateLfoWave(getLfoWaveShape(lfo), lfo.points, clampedT);
-    }
-
+    for (const lfo of this.lfos) values[lfo.id] = this.signal(lfo.id, clockSeconds);
+    for (const env of this.envelopes) values[env.id] = this.signal(env.id, clockSeconds);
     this.lfoValues = values;
   }
 
-  getModulatedValue: ModulationFn = (layerId, paramName, baseValue) => {
-    const assignment = this.assignments.find(
-      (a) => a.layerId === layerId && a.paramName === paramName,
-    );
-    if (!assignment) return baseValue;
+  /** Sample only if `clockSeconds` differs from the current sample time. */
+  ensureSampled(clockSeconds: number): void {
+    if (!this.sampled || this.time !== clockSeconds) this.sampleAt(clockSeconds);
+  }
 
-    const lfoValue = this.lfoValues[assignment.sourceId] ?? 0;
-    return applyModulation(baseValue, paramName, lfoValue, assignment.depth);
+  getModulatedValue: ModulationFn = (layerId, paramName, baseValue) => {
+    let value = baseValue;
+    let touched = false;
+
+    for (const link of this.assignments) {
+      if (link.layerId !== layerId || link.paramName !== paramName) continue;
+      if (!touched) {
+        if (isZeroBaseDisabled(paramName, baseValue)) return 0;
+        touched = true;
+      }
+
+      const trackLayer = linkTrackLayerId(link);
+      const enabled = this.trackValue(trackLayer, "enabled", link.enabled === false ? 0 : 1);
+      if (enabled < 0.5) continue;
+
+      const depth = this.trackValue(trackLayer, "depth", link.depth);
+      const local = link.timeBase === "layer" ? this.time - (this.layerIn.get(layerId) ?? 0) : this.time;
+      value += this.signal(link.sourceId, local) * depth;
+    }
+
+    return value;
   };
 
+  /** Modulator signals (0..1) at the sampled comp time, keyed by source id. */
   getLfoValues(): Record<string, number> {
     return { ...this.lfoValues };
   }
@@ -49,6 +140,59 @@ export class ModulationEngine {
   createModulationFn(clockSeconds: number): ModulationFn {
     this.sampleAt(clockSeconds);
     return this.getModulatedValue;
+  }
+
+  /** Signal (0..1) of a modulator at `time` on its own clock; 0 for unknown ids. */
+  signal(sourceId: string, time: number): number {
+    const key = `${sourceId}@${time}`;
+    const hit = this.cache.get(key);
+    if (hit !== undefined) return hit;
+
+    let value = 0;
+    const lfo = this.lfos.find((l) => l.id === sourceId);
+    if (lfo) {
+      value = this.lfoSignal(lfo, time);
+    } else {
+      const env = this.envelopes.find((e) => e.id === sourceId);
+      if (env) value = this.envelopeSignal(env, time);
+    }
+
+    this.cache.set(key, value);
+    return value;
+  }
+
+  private lfoSignal(lfo: LFOSource, time: number): number {
+    const trackLayer = sourceTrackLayerId(lfo.id);
+    const rateTrack = findPropertyTrack(this.tracks, trackLayer, "rate");
+    // Phase accumulates ∫ rate dt so a keyframed rate never makes the wave jump.
+    const cycles = rateTrack?.enabled && rateTrack.keys.length > 0
+      ? integrateKeyframes(rateTrack.keys, 0, time, lfo.rate)
+      : time * lfo.rate;
+    const phase = this.trackValue(trackLayer, "phase", lfo.phase, time);
+    const t = Math.max(0, Math.min(1, wavePosition(lfo, cycles + phase / 360)));
+    return evaluateLfoWave(getLfoWaveShape(lfo), lfo.points, t);
+  }
+
+  private envelopeSignal(env: EnvelopeSource, time: number): number {
+    const trackLayer = sourceTrackLayerId(env.id);
+    const shape = {
+      attack: this.trackValue(trackLayer, "attack", env.attack, time),
+      decay: this.trackValue(trackLayer, "decay", env.decay, time),
+      sustain: this.trackValue(trackLayer, "sustain", env.sustain, time),
+      gate: this.trackValue(trackLayer, "gate", env.gate, time),
+      release: this.trackValue(trackLayer, "release", env.release, time),
+    };
+    return evaluateEnvelope(shape, env.triggers ?? [0], time);
+  }
+
+  private trackValue(layerId: string, paramName: string, fallback: number, time = this.time): number {
+    const track = findPropertyTrack(this.tracks, layerId, paramName);
+    return evaluatePropertyTrack(track, time, fallback);
+  }
+
+  private invalidate(): void {
+    this.cache.clear();
+    if (this.sampled) this.sampleAt(this.time);
   }
 }
 
