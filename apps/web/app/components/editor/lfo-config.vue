@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { XMarkIcon } from "@heroicons/vue/16/solid";
-import type { LFOSource } from "@shader-lab/core";
+import {
+  evaluatePropertyTrack,
+  findPropertyTrack,
+  hasKeyframeAt,
+  isPropertyTrackActive,
+  removeKeyframeAt,
+  setTrackEnabled,
+  sourceTrackLayerId,
+  upsertKeyframe,
+  type LFOSource,
+  type PropertyTrack,
+} from "@shader-lab/core";
 import { LFO_PRESETS, clonePresetPoints } from "#shared/editor/lfo-presets";
 
 type Props = {
@@ -16,6 +27,48 @@ const { lfo, cursorPosition } = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
 const history = useEditorHistory();
+
+const tracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
+const time = inject<Ref<number> | null>("editorTime", null);
+
+/**
+ * A keyframeable LFO param (rate, phase): shows the value at the playhead and,
+ * with the stopwatch on, edits key the playhead instead of the static value.
+ */
+function useAnimatedParam(name: "rate" | "phase") {
+  const owner = () => sourceTrackLayerId(lfo.id);
+  const track = () => (tracks ? findPropertyTrack(tracks.value, owner(), name) : undefined);
+  const active = computed(() => isPropertyTrackActive(track()));
+  const keyed = computed(() => !!time && hasKeyframeAt(track(), time.value));
+  const value = computed({
+    get: () => evaluatePropertyTrack(track(), time?.value ?? 0, lfo[name]),
+    set: (v: number) => {
+      if (active.value && tracks && time) {
+        tracks.value = upsertKeyframe(tracks.value, owner(), name, time.value, v);
+      } else {
+        lfo[name] = v;
+      }
+    },
+  });
+  function toggleTrack() {
+    if (!tracks || !time) return;
+    tracks.value = active.value
+      ? setTrackEnabled(tracks.value, owner(), name, false)
+      : setTrackEnabled(tracks.value, owner(), name, true, value.value, time.value);
+    history?.record();
+  }
+  function toggleKeyframe() {
+    if (!tracks || !time || !active.value) return;
+    tracks.value = keyed.value
+      ? removeKeyframeAt(tracks.value, owner(), name, time.value)
+      : upsertKeyframe(tracks.value, owner(), name, time.value, value.value);
+    history?.record();
+  }
+  return reactive({ value, active, keyed, toggleTrack, toggleKeyframe, animatable: !!tracks && !!time });
+}
+
+const rate = useAnimatedParam("rate");
+const phase = useAnimatedParam("phase");
 
 const isCustom = computed(() => (lfo.waveShape ?? "sine") === "custom");
 
@@ -133,18 +186,28 @@ function applyPreset(key: string) {
 
       <div class="flex flex-col gap-2.5">
         <UiSliderField
-          v-model="lfo.rate"
+          v-model="rate.value"
           label="Rate"
           :min="0.01"
           :max="3"
           :step="0.01"
+          :animatable="rate.animatable"
+          :track-enabled="rate.active"
+          :keyed-at-playhead="rate.keyed"
+          @toggle-track="rate.toggleTrack"
+          @toggle-keyframe="rate.toggleKeyframe"
         />
         <UiSliderField
-          v-model="lfo.phase"
+          v-model="phase.value"
           label="Phase"
           :min="0"
           :max="360"
           :step="1"
+          :animatable="phase.animatable"
+          :track-enabled="phase.active"
+          :keyed-at-playhead="phase.keyed"
+          @toggle-track="phase.toggleTrack"
+          @toggle-keyframe="phase.toggleKeyframe"
         />
       </div>
     </div>
