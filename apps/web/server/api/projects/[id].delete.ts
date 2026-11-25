@@ -1,15 +1,12 @@
-import { eq } from "drizzle-orm";
-import { projects } from "../../database/schema";
-
+/** Hosted: deletes the project. Local: forgets the folder (files stay). */
 export default defineEventHandler(async (event) => {
   const { userId } = await requireUser(event);
   const id = getRouterParam(event, "id");
   if (!id) throw createError({ statusCode: 400, statusMessage: "Missing ID" });
 
-  const db = useDrizzle();
-  const project = await findOwnedProject(db, userId, id);
+  const project = await findOwnedProject(userId, id);
   if (!project) throw createError({ statusCode: 404, statusMessage: "Project not found" });
 
-  await db.delete(projects).where(eq(projects.id, project.id));
+  await useStore().deleteProject(project.id);
   return { ok: true };
 });

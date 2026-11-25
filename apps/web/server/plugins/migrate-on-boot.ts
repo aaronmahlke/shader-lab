@@ -20,6 +20,7 @@ import postgres from "postgres";
  */
 export default defineNitroPlugin(async () => {
   if (process.env.NUXT_MIGRATE_ON_BOOT === "false") return;
+  if (isLocalMode()) return; // no database in local mode
   if (import.meta.dev && process.env.NUXT_MIGRATE_ON_BOOT !== "true") return;
 
   const dir =

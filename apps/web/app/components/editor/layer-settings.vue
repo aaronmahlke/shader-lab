@@ -291,6 +291,7 @@ const isGenerator = computed(() => template.category === "generator");
 // --- Parenting ---
 
 const editorLayers = inject<Ref<LayerInstance[]> | null>("editorLayers", null);
+const editorProjectId = inject<Ref<string | null> | null>("editorProjectId", null);
 const NO_PARENT = "__none__";
 const ANCHOR_POINT = "__anchor__";
 
@@ -588,7 +589,7 @@ async function uploadMediaTo(def: LayerUniformDef, file: File) {
   mediaUploading.value = true;
   mediaUploadError.value = "";
   try {
-    const url = await uploadMediaFile(kind, file);
+    const url = await uploadMediaFile(kind, file, editorProjectId?.value);
     // Same update path as the componentName special case: records history so
     // undo and auto-save both see the new src.
     setText(def, layer.values, url);

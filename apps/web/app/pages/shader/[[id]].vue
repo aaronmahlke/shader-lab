@@ -267,6 +267,7 @@ provide("lfoValues", lfoValues);
 // Modulator editors (LFO config) read/write keyframed params (mod:<id> tracks).
 provide("editorTracks", tracks);
 provide("editorLayers", layers);
+provide("editorProjectId", projectId);
 provide("editorTime", currentTime);
 
 // --- Playback ---
@@ -768,7 +769,7 @@ async function importMediaFiles(files: File[]) {
   const results = await Promise.allSettled(
     supported.map(async (file) => {
       const kind = mediaUploadKindForFile(file)!;
-      const url = await uploadMediaFile(kind, file);
+      const url = await uploadMediaFile(kind, file, projectId.value);
       return { kind, url, name: file.name };
     }),
   );

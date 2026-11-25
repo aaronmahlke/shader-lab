@@ -8,9 +8,12 @@ export type MediaUploadKind = "image" | "video";
 export async function uploadMediaFile(
   kind: MediaUploadKind,
   file: File,
+  /** Desktop/local mode stores the file in this project's assets/ folder. */
+  projectId?: string | null,
 ): Promise<string> {
   const body = new FormData();
   body.append("file", file);
+  if (projectId) body.append("projectId", projectId);
   const response = await $fetch<{ url: string }>(`/api/uploads/${kind}`, {
     method: "POST",
     body,

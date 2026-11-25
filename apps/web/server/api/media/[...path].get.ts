@@ -19,8 +19,10 @@ export default defineEventHandler(async (event) => {
   await requireUser(event);
 
   const path = getRouterParam(event, "path");
-  // Only timestamped upload keys are served: uploads/<userId>/<ts>.<ext>
-  if (!path || !/^uploads\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(path)) {
+  const store = useStore();
+  // Only store-issued keys are served (hosted: uploads/<userId>/<ts>.<ext>,
+  // local: local/<projectId>/<file>).
+  if (!path || !store.isValidMediaKey(path)) {
     throw createError({ statusCode: 400, statusMessage: "Invalid media path" });
   }
 
@@ -30,13 +32,8 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Unsupported media type" });
   }
 
-  const s3 = useS3();
-  let data: Buffer;
-  try {
-    data = await s3.getObject(path);
-  } catch {
-    throw createError({ statusCode: 404, statusMessage: "Media not found" });
-  }
+  const data = await store.getMedia(path);
+  if (!data) throw createError({ statusCode: 404, statusMessage: "Media not found" });
 
   setHeader(event, "Content-Type", contentType);
   // Keys embed an upload timestamp and are never overwritten.

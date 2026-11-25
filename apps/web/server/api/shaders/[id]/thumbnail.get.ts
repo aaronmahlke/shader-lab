@@ -1,23 +1,16 @@
-// Serves thumbnails through the app so the S3 endpoint never needs to be
-// browser-reachable (in prod it is internal-only; the raw S3 URL broke cards).
+// Serves thumbnails through the app so storage never needs to be
+// browser-reachable (S3 is internal-only in prod; local files aren't URLs).
 export default defineEventHandler(async (event) => {
   const { userId } = await requireUser(event);
   const id = getRouterParam(event, "id");
   if (!id) throw createError({ statusCode: 400, statusMessage: "Missing ID" });
 
-  const db = useDrizzle();
-  const found = await findOwnedComposition(db, userId, id);
+  const found = await findOwnedComposition(userId, id);
   if (!found?.comp.thumbnailUpdatedAt) {
     throw createError({ statusCode: 404, statusMessage: "Thumbnail not found" });
   }
-
-  const s3 = useS3();
-  let data: Buffer;
-  try {
-    data = await s3.getObject(`thumbnails/${found.comp.id}.png`);
-  } catch {
-    throw createError({ statusCode: 404, statusMessage: "Thumbnail not found" });
-  }
+  const data = await useStore().getThumbnail(found.comp.id);
+  if (!data) throw createError({ statusCode: 404, statusMessage: "Thumbnail not found" });
 
   setHeader(event, "Content-Type", "image/png");
   // Immutable per version; the URL carries ?v=<thumbnailUpdatedAt> for busting.

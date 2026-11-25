@@ -6,6 +6,8 @@ export default defineEventHandler(async (event) => {
   if (!file?.data) {
     throw createError({ statusCode: 400, statusMessage: "Missing video file" });
   }
+  // Local mode stores media in the project's assets/ folder.
+  const projectId = form?.find((p) => p.name === "projectId")?.data.toString() || undefined;
 
   const mime = file.type ?? "video/mp4";
   if (!mime.startsWith("video/")) {
@@ -18,16 +20,8 @@ export default defineEventHandler(async (event) => {
     "video/quicktime": "mov",
   };
   const ext = extByMime[mime] ?? "mp4";
-  const key = `uploads/${userId}/${Date.now()}.${ext}`;
-  const s3 = useS3();
-  try {
-    await s3.putObject(key, file.data, mime);
-  } catch (err) {
-    console.error(`[uploads] putObject failed for ${key}:`, err);
-    throw createError({ statusCode: 502, statusMessage: "Media storage is unavailable" });
-  }
 
-  // App-served URL: the S3 endpoint is internal-only in prod, so its raw URL
-  // would be unreachable from the browser.
+  const key = await useStore().putMedia({ userId, projectId }, { ext, data: file.data, mime, name: file.filename });
+  // App-served URL: storage is never browser-reachable directly.
   return { url: `/api/media/${key}` };
 });
