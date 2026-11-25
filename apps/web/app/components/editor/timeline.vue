@@ -124,7 +124,7 @@ const expanded = ref<Set<string>>(new Set());
 const keyframesRevealed = ref<Set<string>>(new Set());
 /** U-view rows that stay visible after stopwatch off until layer collapses. */
 const pinnedUViewProperties = ref<Set<string>>(new Set());
-const labelWidth = 300;
+const labelWidth = 360;
 
 const PLAYHEAD_HEAD =
   "M0.31938 3.08047C-0.535142 1.74938 0.420642 0 2.00241 0H7.68118C9.26295 0 10.2187 1.74938 9.36421 3.08047L5.95419 8.39224C5.71104 8.77099 5.29188 9 4.8418 9C4.39171 9 3.97256 8.77099 3.72941 8.39224L0.31938 3.08047Z";
@@ -2768,7 +2768,9 @@ function selectAllLayers() {
                   </button>
                 </div>
                 <!-- Linked Position: one scrubbable number per axis (AE style). -->
-                <div v-if="row.def.name === POSITION_GROUP" class="flex shrink-0 items-center">
+                <!-- Value column: left-aligned, blue (AE). -->
+                <div class="flex w-24 shrink-0 items-center">
+                <div v-if="row.def.name === POSITION_GROUP" class="flex items-center pl-0.5">
                   <template v-for="(axis, ai) in positionAxisRows(row)" :key="axis.key">
                     <span v-if="ai > 0" class="text-copy-xs text-neutral-subtle/50">,</span>
                     <input
@@ -2776,7 +2778,7 @@ function selectAllLayers() {
                       :ref="focusValueInput"
                       v-model="editingValue!.text"
                       data-drag-exclude
-                      class="w-12 shrink-0 rounded-sm bg-control px-1 text-right tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                      class="w-12 shrink-0 rounded-sm bg-control px-1 text-left tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                       spellcheck="false"
                       @keydown.enter.stop.prevent="commitValueEditor(axis)"
                       @keydown.esc.stop.prevent="cancelValueEditor"
@@ -2787,7 +2789,7 @@ function selectAllLayers() {
                     <span
                       v-else
                       data-drag-exclude
-                      class="shrink-0 cursor-ew-resize rounded-sm px-0.5 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                      class="shrink-0 cursor-ew-resize rounded-sm px-0.5 tabular-nums text-copy-xs text-accent transition-colors hover:bg-control hover:text-accent-strong"
                       :title="`${axis.def.label}: drag to scrub, click to type (⇧ fine)`"
                       @pointerdown.stop.prevent="onValuePointerDown(axis, $event)"
                     >
@@ -2800,7 +2802,7 @@ function selectAllLayers() {
                   :ref="focusValueInput"
                   v-model="editingValue!.text"
                   data-drag-exclude
-                  class="w-16 shrink-0 rounded-sm bg-control px-1 text-right tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                  class="w-16 shrink-0 rounded-sm bg-control px-1 text-left tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                   spellcheck="false"
                   @keydown.enter.stop.prevent="commitValueEditor(row)"
                   @keydown.esc.stop.prevent="cancelValueEditor"
@@ -2811,13 +2813,14 @@ function selectAllLayers() {
                 <span
                   v-else
                   data-drag-exclude
-                  class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                  class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-accent transition-colors hover:bg-control hover:text-accent-strong"
                   :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
                   :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
                   @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
                 >
                   {{ formatRowValue(row) }}
                 </span>
+                </div>
               </div>
             </div>
             <div v-if="modulatorEntries.length" class="border-t border-neutral/60">
@@ -2919,12 +2922,13 @@ function selectAllLayers() {
                           />
                         </button>
                       </div>
+                      <div class="flex w-24 shrink-0 items-center">
                       <input
                         v-if="isEditingValue(row.key)"
                         :ref="focusValueInput"
                         v-model="editingValue!.text"
                         data-drag-exclude
-                        class="w-16 shrink-0 rounded-sm bg-control px-1 text-right tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
+                        class="w-16 shrink-0 rounded-sm bg-control px-1 text-left tabular-nums text-copy-xs text-neutral-strong outline-none ring-1 ring-accent/60"
                         spellcheck="false"
                         @keydown.enter.stop.prevent="commitValueEditor(row)"
                         @keydown.esc.stop.prevent="cancelValueEditor"
@@ -2935,13 +2939,14 @@ function selectAllLayers() {
                       <span
                         v-else
                         data-drag-exclude
-                        class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong"
+                        class="shrink-0 rounded-sm px-1 tabular-nums text-copy-xs text-accent transition-colors hover:bg-control hover:text-accent-strong"
                         :class="row.def.type === 'bool' ? 'cursor-pointer' : 'cursor-ew-resize'"
                         :title="row.def.type === 'bool' ? 'Click to toggle' : 'Drag to scrub, click to type (⇧ fine)'"
                         @pointerdown.stop.prevent="onValuePointerDown(row, $event)"
                       >
                         {{ formatRowValue(row) }}
                       </span>
+                      </div>
                     </div>
                   </template>
                 </template>
