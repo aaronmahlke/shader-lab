@@ -2665,15 +2665,6 @@ function selectAllLayers() {
                     "
                     @update:model-value="setLayerName(layer, $event)"
                   />
-                  <span
-                    v-if="
-                      enabledTracksForLayer(layer.id).length &&
-                      !isLayerChevronOpen(layer.id)
-                    "
-                    class="shrink-0 text-copy-xs text-neutral-subtle group-hover/h:opacity-0 group-data-[active=true]/h:opacity-0 group-focus-within/h:opacity-0"
-                  >
-                    {{ enabledTracksForLayer(layer.id).length }}
-                  </span>
                   <div class="w-24 shrink-0" data-drag-exclude @click.stop @pointerdown.stop>
                     <select
                       class="h-6 w-full cursor-pointer truncate rounded-md bg-transparent px-1 text-xs outline-none transition-colors hover:bg-tint"
