@@ -3207,12 +3207,17 @@ function selectAllLayers() {
               }"
             />
 
-            <!-- Drilled into a nested comp: the part the parent actually shows. -->
-            <div
-              v-if="usedRange"
-              class="pointer-events-none absolute -top-px bottom-0 z-[5] border-x border-dashed border-accent bg-accent-subtle/40"
-              :style="{ left: `${timeToX(usedRange.start)}px`, width: `${timeToX(usedRange.end) - timeToX(usedRange.start)}px` }"
-            />
+            <!-- Drilled into a nested comp: dim what the parent does NOT show (Live-style). -->
+            <template v-if="usedRange">
+              <div
+                class="pointer-events-none absolute -top-px bottom-0 left-0 z-[5] bg-black/40"
+                :style="{ width: `${Math.max(0, timeToX(usedRange.start))}px` }"
+              />
+              <div
+                class="pointer-events-none absolute -top-px right-0 bottom-0 z-[5] bg-black/40"
+                :style="{ left: `${timeToX(usedRange.end)}px` }"
+              />
+            </template>
             <div
               class="pointer-events-none absolute -top-px bottom-0 z-10 w-px -translate-x-1/2 bg-playhead"
               :style="{ left: `${playheadX}px` }"
