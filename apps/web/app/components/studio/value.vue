@@ -65,38 +65,43 @@ function commit() {
   editing.value = false;
 }
 
-let start = { x: 0, y: 0, v: 0, moved: false, depth: false, d0: 0 };
+/**
+ * Drag to change: the cursor hides and stays put (pointer lock, like Live),
+ * so a drag never runs out of screen. Movement accumulates from movementX/Y.
+ */
+let drag: { v: number; acc: number; dist: number; moved: boolean } | null = null;
 function onPointerDown(e: PointerEvent) {
   if (editing.value || e.button !== 0) return;
-  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  start = { x: e.clientX, y: e.clientY, v: model.value, moved: false, depth: false, d0: 0 };
-}
-function onPointerMove(e: PointerEvent) {
-  if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return;
-  const dx = e.clientX - start.x;
-  const dy = start.y - e.clientY;
-  if (!start.moved && Math.hypot(dx, dy) < 3) return;
-  if (!start.moved) {
-    start.moved = true;
-    emit("gesture-start");
-  }
-  // Range-relative speed when bounded (200px = full range), else `step` per px.
-  const perPx = ratio.value != null ? (max! - min!) / 200 : step;
-  const delta = (Math.abs(dy) >= Math.abs(dx) ? dy : dx) * perPx * (e.shiftKey ? 0.1 : 1);
-  if (start.depth) {
-    const d = Math.round((start.d0 + delta) / step) * step;
-    emit("update:depth", mods![0]!.id, Number(d.toFixed(6)));
-    return;
-  }
-  const snapped = Math.round((start.v + delta) / step) * step;
-  model.value = clamp(Number(snapped.toFixed(6)));
-}
-function onPointerUp(e: PointerEvent) {
   const el = e.currentTarget as HTMLElement;
-  if (!el.hasPointerCapture(e.pointerId)) return;
-  el.releasePointerCapture(e.pointerId);
-  if (start.moved) emit("gesture-end");
-  else startEdit();
+  drag = { v: model.value, acc: 0, dist: 0, moved: false };
+  const move = (ev: PointerEvent | MouseEvent) => {
+    if (!drag) return;
+    const dx = ev.movementX;
+    const dy = -ev.movementY;
+    drag.dist += Math.abs(dx) + Math.abs(dy);
+    if (!drag.moved) {
+      if (drag.dist < 3) return;
+      drag.moved = true;
+      emit("gesture-start");
+      el.requestPointerLock?.();
+    }
+    // Range-relative speed when bounded (200px = full range), else `step` per px.
+    const perPx = ratio.value != null ? (max! - min!) / 200 : step;
+    drag.acc += (dx + dy) * perPx * (ev.shiftKey ? 0.1 : 1);
+    const snapped = Math.round((drag.v + drag.acc) / step) * step;
+    model.value = clamp(Number(snapped.toFixed(6)));
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    if (document.pointerLockElement === el) document.exitPointerLock();
+    const moved = drag?.moved;
+    drag = null;
+    if (moved) emit("gesture-end");
+    else startEdit();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
 }
 function onKey(e: KeyboardEvent) {
   if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
@@ -170,8 +175,6 @@ function reset() {
     :aria-valuemin="min"
     :aria-valuemax="max"
     @pointerdown="onPointerDown"
-    @pointermove="onPointerMove"
-    @pointerup="onPointerUp"
     @dblclick="reset"
     @keydown="onKey"
   >
