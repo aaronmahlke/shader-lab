@@ -324,6 +324,9 @@ function compileStack(
         inputLayerId,
         sourceLayerId: layer.id,
         isOutput: false,
+        // Inside a nested comp the camera keeps the plate's coverage alpha (a
+        // precomp with a camera must not turn opaque over the layers below it).
+        preserveAlpha: opts?._nested,
         ...extra,
       });
 

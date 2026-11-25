@@ -128,6 +128,10 @@ function resolvePassUniformValues(
     merged.zoom = 1;
   }
 
+  if (pass.layerType === "cameraStage" || pass.layerType === "cameraDof" || pass.layerType === "cameraComposite") {
+    merged.u_keepAlpha = pass.preserveAlpha ? 1 : 0;
+  }
+
   if (WINDOWED_SOURCE_TYPES.has(pass.layerType)) {
     merged.u_window = ctx.contentWindows?.get(pass.layerId) ?? FULL_WINDOW;
   }

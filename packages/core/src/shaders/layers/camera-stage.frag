@@ -20,6 +20,7 @@ uniform float zoom;          // 1 = plate height exactly fills the frame
 uniform float fov;           // vertical, degrees
 uniform float emission;      // >1 pushes plate highlights above 1.0 for bloom
 uniform vec3 background;     // sRGB, fills everything that is not plate
+uniform float u_keepAlpha;   // 1 inside nested comps: keep plate coverage, no background
 
 vec3 srgbToLinear(vec3 c) {
   vec3 lo = c / 12.92;
@@ -56,9 +57,9 @@ void main() {
   float denom = dot(n, dir);
   float t = dot(n, planeCenter) / denom;
 
-  vec3 bg = srgbToLinear(background);
+  vec3 bg = srgbToLinear(background) * (1.0 - u_keepAlpha);
   if (t <= 0.0) {
-    gl_FragColor = vec4(bg, 1.0);
+    gl_FragColor = vec4(bg, 1.0 - u_keepAlpha);
     return;
   }
 
@@ -77,6 +78,9 @@ void main() {
   vec2 inside = smoothstep(vec2(0.0), aa, plateUv) * smoothstep(vec2(0.0), aa, 1.0 - plateUv);
   float coverage = inside.x * inside.y;
 
-  vec3 plate = srgbToLinear(texture2D(u_input, clamp(plateUv, 0.0, 1.0)).rgb) * emission;
-  gl_FragColor = vec4(mix(bg, plate, coverage), 1.0);
+  vec4 plateSample = texture2D(u_input, clamp(plateUv, 0.0, 1.0));
+  vec3 plate = srgbToLinear(plateSample.rgb) * emission;
+  // Nested: the plate is premultiplied over transparency — keep its alpha.
+  float alpha = mix(1.0, plateSample.a * coverage, u_keepAlpha);
+  gl_FragColor = vec4(mix(bg, plate, coverage), alpha);
 }

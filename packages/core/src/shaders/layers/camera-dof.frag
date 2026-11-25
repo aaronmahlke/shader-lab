@@ -73,13 +73,15 @@ void main() {
   float defocusC = max(0.0, abs(depthC - focusDepth) / span - focusRange);
   float r0 = min(aperture * defocusC * maxPx, maxPx);
 
-  vec3 center = texture2D(u_input, uv).rgb;
+  vec4 centerSample = texture2D(u_input, uv);
+  vec3 center = centerSample.rgb;
   if (r0 < 0.5 || dofSamples < 2) {
-    gl_FragColor = vec4(center, 1.0);
+    gl_FragColor = vec4(center, centerSample.a);
     return;
   }
 
   vec3 acc = center;
+  float accA = centerSample.a;
   float wsum = 1.0;
   for (int i = 1; i < MAX_TAPS; i++) {
     if (i >= dofSamples) break;
@@ -103,9 +105,11 @@ void main() {
     float reach = max(tapCoc, r0);
     float distPx = radius * r0;
     float w = clamp(reach - distPx + 1.0, 0.0, 1.0);
-    acc += texture2D(u_input, tapUv).rgb * w;
+    vec4 tapSample = texture2D(u_input, tapUv);
+    acc += tapSample.rgb * w;
+    accA += tapSample.a * w;
     wsum += w;
   }
 
-  gl_FragColor = vec4(acc / wsum, 1.0);
+  gl_FragColor = vec4(acc / wsum, accA / wsum);
 }

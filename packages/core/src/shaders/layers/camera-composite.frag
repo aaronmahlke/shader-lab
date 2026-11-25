@@ -17,6 +17,7 @@ uniform float bloomIntensity;
 uniform float exposure;      // stops
 uniform bool aces;
 uniform float layerOpacity;  // 0..100
+uniform float u_keepAlpha;   // 1 inside nested comps: output coverage alpha
 
 vec3 linearToSrgb(vec3 c) {
   vec3 lo = c * 12.92;
@@ -31,7 +32,8 @@ vec3 acesFilm(vec3 x) {
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
 
-  vec3 c = texture2D(u_input, uv).rgb;
+  vec4 inSample = texture2D(u_input, uv);
+  vec3 c = inSample.rgb;
   c += texture2D(u_color, uv).rgb * bloomIntensity;
   c *= exp2(exposure);
   if (aces) {
@@ -39,6 +41,8 @@ void main() {
   }
   c = linearToSrgb(clamp(c, 0.0, 1.0));
 
-  vec3 base = texture2D(u_aux, uv).rgb;
-  gl_FragColor = vec4(mix(base, c, clamp(layerOpacity / 100.0, 0.0, 1.0)), 1.0);
+  vec4 baseSample = texture2D(u_aux, uv);
+  float k = clamp(layerOpacity / 100.0, 0.0, 1.0);
+  float a = mix(1.0, mix(baseSample.a, inSample.a, k), u_keepAlpha);
+  gl_FragColor = vec4(mix(baseSample.rgb, c, k), a);
 }
