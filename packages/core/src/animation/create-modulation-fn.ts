@@ -5,7 +5,7 @@ import type { LayerInstance } from "../types/editor";
 import { applyEffectorInfluence, EFFECTOR_PARAMS, staticParamValue } from "../modulation/effectors";
 import { CLONE_TRANSFORM_PARAMS, cloneTransformValue } from "../modulation/cloners";
 import { PARENT_PARAMS, worldParam } from "../modulation/parenting";
-import { evaluatePropertyTrack, findPropertyTrack } from "./property-tracks";
+import { evaluatePropertyTrack } from "./property-tracks";
 
 /**
  * Build the per-frame modulation fn. Per property:
@@ -21,8 +21,16 @@ export function createAnimatedModulationFn(
   engine.setTracks(tracks);
   engine.ensureSampled(time);
 
+  // One lookup table per frame: scanning `tracks` per param read was the
+  // renderer's hottest path on big comps (hundreds of layers × params).
+  const index = new Map<string, PropertyTrack>();
+  for (const t of tracks) {
+    const k = `${t.layerId}\u0000${t.paramName}`;
+    if (!index.has(k)) index.set(k, t);
+  }
+
   const direct: ModulationFn = (layerId, paramName, baseValue) => {
-    const track = findPropertyTrack(tracks, layerId, paramName);
+    const track = index.get(`${layerId}\u0000${paramName}`);
     const base = track?.enabled ? evaluatePropertyTrack(track, time, baseValue) : baseValue;
     return engine.getModulatedValue(layerId, paramName, base);
   };

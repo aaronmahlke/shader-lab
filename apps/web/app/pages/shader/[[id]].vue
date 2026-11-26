@@ -412,10 +412,26 @@ function setZoomChoice(v: string) {
 
 /** Render buffer follows the displayed size (crisp zoom), capped for VRAM. */
 const debouncedZoom = refDebounced(viewport.zoom, 150);
+/** Preview resolution (AE's Full / Half / Quarter): render buffer scale, remembered per browser. */
+const PREVIEW_RES_KEY = "shaderlab.previewResolution";
+const previewResolution = ref<string>(
+  (import.meta.client && localStorage.getItem(PREVIEW_RES_KEY)) || "0.5",
+);
+watch(previewResolution, (v) => {
+  try {
+    localStorage.setItem(PREVIEW_RES_KEY, v);
+  } catch {}
+});
+const PREVIEW_RES_OPTIONS = [
+  { value: "1", label: "Full" },
+  { value: "0.5", label: "Half" },
+  { value: "0.25", label: "Quarter" },
+];
+
 const renderBufferSize = computed(() => {
   const { width, height } = settings.value;
   const dpr = import.meta.client ? window.devicePixelRatio || 1 : 1;
-  let scale = Math.min(Math.max(debouncedZoom.value * dpr, 0.05), 2);
+  let scale = Math.min(Math.max(debouncedZoom.value * dpr, 0.05), 2) * (Number(previewResolution.value) || 1);
   scale = Math.min(scale, 4096 / Math.max(width, height));
   return {
     width: Math.max(2, Math.round(width * scale)),
@@ -532,12 +548,22 @@ const stageHostRef = ref<{ getElement: (layerId: string) => HTMLElement | null }
  */
 const stagedComponents = computed(() => {
   void registryVersion.value;
-  const out: { layer: LayerInstance; inOffset: number }[] = [];
-  const walk = (list: LayerInstance[], prefix: string, inOffset: number, visited: Set<string>, depth: number) => {
+  // windows: root-time [in, out] of the layer and of every host comp around it.
+  type Win = [number, number];
+  const out: { layer: LayerInstance; inOffset: number; windows: Win[] }[] = [];
+  const winOf = (l: LayerInstance, inOffset: number): Win => [
+    inOffset + (l.timing?.in ?? -Infinity),
+    inOffset + (l.timing?.out ?? Infinity),
+  ];
+  const walk = (list: LayerInstance[], prefix: string, inOffset: number, visited: Set<string>, depth: number, hostWins: Win[] = []) => {
     for (const layer of list) {
       if (!layer.enabled) continue;
       if (layer.type === "component") {
-        out.push({ layer: prefix ? { ...layer, id: `${prefix}${layer.id}` } : layer, inOffset });
+        out.push({
+          layer: prefix ? { ...layer, id: `${prefix}${layer.id}` } : layer,
+          inOffset,
+          windows: [...hostWins, winOf(layer, inOffset)],
+        });
         continue;
       }
       if (layer.type !== "composition" || depth >= 4) continue;
@@ -545,7 +571,7 @@ const stagedComponents = computed(() => {
       if (typeof compId !== "string" || !compId || visited.has(compId)) continue;
       const config = resolveComposition(compId);
       if (!config) continue;
-      walk(config.layers, `${prefix}${layer.id}${NESTED_SEP}`, inOffset + (layer.timing?.in ?? 0), new Set([...visited, compId]), depth + 1);
+      walk(config.layers, `${prefix}${layer.id}${NESTED_SEP}`, inOffset + (layer.timing?.in ?? 0), new Set([...visited, compId]), depth + 1, [...hostWins, winOf(layer, inOffset)]);
     }
   };
   walk(renderLayers.value, "", 0, new Set(), 0);
@@ -555,6 +581,11 @@ const stagedComponentLayers = computed(() => stagedComponents.value.map((c) => c
 
 const componentCapture = useComponentCapture({
   layers: stagedComponentLayers,
+  isActive: (layerId, time) => {
+    const t = time ?? currentTime.value;
+    const entry = stagedComponents.value.find((c) => c.layer.id === layerId);
+    return !entry || entry.windows.every(([a, b]) => t >= a && t < b);
+  },
   getElement: (layerId) => stageHostRef.value?.getElement(layerId) ?? null,
   setComponentSource,
   requestRender,
@@ -705,7 +736,7 @@ const frameCache = useFrameCache({
     seekStageToCompTime(time);
     await nextTick();
     if (layers.value.some((l) => l.type === "video")) await mediaSources.syncForExport(time);
-    await componentCapture.captureAll();
+    await componentCapture.captureAll(time);
     renderFrame(time);
   },
   restoreLive: () => {
@@ -721,8 +752,12 @@ const cachedRanges = computed(() => {
   void frameCache.version.value;
   return frameCache.ranges();
 });
-// Live renders only while the overlay isn't covering the canvas.
-watch(frameCache.showing, (s) => setLiveRenderEnabled(!s));
+// Live renders (and live DOM capture) only while the overlay isn't covering the canvas.
+watch(frameCache.showing, (s) => {
+  setLiveRenderEnabled(!s);
+  if (s) componentCapture.pause();
+  else componentCapture.resume();
+});
 // Draw the playhead's cached frame into the overlay.
 watch(
   () => [currentTime.value, frameCache.version.value, frameCache.showing.value] as const,
@@ -2235,12 +2270,16 @@ registerKeyboard({
               v-if="!previewing"
               class="absolute inset-x-0 bottom-0 flex h-[20px] items-center justify-end gap-[2px] border-t-2 border-[var(--s-frame)] bg-[var(--s-tile)] px-[2px]"
             >
-              <StudioSelect
-                class="w-[78px]"
-                :model-value="viewport.fitMode.value ? 'fit' : String(viewport.zoomPercent.value)"
-                :options="zoomOptions"
-                @update:model-value="setZoomChoice"
-              />
+              <div class="grid w-[78px]" title="Preview resolution">
+                <StudioSelect v-model="previewResolution" :options="PREVIEW_RES_OPTIONS" />
+              </div>
+              <div class="grid w-[78px]">
+                <StudioSelect
+                  :model-value="viewport.fitMode.value ? 'fit' : String(viewport.zoomPercent.value)"
+                  :options="zoomOptions"
+                  @update:model-value="setZoomChoice"
+                />
+              </div>
             </div>
           </div>
 

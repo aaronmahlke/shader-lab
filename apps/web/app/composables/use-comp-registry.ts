@@ -1,3 +1,4 @@
+import { toRaw } from "vue";
 import type { CompositionConfig, LayerInstance } from "@shader-lab/core";
 
 /** Composition row from GET /api/projects/:id/compositions/:compId. */
@@ -114,8 +115,9 @@ export function useCompRegistry(options: {
     void syncRegistry();
   });
 
+  // Plain objects: the renderer reads these thousands of times per frame.
   const resolveComposition = (id: string): CompositionConfig | null =>
-    registry.value[id] ?? null;
+    (registry.value[id] ? toRaw(registry.value[id]) : null) ?? null;
 
   return { registry, registryVersion, resolveComposition };
 }

@@ -1,3 +1,4 @@
+import { toRaw } from "vue";
 import {
   ModulationEngine,
   evaluateWavePoints,
@@ -90,18 +91,34 @@ export function useModulationEngine(
     lfoValues.value = engine.getLfoValues();
   }
 
-  function getModulatedValue(layerId: string, paramName: string, baseValue: number): number {
-    const tracks = options.tracks?.value ?? [];
+  // One modulation fn per (time, edit version) — it used to be rebuilt on EVERY
+  // param read. Plain data (toRaw) keeps Vue proxies out of the hot path.
+  let editVersion = 0;
+  const bump = () => {
+    editVersion++;
+  };
+  if (options.tracks) watch(options.tracks, bump, { deep: true });
+  watch([lfos, assignments], bump, { deep: true });
+  if (options.layers) watch(options.layers, bump, { deep: true });
+  let cached: { time: number; version: number; fn: ReturnType<typeof createAnimatedModulationFn> } | null = null;
+
+  function currentFn() {
     const time = options.clockTime?.value ?? sampledTime;
-    const fn = createAnimatedModulationFn(time, tracks, engine);
-    return fn(layerId, paramName, baseValue);
+    if (!cached || cached.time !== time || cached.version !== editVersion) {
+      cached = { time, version: editVersion, fn: createAnimatedModulationFn(time, toRaw(options.tracks?.value ?? []), engine) };
+    }
+    return cached.fn;
+  }
+
+  function getModulatedValue(layerId: string, paramName: string, baseValue: number): number {
+    return currentFn()(layerId, paramName, baseValue);
   }
 
   const modFn = computed(() => getModulatedValue);
 
   /** Modulation fn at any time (motion blur sub-frames). */
   function modFnAt(time: number) {
-    return createAnimatedModulationFn(time, options.tracks?.value ?? [], engine);
+    return createAnimatedModulationFn(time, toRaw(options.tracks?.value ?? []), engine);
   }
 
   if (!options.clockTime) {

@@ -22,6 +22,11 @@ type ComponentCaptureOptions = {
   setComponentSource: (layerId: string, source: ComponentSourceInput | null) => void;
   /** Schedule a re-render after a fresh frame was pushed. */
   requestRender: () => void;
+  /**
+   * Is the layer on screen at `time` (default: now)? Off-screen components
+   * aren't captured — DOM capture is the most expensive thing per frame.
+   */
+  isActive?: (layerId: string, time?: number) => boolean;
 };
 
 export function useComponentCapture(options: ComponentCaptureOptions) {
@@ -96,6 +101,7 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     if (paused) return;
     const now = performance.now();
     for (const layer of componentLayers()) {
+      if (options.isActive && !options.isActive(layer.id)) continue;
       if (pending.has(layer.id)) continue;
       if (now - (lastCaptureAt.get(layer.id) ?? 0) < CAPTURE_MIN_INTERVAL_MS) continue;
       void captureLayer(layer).then((updated) => {
@@ -108,8 +114,8 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
    * Fresh capture of every staged layer, awaited. Waits out in-flight captures
    * first so an export frame never races the live loop.
    */
-  async function captureAll(): Promise<void> {
-    const layers = componentLayers();
+  async function captureAll(time?: number): Promise<void> {
+    const layers = componentLayers().filter((l) => !options.isActive || options.isActive(l.id, time));
     await Promise.all(layers.map((layer) => pending.get(layer.id) ?? Promise.resolve(false)));
     await Promise.all(layers.map((layer) => captureLayer(layer)));
   }
