@@ -607,6 +607,20 @@ const LAYER_TYPE_ICONS: Record<LayerInstance["type"], unknown> = {
   chromaticAberration: BoltIcon,
 };
 
+/** Studio icon set first (same icons as the project panel); Heroicons for the rest. */
+const STUDIO_TYPE_ICONS: Partial<Record<LayerInstance["type"], string>> = {
+  composition: "comp",
+  component: "component",
+  image: "image",
+  text: "text",
+  shape: "shape",
+  solid: "shape",
+};
+
+function studioTypeIcon(layer: LayerInstance): string | null {
+  return STUDIO_TYPE_ICONS[layer.type] ?? null;
+}
+
 function layerTypeIcon(layer: LayerInstance) {
   return LAYER_TYPE_ICONS[layer.type] ?? null;
 }
@@ -2663,9 +2677,10 @@ function selectAllLayers() {
                     />
                   </button>
                   <span class="flex size-3 shrink-0 items-center justify-center">
+                    <StudioIcon v-if="studioTypeIcon(layer)" :name="studioTypeIcon(layer)!" class="text-[var(--s-dim)]" />
                     <component
                       :is="layerTypeIcon(layer)"
-                      v-if="layerTypeIcon(layer)"
+                      v-else-if="layerTypeIcon(layer)"
                       class="size-3 text-[var(--s-dim)]"
                       aria-hidden="true"
                     />

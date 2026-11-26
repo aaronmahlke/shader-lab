@@ -59,8 +59,11 @@ export function useMultiPassRenderer(
   } | null = null;
   let compositionRenderRaf: number | null = null;
 
+  /** Off while the frame cache shows frames (playback / scrubbing over cached frames). */
+  let liveRenderEnabled = true;
+
   function scheduleRender() {
-    if (import.meta.server || !renderer) return;
+    if (import.meta.server || !renderer || !liveRenderEnabled) return;
     if (compositionRenderRaf !== null) return;
     compositionRenderRaf = requestAnimationFrame(() => {
       compositionRenderRaf = null;
@@ -88,17 +91,19 @@ export function useMultiPassRenderer(
     return layersRef?.value.some((l) => l.type === "composition") ?? false;
   }
 
-  function render() {
+  function render(timeOverride?: number) {
     if (!renderer) return;
 
-    const time = compositionTime?.value ?? accumulatedTime;
+    const time = timeOverride ?? compositionTime?.value ?? accumulatedTime;
 
     sampleLfosAtTime?.(time);
 
     // Per (sub-)frame: the modulation fn at that time, plus nested comp
     // resolvers when composition layers exist (findLayer reads them).
     const prepare = (t: number): ModulationFn | null => {
-      const modFn = t === time || !options.modFnAt
+      // The live modFn evaluates at the playhead; off-playhead renders (frame cache,
+      // motion-blur sub-frames) evaluate at their own time.
+      const modFn = (t === time && timeOverride === undefined) || !options.modFnAt
         ? getModulatedValue?.value ?? null
         : options.modFnAt(t);
       if (options.resolveComposition && layersRef?.value && hasCompositionLayers()) {
@@ -308,11 +313,18 @@ export function useMultiPassRenderer(
     render();
   }
 
+  /** Render exactly `time` (not necessarily the playhead: the frame cache renders ahead). */
   function renderFrame(time: number) {
     sampleLfosAtTime?.(time);
     accumulatedTime = time;
     lastFrameTime = performance.now() / 1000;
-    render();
+    render(time);
+  }
+
+  function setLiveRenderEnabled(enabled: boolean) {
+    if (liveRenderEnabled === enabled) return;
+    liveRenderEnabled = enabled;
+    if (enabled) scheduleRender();
   }
 
   /** Push (or clear) a captured component frame for a layer. */
@@ -358,5 +370,6 @@ export function useMultiPassRenderer(
     setComponentSource,
     setMediaSource,
     requestRender: scheduleRender,
+    setLiveRenderEnabled,
   };
 }

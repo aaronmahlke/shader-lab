@@ -351,14 +351,22 @@ function playbackTick(now: number) {
   playbackClock += delta;
   const fps = settings.value.fps;
   const step = 1 / fps;
-  const frame = Math.floor(playbackClock / step);
+  let frame = Math.floor(playbackClock / step);
   const maxFrame = Math.floor(settings.value.duration * fps);
-
   if (frame >= maxFrame) {
+    frame = 0;
     playbackClock = 0;
-    currentTime.value = 0;
-  } else {
+  }
+
+  // Buffering: only step onto frames the cache already has; otherwise hold here
+  // (the clock too) until the worker renders it — smooth instead of stuttering.
+  if (frameCache.has(frame)) {
+    frameCache.buffering.value = false;
     currentTime.value = frame * step;
+  } else {
+    frameCache.buffering.value = true;
+    playbackClock = currentTime.value;
+    frameCache.kick();
   }
 
   playbackId = requestAnimationFrame(playbackTick);
@@ -494,6 +502,7 @@ const {
   setComponentSource,
   setMediaSource,
   requestRender,
+  setLiveRenderEnabled,
 } = useMultiPassRenderer(canvasRef, passes, {
   layers,
   tracks,
@@ -678,6 +687,50 @@ const shaderExport = {
     renderFrame(time);
   },
 };
+
+// --- RAM preview (frame cache) ---
+
+const cacheCanvasRef = ref<HTMLCanvasElement | null>(null);
+const frameCache = useFrameCache({
+  fps: () => settings.value.fps,
+  duration: () => settings.value.duration,
+  signature: () => [
+    layers.value, lfos.value, assignments.value, settings.value, tracks.value,
+    registryVersion.value, renderBufferSize.value, textEditingLayerId.value,
+  ],
+  getCanvas,
+  renderAt: async (time: number) => {
+    seekStageToCompTime(time);
+    await nextTick();
+    if (layers.value.some((l) => l.type === "video")) await mediaSources.syncForExport(time);
+    await componentCapture.captureAll();
+    renderFrame(time);
+  },
+  restoreLive: () => {
+    seekStageToCompTime(currentTime.value);
+    setLiveRenderEnabled(true);
+    requestRender();
+  },
+  playing,
+  currentTime,
+});
+// Live renders only while the overlay isn't covering the canvas.
+watch(frameCache.showing, (s) => setLiveRenderEnabled(!s));
+// Draw the playhead's cached frame into the overlay.
+watch(
+  () => [currentTime.value, frameCache.version.value, frameCache.showing.value] as const,
+  () => {
+    const c = cacheCanvasRef.value;
+    const bmp = frameCache.get(frameCache.frameOf(currentTime.value));
+    if (!c || !bmp) return;
+    if (c.width !== bmp.width || c.height !== bmp.height) {
+      c.width = bmp.width;
+      c.height = bmp.height;
+    }
+    c.getContext("2d")?.drawImage(bmp, 0, 0);
+  },
+  { flush: "post" },
+);
 
 // --- Auto-Save ---
 
@@ -2024,6 +2077,12 @@ registerKeyboard({
                   <canvas
                     ref="canvasRef"
                     class="pointer-events-none size-full"
+                  />
+                  <!-- RAM preview: cached frames shown on top of the live canvas. -->
+                  <canvas
+                    v-show="frameCache.showing.value"
+                    ref="cacheCanvasRef"
+                    class="pointer-events-none absolute inset-0 size-full"
                   />
                 </div>
               <template v-if="!previewing">
