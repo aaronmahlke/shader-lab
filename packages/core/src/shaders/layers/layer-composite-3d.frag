@@ -337,6 +337,7 @@ float blurHash(vec2 p) {
 // Content window: u_color holds layer-UV rect (x0, y0, w, h) only (zoomed-in
 // source layers render just their visible part); (0,0,1,1) = whole layer.
 uniform vec4 u_window;
+uniform int layerFaces;     // 0 both, 1 front only, 2 back only
 // 1 when the content is a nested comp's stack (premultiplied over transparency).
 // sampleLayerContent then returns premultiplied color and the composite blends
 // it as such (no divide → no 8-bit banding, no double-darkened soft edges).
@@ -438,7 +439,9 @@ void main() {
     }
   } else {
     float denom = dot(n, dir);
-    if (abs(denom) > 1e-5) {
+    // Faces: 1 = front only (hide from behind), 2 = back only. denom < 0 ⇒ front faces the camera.
+    bool faceHidden = (layerFaces == 1 && denom > 0.0) || (layerFaces == 2 && denom < 0.0);
+    if (abs(denom) > 1e-5 && !faceHidden) {
       float t = dot(n, A) / denom;
       if (t > 1e-4) {
         vec3 hit = t * dir;

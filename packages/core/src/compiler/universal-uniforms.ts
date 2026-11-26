@@ -55,6 +55,24 @@ export const ACCEPTS_LIGHT_UNIFORM: LayerUniformDef = {
   keyframeable: false,
 };
 
+/**
+ * 3D quads only: which side of the layer renders. "Front" hides it when seen
+ * from behind, "Back" shows it only from behind — pair the two for cards with
+ * a different back (AE's extruded shapes show their back, not mirrored art).
+ */
+export const FACES_UNIFORM: LayerUniformDef = {
+  name: "layerFaces",
+  type: "select",
+  label: "Faces",
+  default: 0,
+  options: [
+    { label: "Both", value: 0 },
+    { label: "Front", value: 1 },
+    { label: "Back", value: 2 },
+  ],
+  keyframeable: false,
+};
+
 /** How a generator's content blends onto the stack below (composite pass). */
 export const BLEND_MODE_UNIFORM: LayerUniformDef = {
   name: "layerBlendMode",
@@ -91,6 +109,7 @@ export const UNIVERSAL_LAYER_UNIFORMS: LayerUniformDef[] = [
   BLUR_UNIFORM,
   BLEND_MODE_UNIFORM,
   ACCEPTS_LIGHT_UNIFORM,
+  FACES_UNIFORM,
 ];
 
 const UNIVERSAL_NAMES = new Set(UNIVERSAL_LAYER_UNIFORMS.map((def) => def.name));
@@ -136,6 +155,7 @@ const THREED_DISPLAY_ORDER: LayerUniformDef[] = [
   BLUR_UNIFORM,
   BLEND_MODE_UNIFORM,
   ACCEPTS_LIGHT_UNIFORM,
+  FACES_UNIFORM,
 ];
 
 /**
@@ -154,7 +174,7 @@ export function universalUniformsFor(
   }
   if (isLayer3D(layer)) {
     if (ALWAYS_3D.has(layer.type)) {
-      return THREED_DISPLAY_ORDER.filter((def) => def.name !== "layerAcceptsLight");
+      return THREED_DISPLAY_ORDER.filter((def) => def.name !== "layerAcceptsLight" && def.name !== "layerFaces");
     }
     return THREED_DISPLAY_ORDER;
   }
