@@ -714,6 +714,11 @@ const frameCache = useFrameCache({
   playing,
   currentTime,
 });
+/** Green bar on the timeline (throttled by the cache's version bumps). */
+const cachedRanges = computed(() => {
+  void frameCache.version.value;
+  return frameCache.ranges();
+});
 // Live renders only while the overlay isn't covering the canvas.
 watch(frameCache.showing, (s) => setLiveRenderEnabled(!s));
 // Draw the playhead's cached frame into the overlay.
@@ -2319,6 +2324,7 @@ registerKeyboard({
             :lfos="lfos"
             :assignments="assignments"
             :used-range="usedRange"
+            :cached-ranges="cachedRanges"
             @select-modulator="(id: string) => (selectedLfoId = id)"
             @toggle-stopwatch="toggleStopwatch"
             @toggle-keyframe="toggleKeyframeAtPlayhead"

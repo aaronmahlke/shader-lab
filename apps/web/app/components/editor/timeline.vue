@@ -152,10 +152,12 @@ const playing = defineModel<boolean>("playing", { required: true });
 const pxPerSecond = defineModel<number>("pxPerSecond", { default: DEFAULT_PX_PER_SECOND });
 const snapping = defineModel<boolean>("snapping", { default: true });
 
-const { settings, lfos = [], envelopes = [], assignments = [], usedRange = null } = defineProps<{
+const { settings, lfos = [], envelopes = [], assignments = [], usedRange = null, cachedRanges = [] } = defineProps<{
   settings: CompositionSettings;
   /** Drilled into a nested comp: the range (comp time) the parent shows. */
   usedRange?: { start: number; end: number } | null;
+  /** RAM-preview frames already rendered, as [startSec, endSec] spans (green bar). */
+  cachedRanges?: [number, number][];
   lfos?: LFOSource[];
   envelopes?: EnvelopeSource[];
   assignments?: ModulationAssignment[];
@@ -3219,6 +3221,13 @@ function selectAllLayers() {
               }"
             />
 
+            <!-- RAM preview: rendered frames (AE's green bar). -->
+            <div
+              v-for="([a, b], i) in cachedRanges"
+              :key="`cache-${i}`"
+              class="pointer-events-none absolute top-0 z-[6] h-[2px] bg-[#5bd16b]"
+              :style="{ left: `${timeToX(a)}px`, width: `${Math.max(1, timeToX(b) - timeToX(a))}px` }"
+            />
             <!-- Drilled into a nested comp: dim what the parent does NOT show (Live-style). -->
             <template v-if="usedRange">
               <div
