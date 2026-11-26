@@ -79,6 +79,11 @@ export type RenderPassContext = {
   contentScale?: number;
   findLayer?: (pass: RenderPass) => LayerInstance | undefined;
   getModulatedValue?: ModulationFn | null;
+  /**
+   * Motion blur: modulation fns at shutter open / close. Composites sample
+   * their content along the layer's motion between them (content renders once).
+   */
+  motionBlur?: { open: ModulationFn | null; close: ModulationFn | null; maxSamples?: number } | null;
   /** Per-frame content windows, keyed by source pass id (see content-window.ts). */
   contentWindows?: Map<string, ContentWindow>;
 };
@@ -116,6 +121,7 @@ function resolvePassUniformValues(
   if (pass.layerType === "layerComposite3d") {
     mergeSceneUniforms(merged, layer, pass, ctx);
   }
+  if (isComposite) applyMotionBlur(merged, layer, pass, ctx);
 
   if (isComposite) {
     // Layer UV rect the content buffer holds (zoomed-in source layers render only what's visible).
@@ -147,6 +153,66 @@ function resolvePassUniformValues(
 
   applyTimingGate(merged, layer, pass, ctx.gateTime ?? ctx.time);
   return merged;
+}
+
+/**
+ * Per-layer motion blur uniforms: the transform (and, for 3D, the camera) at
+ * shutter open and close, plus how many samples the shader takes along that
+ * path — about one per 1.5 px of travel, 0 when the layer doesn't move.
+ * A layer opts out with `motionBlur: false`.
+ */
+function applyMotionBlur(
+  merged: Record<string, unknown>,
+  layer: LayerInstance,
+  pass: RenderPass,
+  ctx: RenderPassContext,
+): void {
+  merged.u_mbSamples = 0;
+  const mb = ctx.motionBlur;
+  if (!mb?.open || !mb.close || layer.motionBlur === false) return;
+  const is3d = pass.layerType === "layerComposite3d";
+  const at = (fn: ModulationFn) => {
+    const u = buildUniversalUniforms(layer, fn) as Record<string, number>;
+    const cam: Record<string, unknown> = {};
+    if (is3d) mergeSceneUniforms(cam, layer, pass, { ...ctx, getModulatedValue: fn });
+    return {
+      x: Number(u.layerPositionX ?? 0),
+      y: Number(u.layerPositionY ?? 0),
+      z: Number(u.layerPositionZ ?? 0),
+      s: Number(u.layerScale ?? 100),
+      r: Number(u.layerRotation ?? 0),
+      rx: Number(u.layerRotationX ?? 0),
+      ry: Number(u.layerRotationY ?? 0),
+      tilt: Number(cam.u_camTilt ?? 0),
+      yaw: Number(cam.u_camYaw ?? 0),
+      roll: Number(cam.u_camRoll ?? 0),
+      zoom: Number(cam.u_camZoom ?? 1),
+    };
+  };
+  const o = at(mb.open);
+  const c = at(mb.close);
+  const W = ctx.width;
+  const H = ctx.height;
+  const size = Math.max(W, H) * 0.5 * Math.max(o.s, c.s) / 100;
+  const deg = Math.PI / 180;
+  // Rough screen travel in px (upper-ish bound; samples are cheap).
+  const travel =
+    Math.hypot((c.x - o.x) * W, (c.y - o.y) * H) +
+    Math.abs(c.z - o.z) * H +
+    (Math.abs(c.s - o.s) / 100) * Math.max(W, H) * 0.5 +
+    (Math.abs(c.r - o.r) + Math.abs(c.rx - o.rx) + Math.abs(c.ry - o.ry)) * deg * size +
+    (Math.abs(c.tilt - o.tilt) + Math.abs(c.yaw - o.yaw) + Math.abs(c.roll - o.roll)) * deg * H +
+    Math.abs(c.zoom - o.zoom) * H;
+  if (!(travel > 1)) return;
+  merged.u_mbSamples = Math.min(mb.maxSamples ?? 64, 64, Math.max(2, Math.ceil(travel / 1.5)));
+  merged.u_mbOpen = [o.x, o.y, o.s, o.r];
+  merged.u_mbClose = [c.x, c.y, c.s, c.r];
+  if (is3d) {
+    merged.u_mbOpen3 = [o.z, o.rx, o.ry, 0];
+    merged.u_mbClose3 = [c.z, c.rx, c.ry, 0];
+    merged.u_mbCamOpen = [o.tilt, o.yaw, o.roll, o.zoom];
+    merged.u_mbCamClose = [c.tilt, c.yaw, c.roll, c.zoom];
+  }
 }
 
 function getLayerById(ctx: RenderPassContext, id: string): LayerInstance | undefined {

@@ -120,7 +120,7 @@ export function useMultiPassRenderer(
     };
 
     const times = options.modFnAt && options.motionBlurTimes ? options.motionBlurTimes(time) : [time];
-    renderer.renderFrameSamples(times, passes.value, prepare);
+    renderer.renderFrameSamples(times, passes.value, prepare, time);
     // Leave the engine sampled at the frame time for UI reads.
     if (times.length > 1) sampleLfosAtTime?.(time);
   }

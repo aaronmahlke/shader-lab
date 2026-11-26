@@ -74,6 +74,8 @@ export type LayerInstance = {
   parentPoint?: string;
   /** Set on virtual cloner copies only (never persisted). */
   clone?: CloneInfo;
+  /** Motion blur for this layer (comp switch on): unset = on, false = off. */
+  motionBlur?: boolean;
   /** Timeline track height in px (UI only; taller rows show waveforms bigger). */
   rowHeight?: number;
 };

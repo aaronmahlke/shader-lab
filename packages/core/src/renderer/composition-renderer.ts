@@ -198,55 +198,31 @@ export class CompositionRenderer {
     times: number[],
     passes: RenderPass[],
     prepare: (time: number) => ModulationFn | null | undefined,
+    /** The frame's exact time (decides layer in/out; the sample mean drifts at cuts). */
+    frameTime?: number,
   ): void {
-    if (times.length <= 1 || passes.length === 0) {
+    const n = times.length;
+    if (n <= 1 || passes.length === 0) {
       const t = times[0] ?? 0;
       this.renderFrame(t, passes, prepare(t));
       return;
     }
-    const gl = this.gl;
-    const width = this.canvas.width;
-    const height = this.canvas.height;
-    const accum = this.ensureAccum(width, height);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, accum.framebuffer);
-    gl.viewport(0, 0, width, height);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    const weight = 1 / times.length;
-    // Samples are centered on the frame: their mean is the frame time, which
-    // decides layer in/out for every sample (no blur across cuts).
-    const gateTime = times.reduce((a, b) => a + b, 0) / times.length;
-    for (const t of times) {
-      renderPasses(passes, { ...this.passContext(t, prepare(t)), gateTime }, {
-        readPixels: false,
-        pipelineCache: this.pipelineCache,
-        outputTarget: accum,
-        outputWeight: weight,
-      });
-    }
-
-    // Present the averaged frame.
-    const present = this.ensurePresent();
-    if (!present) return;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, width, height);
-    gl.useProgram(present.program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, present.quad);
-    const pos = gl.getAttribLocation(present.program, "aPosition");
-    const uv = gl.getAttribLocation(present.program, "aUV");
-    gl.enableVertexAttribArray(pos);
-    gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 16, 0);
-    if (uv >= 0) {
-      gl.enableVertexAttribArray(uv);
-      gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, 16, 8);
-    }
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, accum.texture);
-    gl.uniform1i(gl.getUniformLocation(present.program, "u_input"), 0);
-    gl.uniform2f(gl.getUniformLocation(present.program, "u_resolution"), width, height);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    // Motion blur, per layer: `times` are the shutter's sample centers; the
+    // content renders ONCE at the frame time and every composite smears its
+    // layer along its own motion between shutter open and close (see
+    // applyMotionBlur). Nothing re-renders per sample, so cuts, captured UI
+    // and text stay stable, and fast moves get up to 64 samples cheaply.
+    const first = times[0]!;
+    const last = times[n - 1]!;
+    const center = frameTime ?? times.reduce((a, b) => a + b, 0) / n;
+    const window = ((last - first) * n) / (n - 1);
+    const open = prepare(center - window / 2) ?? null;
+    const close = prepare(center + window / 2) ?? null;
+    const modFn = prepare(center); // last: per-time state (nested resolvers) ends at the frame
+    renderPasses(passes, { ...this.passContext(center, modFn), motionBlur: { open, close } }, {
+      readPixels: false,
+      pipelineCache: this.pipelineCache,
+    });
   }
 
   private ensureAccum(width: number, height: number) {

@@ -133,16 +133,21 @@ vec4 sampleLayerContent(sampler2D tex, vec2 layerUv, vec2 res) {
   return u_premultiplied > 0.5 ? vec4(straight * aOut, aOut) : vec4(straight, aOut);
 }
 
-void main() {
-  vec2 uv = gl_FragCoord.xy / u_resolution;
-  vec4 belowSample = texture2D(u_input, uv);
-  vec3 below = belowSample.rgb;
+// --- Motion blur (per layer, along its own motion) ---
+// Transform at shutter open / close: (posX, posY, scale %, rotation °). The
+// content renders once; we sample it u_mbSamples times along the path the
+// layer travels during the shutter (0 = off / not moving). Cuts, captured UI
+// and text can't flicker: nothing re-renders.
+uniform int u_mbSamples;
+uniform vec4 u_mbOpen;
+uniform vec4 u_mbClose;
 
-  vec2 anchor = vec2(layerAnchorX, layerAnchorY);
-  vec2 center = anchor + vec2(layerPositionX, layerPositionY);
+// Premultiplied contribution of the layer at one transform: (rgb·a, a).
+vec4 layerAt(vec2 uv, vec2 anchor, float px, float py, float scalePct, float rotDeg) {
+  vec2 center = anchor + vec2(px, py);
   float aspect = u_resolution.x / u_resolution.y;
-  float scale = max(layerScale / 100.0, 1e-4);
-  float ang = radians(layerRotation);
+  float scale = max(scalePct / 100.0, 1e-4);
+  float ang = radians(rotDeg);
   float c = cos(ang);
   float s = sin(ang);
 
@@ -155,10 +160,7 @@ void main() {
   vec2 luv = p + anchor;
 
   // Coverage: 1 inside layer bounds, anti-aliased over ~1 texel just OUTSIDE
-  // the edges. Keeping the AA band outside [0,1] means an untransformed layer
-  // has full coverage on its outermost texel; the old inside-band darkened that
-  // ring, and distortion layers (which clamp displaced UVs onto it) smeared it
-  // into dark blocky artifacts across the frame.
+  // the edges (an untransformed layer keeps full coverage on its edge texel).
   vec2 aa = 1.0 / (u_resolution * scale);
   vec2 inside = smoothstep(-aa, vec2(0.0), luv) * smoothstep(-aa, vec2(0.0), 1.0 - luv);
   float coverage = inside.x * inside.y;
@@ -167,14 +169,38 @@ void main() {
   // Blur spreads past the layer bounds; keep the hard coverage only when sharp.
   if (layerBlur > 0.01) coverage = 1.0;
   float k = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage;
-  float alpha = k * content.a;
-
   bool premult = u_premultiplied > 0.5;
-  vec3 straight = premult ? content.rgb / max(content.a, 1e-5) : content.rgb;
+  // Premultiplied content: rgb already carries content.a.
+  vec3 rgbA = premult ? content.rgb * k : content.rgb * content.a * k;
+  return vec4(rgbA, k * content.a);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+  vec4 belowSample = texture2D(u_input, uv);
+  vec3 below = belowSample.rgb;
+  vec2 anchor = vec2(layerAnchorX, layerAnchorY);
+
+  vec4 acc;
+  if (u_mbSamples > 1) {
+    acc = vec4(0.0);
+    float n = float(u_mbSamples);
+    for (int i = 0; i < 64; i++) {
+      if (i >= u_mbSamples) break;
+      vec4 t = mix(u_mbOpen, u_mbClose, (float(i) + 0.5) / n);
+      acc += layerAt(uv, anchor, t.x, t.y, t.z, t.w);
+    }
+    acc /= n;
+  } else {
+    acc = layerAt(uv, anchor, layerPositionX, layerPositionY, layerScale, layerRotation);
+  }
+
+  float alpha = acc.a;
+  vec3 straight = acc.rgb / max(alpha, 1e-5);
   vec3 blended = applyBlend(below, straight, layerBlendMode);
   vec3 rgb = mix(below, blended, alpha);
-  // Normal blend of a premultiplied precomp: exact "over" without dividing.
-  if (premult && layerBlendMode == 0) rgb = below * (1.0 - alpha) + content.rgb * k;
+  // Normal blend: exact premultiplied "over" (no divide → no banding on soft edges).
+  if (layerBlendMode == 0) rgb = below * (1.0 - alpha) + acc.rgb;
   // Root comps flatten to opaque; nested comps keep union coverage so the
   // host composite sees transparency where nothing rendered.
   float outAlpha = mix(1.0, belowSample.a + alpha * (1.0 - belowSample.a), u_keepAlpha);

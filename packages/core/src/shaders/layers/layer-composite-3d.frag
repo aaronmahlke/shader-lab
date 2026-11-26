@@ -120,26 +120,28 @@ vec3 applyBlend(vec3 below, vec3 src, int mode) {
 
 // Forward rotation of the layer plane. Z is negated so positive matches the
 // 2D composite's clockwise convention.
-mat3 layerRotationMatrix() {
-  float cx = cos(radians(layerRotationX)), sx = sin(radians(layerRotationX));
-  float cy = cos(radians(layerRotationY)), sy = sin(radians(layerRotationY));
-  float cz = cos(radians(-layerRotation)), sz = sin(radians(-layerRotation));
+mat3 layerRotationMatrixOf(vec3 r) {
+  float cx = cos(radians(r.x)), sx = sin(radians(r.x));
+  float cy = cos(radians(r.y)), sy = sin(radians(r.y));
+  float cz = cos(radians(-r.z)), sz = sin(radians(-r.z));
   mat3 rx = mat3(1.0, 0.0, 0.0,  0.0, cx, sx,  0.0, -sx, cx);
   mat3 ry = mat3(cy, 0.0, -sy,  0.0, 1.0, 0.0,  sy, 0.0, cy);
   mat3 rz = mat3(cz, sz, 0.0,  -sz, cz, 0.0,  0.0, 0.0, 1.0);
   return rz * rx * ry;
 }
+mat3 layerRotationMatrix() { return layerRotationMatrixOf(vec3(layerRotationX, layerRotationY, layerRotation)); }
 
 // Scene camera rotation (same convention/order as camera-stage's plateRotation).
-mat3 camRotation() {
-  float cx = cos(radians(u_camTilt)), sx = sin(radians(u_camTilt));
-  float cy = cos(radians(u_camYaw)),  sy = sin(radians(u_camYaw));
-  float cz = cos(radians(u_camRoll)), sz = sin(radians(u_camRoll));
+mat3 camRotationOf(vec3 r) {
+  float cx = cos(radians(r.x)), sx = sin(radians(r.x));
+  float cy = cos(radians(r.y)),  sy = sin(radians(r.y));
+  float cz = cos(radians(r.z)), sz = sin(radians(r.z));
   mat3 rx = mat3(1.0, 0.0, 0.0,  0.0, cx, sx,  0.0, -sx, cx);
   mat3 ry = mat3(cy, 0.0, -sy,  0.0, 1.0, 0.0,  sy, 0.0, cy);
   mat3 rz = mat3(cz, sz, 0.0,  -sz, cz, 0.0,  0.0, 0.0, 1.0);
   return rz * rx * ry;
 }
+mat3 camRotation() { return camRotationOf(vec3(u_camTilt, u_camYaw, u_camRoll)); }
 
 // --- Rounded box (SDF) ------------------------------------------------------
 
@@ -377,6 +379,73 @@ vec4 sampleLayerContent(sampler2D tex, vec2 layerUv, vec2 res) {
   return u_premultiplied > 0.5 ? vec4(straight * aOut, aOut) : vec4(straight, aOut);
 }
 
+// --- Motion blur ---
+uniform int u_mbSamples;   // 0/1 = off
+uniform vec4 u_mbOpen;     // shutter open: posX, posY, scale %, rotZ °
+uniform vec4 u_mbClose;
+uniform vec4 u_mbOpen3;    // posZ, rotX, rotY, -
+uniform vec4 u_mbClose3;
+uniform vec4 u_mbCamOpen;  // camera tilt, yaw, roll, zoom
+uniform vec4 u_mbCamClose;
+
+// Premultiplied (rgb·a, a) of the layer quad for one transform + camera.
+vec4 quadAt(vec2 uv, float aspect, float tanHalf, vec3 pos, float scalePct, vec3 rotDeg, vec4 cam) {
+  float dist = (1.0 / tanHalf) / max(cam.w, 1e-3);
+  mat3 rcam = camRotationOf(cam.xyz);
+  vec2 anchor = vec2(layerAnchorX, layerAnchorY);
+  vec2 centerUv = anchor + pos.xy;
+  vec3 S = vec3((centerUv.x * 2.0 - 1.0) * aspect, centerUv.y * 2.0 - 1.0, pos.z * 2.0);
+  vec3 A = vec3(0.0, 0.0, -dist) + rcam * S;
+  mat3 rot = rcam * layerRotationMatrixOf(rotDeg);
+  vec3 ax = rot * vec3(1.0, 0.0, 0.0);
+  vec3 ay = rot * vec3(0.0, 1.0, 0.0);
+  vec3 n  = rot * vec3(0.0, 0.0, 1.0);
+  vec2 ndc = uv * 2.0 - 1.0;
+  vec3 dir = normalize(vec3(ndc.x * tanHalf * aspect, ndc.y * tanHalf, -1.0));
+  float s = max(scalePct / 100.0, 1e-4);
+  float alpha = 0.0;
+  vec3 src = vec3(0.0);
+  {
+    float denom = dot(n, dir);
+    // Faces: 1 = front only (hide from behind), 2 = back only. denom < 0 ⇒ front faces the camera.
+    bool faceHidden = (layerFaces == 1 && denom > 0.0) || (layerFaces == 2 && denom < 0.0);
+    if (abs(denom) > 1e-5 && !faceHidden) {
+      float t = dot(n, A) / denom;
+      if (t > 1e-4) {
+        vec3 hit = t * dir;
+        vec3 rel = hit - A;
+        vec2 luv = vec2(
+          dot(rel, ax) / (2.0 * aspect * s) + anchor.x,
+          dot(rel, ay) / (2.0 * s) + anchor.y
+        );
+
+        // Anti-alias the plane edge over ~1 screen px at the hit depth, kept
+        // OUTSIDE [0,1] so an identity layer has full coverage on its edge
+        // texel (matches the 2D composite behavior).
+        float depth = -hit.z;
+        float worldPerPx = 2.0 * tanHalf * max(depth, 1e-4) / u_frameSize.y;
+        vec2 aa = vec2(worldPerPx / (2.0 * aspect * s), worldPerPx / (2.0 * s));
+        vec2 inside = smoothstep(-aa, vec2(0.0), luv) * smoothstep(-aa, vec2(0.0), 1.0 - luv);
+        float coverage = inside.x * inside.y;
+
+        vec4 content = sampleLayerContent(u_color, luv, u_frameSize);
+        if (layerBlur > 0.01) coverage = 1.0;
+        alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
+        src = u_premultiplied > 0.5 ? content.rgb / max(content.a, 1e-5) : content.rgb;
+
+        // Shade the quad with the group's lights when the layer accepts them
+        // (flip the normal toward the viewer — both faces are lit).
+        if (layerAcceptsLight > 0.5 && u_lightCount > 0) {
+          vec3 N = denom > 0.0 ? -n : n;
+          src = shadeQuad(src, hit, N, dir, rcam);
+        }
+      }
+    }
+  
+  }
+  return vec4(src * alpha, alpha);
+}
+
 void main() {
   vec2 uv = gl_FragCoord.xy / u_resolution;
   vec4 belowSample = texture2D(u_input, uv);
@@ -437,42 +506,26 @@ void main() {
       src = albedo * max(u_ambient, 0.25);
       alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage;
     }
-  } else {
-    float denom = dot(n, dir);
-    // Faces: 1 = front only (hide from behind), 2 = back only. denom < 0 ⇒ front faces the camera.
-    bool faceHidden = (layerFaces == 1 && denom > 0.0) || (layerFaces == 2 && denom < 0.0);
-    if (abs(denom) > 1e-5 && !faceHidden) {
-      float t = dot(n, A) / denom;
-      if (t > 1e-4) {
-        vec3 hit = t * dir;
-        vec3 rel = hit - A;
-        vec2 luv = vec2(
-          dot(rel, ax) / (2.0 * aspect * s) + anchor.x,
-          dot(rel, ay) / (2.0 * s) + anchor.y
-        );
-
-        // Anti-alias the plane edge over ~1 screen px at the hit depth, kept
-        // OUTSIDE [0,1] so an identity layer has full coverage on its edge
-        // texel (matches the 2D composite behavior).
-        float depth = -hit.z;
-        float worldPerPx = 2.0 * tanHalf * max(depth, 1e-4) / u_frameSize.y;
-        vec2 aa = vec2(worldPerPx / (2.0 * aspect * s), worldPerPx / (2.0 * s));
-        vec2 inside = smoothstep(-aa, vec2(0.0), luv) * smoothstep(-aa, vec2(0.0), 1.0 - luv);
-        float coverage = inside.x * inside.y;
-
-        vec4 content = sampleLayerContent(u_color, luv, u_frameSize);
-        if (layerBlur > 0.01) coverage = 1.0;
-        alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
-        src = u_premultiplied > 0.5 ? content.rgb / max(content.a, 1e-5) : content.rgb;
-
-        // Shade the quad with the group's lights when the layer accepts them
-        // (flip the normal toward the viewer — both faces are lit).
-        if (layerAcceptsLight > 0.5 && u_lightCount > 0) {
-          vec3 N = denom > 0.0 ? -n : n;
-          src = shadeQuad(src, hit, N, dir, rcam);
-        }
-      }
+  } else if (u_mbSamples > 1) {
+    // Motion blur: average the quad along its path (and the camera's) during the shutter.
+    vec4 acc = vec4(0.0);
+    float nS = float(u_mbSamples);
+    for (int i = 0; i < 64; i++) {
+      if (i >= u_mbSamples) break;
+      float f = (float(i) + 0.5) / nS;
+      vec4 a = mix(u_mbOpen, u_mbClose, f);    // posX, posY, scale, rotZ
+      vec4 b = mix(u_mbOpen3, u_mbClose3, f);  // posZ, rotX, rotY, -
+      vec4 cm = mix(u_mbCamOpen, u_mbCamClose, f); // tilt, yaw, roll, zoom
+      acc += quadAt(uv, aspect, tanHalf, vec3(a.x, a.y, b.x), a.z, vec3(b.y, b.z, a.w), cm);
     }
+    acc /= nS;
+    alpha = acc.a;
+    src = acc.rgb / max(alpha, 1e-5);
+  } else {
+    vec4 q = quadAt(uv, aspect, tanHalf, vec3(layerPositionX, layerPositionY, layerPositionZ), layerScale,
+      vec3(layerRotationX, layerRotationY, layerRotation), vec4(u_camTilt, u_camYaw, u_camRoll, u_camZoom));
+    alpha = q.a;
+    src = q.rgb / max(alpha, 1e-5);
   }
 
   vec3 blended = applyBlend(below, src, layerBlendMode);

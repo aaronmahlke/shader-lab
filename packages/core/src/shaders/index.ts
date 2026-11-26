@@ -90,6 +90,7 @@ void main() {
 export const STBN_LAYER_TYPES = new Set<LayerType>([]);
 
 export const INT_UNIFORMS = new Set([
+  "u_mbSamples",
   "layerFaces",
   "waveType",
   "shape",

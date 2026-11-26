@@ -82,7 +82,7 @@ import {
   getShaderPreset,
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
-import { buildLayerValues, offsetDuplicatedWave, applyCompProps, createNestedResolvers } from "@shader-lab/core";
+import { buildLayerValues, offsetDuplicatedWave, applyCompProps, createNestedResolvers, RENDER_ENGINE_VERSION } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
@@ -825,6 +825,8 @@ const frameCache = useFrameCache({
     previewResolution.value, textEditingLayerId.value,
     // Editing a component file re-renders the frames that use it.
     projectComponents.value,
+    // Engine changes (shaders, blur…) invalidate frames rendered by older code.
+    RENDER_ENGINE_VERSION,
   ],
   cacheKey: () => shaderId.value ?? "",
   getCanvas,

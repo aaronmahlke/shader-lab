@@ -49,7 +49,7 @@ export function createComposition(
     const modFn = modulationAt(time);
     const passes = compilePasses(currentConfig.layers, modFn);
     const times = motionBlurSampleTimes(time, currentConfig.settings ?? DEFAULT_SETTINGS_FOR_DRAW);
-    renderer.renderFrameSamples(times, passes, (t) => (t === time ? modFn : modulationAt(t)));
+    renderer.renderFrameSamples(times, passes, (t) => (t === time ? modFn : modulationAt(t)), time);
   }
 
   function tick() {
@@ -296,3 +296,9 @@ export {
 } from "./modulation/lfo-wave";
 export { STBN_TEXTURE_PATH, stbnFrameIndex } from "./modulation/stbn";
 
+
+/**
+ * Bump when rendering output changes for the same inputs (shaders, blur,
+ * compositing): editors key cached frames on it so stale frames never show.
+ */
+export const RENDER_ENGINE_VERSION = "2026-11-26.motion-blur-shader.2";

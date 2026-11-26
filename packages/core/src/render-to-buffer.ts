@@ -73,48 +73,50 @@ export async function renderCompositionToBuffer(
 
     const textTextures = new Map();
     const pipelineCache = createRenderPipelineCache();
-    // Motion blur: average sub-frame renders (one render when off).
+    // Motion blur (per layer, in the composites): one render at the frame
+    // time with modulation fns at shutter open / close.
     const times = motionBlurSampleTimes(time, config.settings ?? DEFAULT_COMPOSITION_SETTINGS);
-    let sum: Float32Array | null = null;
-    for (const t of times) {
-      const frameEngine = new ModulationEngine();
-      frameEngine.setConfig(config);
-      frameEngine.sampleAt(t);
-      const frameModFn = createAnimatedModulationFn(t, config.tracks ?? [], frameEngine);
-      const frameNested = createNestedResolvers({
+    const at = (t: number) => {
+      const engine = new ModulationEngine();
+      engine.setConfig(config);
+      engine.sampleAt(t);
+      return createNestedResolvers({
         layers: config.layers,
-        parentModFn: frameModFn,
+        parentModFn: createAnimatedModulationFn(t, config.tracks ?? [], engine),
         resolveComposition,
         time: t,
       });
-      const { pixels } = renderPasses(
-        passes,
-        {
-          gl,
-          width,
-          height,
-          time: t,
-          scaleUniform: 1.0,
-          gradientTextures,
-          stbnTexture,
-          createGradientData: createNodeGradientData,
-          textTextures,
-          createTextImage: createNodeTextImage,
-          contentScale: height / (config.settings?.height ?? height),
-          findLayer: frameNested.findLayer,
-          getModulatedValue: frameNested.modFn,
-        },
-        { readPixels: true, pipelineCache },
-      );
-      if (!pixels) return null;
-      if (times.length === 1) return pixelsToPngBuffer(pixels, width, height);
-      sum ??= new Float32Array(pixels.length);
-      for (let i = 0; i < pixels.length; i++) sum[i]! += pixels[i]!;
+    };
+    let motionBlur: { open: ReturnType<typeof at>["modFn"]; close: ReturnType<typeof at>["modFn"] } | null = null;
+    if (times.length > 1) {
+      const n = times.length;
+      const window = ((times[n - 1]! - times[0]!) * n) / (n - 1);
+      motionBlur = { open: at(time - window / 2).modFn, close: at(time + window / 2).modFn };
     }
+    const frame = at(time);
+    const { pixels } = renderPasses(
+      passes,
+      {
+        gl,
+        width,
+        height,
+        time,
+        scaleUniform: 1.0,
+        gradientTextures,
+        stbnTexture,
+        createGradientData: createNodeGradientData,
+        textTextures,
+        createTextImage: createNodeTextImage,
+        contentScale: height / (config.settings?.height ?? height),
+        findLayer: frame.findLayer,
+        getModulatedValue: frame.modFn,
+        motionBlur,
+      },
+      { readPixels: true, pipelineCache },
+    );
     disposeRenderPipelineCache(gl, pipelineCache);
-    const averaged = new Uint8Array(sum!.length);
-    for (let i = 0; i < sum!.length; i++) averaged[i] = Math.round(sum![i]! / times.length);
-    return pixelsToPngBuffer(averaged, width, height);
+    if (!pixels) return null;
+    return pixelsToPngBuffer(pixels, width, height);
   } catch (e) {
     console.error("Composition render failed:", e);
     return null;
