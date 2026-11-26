@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { CompositionSettings } from "@shader-lab/core";
+import type { CompositionSettings, LayerInstance, PropertyTrack } from "@shader-lab/core";
+import type { AudioEffect } from "#shared/editor/audio-effects";
 
 /** Inspector with nothing selected: the comp's own settings. */
 const props = defineProps<{ settings: CompositionSettings; compName: string }>();
@@ -29,6 +30,8 @@ function onPreset(label: string) {
 }
 
 const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
+const editorLayers = inject<Ref<LayerInstance[]> | null>("editorLayers", null);
+const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
 </script>
 
 <template>
@@ -77,6 +80,28 @@ const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
           @update:model-value="emit('update', { duration: $event })"
         />
       </StudioField>
+    </EditorInspectorSection>
+
+    <EditorInspectorSection title="Master (audio)">
+      <StudioField label="Volume" inline>
+        <StudioValue
+          :model-value="settings.masterVolume ?? 0"
+          :min="-48"
+          :max="12"
+          :step="0.1"
+          :precision="1"
+          unit=" dB"
+          :default-value="0"
+          @update:model-value="emit('update', { masterVolume: $event })"
+        />
+      </StudioField>
+      <EditorAudioEffectsField
+        :model-value="settings.masterEffects as AudioEffect[] | undefined"
+        :layers="editorLayers?.value ?? []"
+        owner-id="master"
+        :tracks="editorTracks?.value ?? []"
+        @update:model-value="emit('update', { masterEffects: $event })"
+      />
     </EditorInspectorSection>
 
     <EditorInspectorSection title="Render">

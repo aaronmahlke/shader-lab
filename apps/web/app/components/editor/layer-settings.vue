@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AudioEffect } from "#shared/editor/audio-effects";
 import { layerStudioIcon } from "~/utils/layer-icons";
 import { BUILT_IN_CURSORS, builtInCursor, cursorAnchor } from "#shared/editor/cursors";
 import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource, PropertyTrack } from "@shader-lab/core";
@@ -931,6 +932,16 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     </EditorInspectorSection>
 
     <EditorCompPropsFields v-if="layer.type === 'composition'" :layer="layer" />
+
+    <EditorInspectorSection v-if="layer.type === 'audio' || (layer.type === 'composition' && compHasAudio)" title="Audio effects">
+      <EditorAudioEffectsField
+        :model-value="layer.audioEffects as AudioEffect[] | undefined"
+        :layers="editorLayers?.value ?? []"
+        :owner-id="layer.id"
+        :tracks="editorTracks?.value ?? []"
+        @update:model-value="layer.audioEffects = $event; history?.record()"
+      />
+    </EditorInspectorSection>
 
     <EditorInspectorSection :title="template.label">
       <template v-for="def in template.uniforms" :key="def.name">

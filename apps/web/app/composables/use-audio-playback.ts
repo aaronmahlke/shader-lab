@@ -1,4 +1,6 @@
 import { computed, onBeforeUnmount, shallowRef, watch, type Ref } from "vue";
+import type { AudioEffect } from "#shared/editor/audio-effects";
+import { buildFxChain, duckCurve, type DuckCurves, type FxAutomation } from "~/utils/audio-fx";
 import { applyCompProps, evaluatePropertyTrack, type CompositionConfig, type LayerInstance, type PropertyTrack } from "@shader-lab/core";
 
 /**
@@ -169,26 +171,75 @@ const anySoloIn = (entries: readonly AudioEntry[]) => entries.some((e) => e.laye
 
 type Strip = { gain: GainNode; pan: StereoPannerNode; meter: AnalyserNode };
 
+type MixSettings = {
+  masterVolume: number;
+  masterEffects?: AudioEffect[];
+  /** Root comp tracks (master fx automation lives on layer id "master"). */
+  rootTracks: readonly PropertyTrack[];
+  duration: number;
+};
+
 /**
- * The mix graph: sound → pan → fader → its precomp buses (pan, fader) →
- * master → out. Same graph for live playback and the offline export mix.
+ * Duck curves for every duck effect in the mix: the trigger is an audio
+ * layer or a precomp (all sounds inside) of the owner's comp; the curve
+ * follows their real level. Needs the trigger buffers decoded.
  */
-function buildGraph(ctx: BaseAudioContext, entries: readonly AudioEntry[], masterDb: number) {
+function duckCurvesFor(entries: readonly AudioEntry[], mix: MixSettings, buffers: (src: string) => AudioBuffer | null): DuckCurves {
+  const curves: DuckCurves = new Map();
+  const owners: { prefix: string; effects?: AudioEffect[] }[] = [{ prefix: "", effects: mix.masterEffects }];
+  const seen = new Set<string>();
+  for (const e of entries) {
+    const p = e.key.slice(0, e.key.length - e.layer.id.length);
+    if (!seen.has(e.key)) owners.push({ prefix: p, effects: e.layer.audioEffects as AudioEffect[] | undefined });
+    seen.add(e.key);
+    for (const h of e.hosts) {
+      if (seen.has(h.key)) continue;
+      seen.add(h.key);
+      owners.push({ prefix: h.key.slice(0, h.key.length - h.layer.id.length), effects: h.layer.audioEffects as AudioEffect[] | undefined });
+    }
+  }
+  for (const o of owners) {
+    for (const fx of o.effects ?? []) {
+      if (fx.type !== "duck" || fx.enabled === false || !fx.source) continue;
+      const src = `${o.prefix}${fx.source}`;
+      const triggers = entries
+        .filter((t) => t.key === src || t.key.startsWith(`${src}::`))
+        .map((t) => ({ buffer: buffers(t.layer.values.src as string), start: t.offset + (t.layer.timing?.in ?? 0), from: t.from, to: t.to }))
+        .filter((t): t is { buffer: AudioBuffer; start: number; from: number; to: number } => !!t.buffer);
+      if (!triggers.length) continue;
+      const par = (n: string, d: number) => fx.params[n] ?? d;
+      curves.set(fx.id, duckCurve(triggers, { amount: par("amount", 9), threshold: par("threshold", -30), attack: par("attack", 5), release: par("release", 200) }, mix.duration));
+    }
+  }
+  return curves;
+}
+
+/**
+ * The mix graph: sound → pan → effects → fader → its precomp buses (pan,
+ * effects, fader) → master effects → master fader → out. Same graph for
+ * live playback and the offline export mix.
+ */
+function buildGraph(ctx: BaseAudioContext, entries: readonly AudioEntry[], mix: MixSettings, ducks: DuckCurves) {
+  const sum = ctx.createGain();
   const master = ctx.createGain();
-  master.gain.value = dbToGain(masterDb);
+  master.gain.value = dbToGain(mix.masterVolume);
   const masterMeter = ctx.createAnalyser();
   masterMeter.fftSize = 1024;
+  const autos: FxAutomation[] = buildFxChain(ctx, mix.masterEffects, { id: "master", tracks: mix.rootTracks, offset: 0 }, sum, master, ducks);
   master.connect(masterMeter);
   masterMeter.connect(ctx.destination);
   const strips = new Map<string, Strip>();
-  const strip = (key: string, to: AudioNode): Strip => {
+  const strip = (key: string, to: AudioNode, owner: { layer: LayerInstance; tracks: readonly PropertyTrack[]; offset: number }): Strip => {
     let st = strips.get(key);
     if (!st) {
       const pan = ctx.createStereoPanner();
       const gain = ctx.createGain();
       const meter = ctx.createAnalyser();
       meter.fftSize = 1024;
-      pan.connect(gain).connect(meter).connect(to);
+      autos.push(
+        ...buildFxChain(ctx, owner.layer.audioEffects as AudioEffect[] | undefined, { id: owner.layer.id, tracks: owner.tracks, offset: owner.offset }, pan, gain, ducks),
+      );
+      gain.connect(meter).connect(to);
       st = { gain, pan, meter };
       strips.set(key, st);
     }
@@ -197,11 +248,14 @@ function buildGraph(ctx: BaseAudioContext, entries: readonly AudioEntry[], maste
   /** Input node for a sound: its strip, routed through its group buses. */
   const inputFor = (e: AudioEntry): Strip => {
     // Outer → inner: each group's input feeds the level above it.
-    let parent: AudioNode = master;
-    for (const h of e.hosts) parent = strip(h.key, parent).pan;
-    return strip(e.key, parent);
+    let parent: AudioNode = sum;
+    for (const h of e.hosts) parent = strip(h.key, parent, h).pan;
+    return strip(e.key, parent, e);
   };
-  return { master, masterMeter, strips, inputFor };
+  // Every strip up front: their effect automations must exist before the
+  // caller schedules them (they used to appear lazily, after scheduling).
+  for (const e of entries) inputFor(e);
+  return { master, masterMeter, strips, inputFor, autos };
 }
 
 type Voice = { source: AudioBufferSourceNode; entry: AudioEntry };
@@ -214,6 +268,10 @@ export function useAudioPlayback(opts: {
   registryVersion?: Ref<number>;
   /** Master level in dB (comp settings). */
   masterVolume?: () => number;
+  /** Master effect chain (comp settings). */
+  masterEffects?: () => AudioEffect[] | undefined;
+  /** Comp length (duck curves span it). */
+  duration?: () => number;
 }) {
   let voices: Voice[] = [];
   let graph: ReturnType<typeof buildGraph> | null = null;
@@ -283,6 +341,8 @@ export function useAudioPlayback(opts: {
     const ctx = audioContext();
     const set = (p: AudioParam, v: number) => (smooth ? p.setTargetAtTime(v, ctx.currentTime, 0.015) : (p.value = v));
     set(graph.master.gain, dbToGain(opts.masterVolume?.() ?? 0));
+    // Effect automation (fx keys, duck curves).
+    for (const a of graph.autos) if (a.keyed) set(a.param, a.at(t));
     const solo = anySoloIn(entries.value);
     const seenHosts = new Set<string>();
     for (const e of entries.value) {
@@ -309,7 +369,13 @@ export function useAudioPlayback(opts: {
     anchorT = t;
     anchorCtx = now;
     missing = false;
-    graph = buildGraph(ctx, entries.value, opts.masterVolume?.() ?? 0);
+    const mix: MixSettings = {
+      masterVolume: opts.masterVolume?.() ?? 0,
+      masterEffects: opts.masterEffects?.(),
+      rootTracks: opts.tracks.value,
+      duration: Math.max(1, opts.duration?.() ?? 60),
+    };
+    graph = buildGraph(ctx, entries.value, mix, duckCurvesFor(entries.value, mix, bufferNow));
     for (const entry of entries.value) {
       const buffer = bufferNow(entry.layer.values.src as string);
       if (!buffer) {
@@ -357,7 +423,9 @@ export function useAudioPlayback(opts: {
 
   // Sound edits while playing (src, timing, nested changes): rebuild the voices.
   watch(
-    () => entries.value.map((e) => `${e.key}:${e.layer.values.src}:${e.from}:${e.to}`).join("|"),
+    () =>
+      entries.value.map((e) => `${e.key}:${e.layer.values.src}:${e.from}:${e.to}:${JSON.stringify(e.layer.audioEffects ?? null)}:${JSON.stringify(e.hosts.map((h) => h.layer.audioEffects ?? null))}`).join("|") +
+      JSON.stringify(opts.masterEffects?.() ?? null),
     () => {
       if (graph) stop();
     },
@@ -381,12 +449,24 @@ export async function renderAudioMix(
   duration: number,
   resolveComposition?: (compId: string) => CompositionConfig | null | undefined,
   masterVolume = 0,
+  masterEffects?: AudioEffect[],
   sampleRate = 48000,
 ): Promise<AudioBuffer | null> {
   const list = collectAudio(layers, tracks, resolveComposition);
   if (!list.length || duration <= 0) return null;
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
-  const graph = buildGraph(ctx, list, masterVolume);
+  // Decode everything first (duck curves read the trigger sounds).
+  const decodedBufs = new Map<string, AudioBuffer | null>();
+  for (const e of list) {
+    const src = e.layer.values.src as string;
+    if (!decodedBufs.has(src)) decodedBufs.set(src, await decodeAudio(src));
+  }
+  const mix: MixSettings = { masterVolume, masterEffects, rootTracks: tracks, duration };
+  const graph = buildGraph(ctx, list, mix, duckCurvesFor(list, mix, (src) => decodedBufs.get(src) ?? null));
+  for (const a of graph.autos) {
+    a.param.setValueAtTime(a.at(0), 0);
+    if (a.keyed) for (let t = 0; t <= duration; t += 0.01) a.param.linearRampToValueAtTime(a.at(t), t);
+  }
   const solo = anySoloIn(list);
   /** Static value, or automation sampled at 100 Hz over [from, to]. */
   const automate = (p: AudioParam, f: (t: number) => number, keyed: boolean, from: number, to: number) => {
@@ -396,7 +476,7 @@ export async function renderAudioMix(
   let any = false;
   const doneHosts = new Set<string>();
   for (const e of list) {
-    const buffer = await decodeAudio(e.layer.values.src as string);
+    const buffer = decodedBufs.get(e.layer.values.src as string) ?? null;
     if (!buffer) continue;
     const from = Math.max(0, e.from);
     const to = Math.min(e.to, duration);

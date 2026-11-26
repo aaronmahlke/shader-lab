@@ -34,6 +34,8 @@ export type CompositionSettings = {
   motionBlurSamples?: number;
   /** Master bus level in dB (mixer). */
   masterVolume?: number;
+  /** Master bus effect chain (automate via `fx:<id>:<param>` tracks on layer id "master"). */
+  masterEffects?: { id: string; type: string; enabled?: boolean; params: Record<string, number>; source?: string }[];
   /** Named moments on the timeline ("drop", "payoff"); read by the events API. */
   markers?: { time: number; name: string }[];
   /** Comp props: settings of inner layers that precomp layers can set per instance. */

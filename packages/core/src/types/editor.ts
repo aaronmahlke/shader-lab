@@ -74,6 +74,11 @@ export type LayerInstance = {
   parentPoint?: string;
   /** Set on virtual cloner copies only (never persisted). */
   clone?: CloneInfo;
+  /**
+   * Mixer effect chain (audio layers, precomp buses): see the editor's
+   * audio-effects definitions. Params automate via `fx:<id>:<param>` tracks.
+   */
+  audioEffects?: { id: string; type: string; enabled?: boolean; params: Record<string, number>; source?: string }[];
   /** Mixer: silence this layer's sound (audio layers, precomp buses) without hiding it. */
   audioMuted?: boolean;
   /** Mixer: solo — when any layer is soloed, only soloed sounds (and their groups) play. */
