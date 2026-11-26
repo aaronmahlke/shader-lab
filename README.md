@@ -54,3 +54,14 @@ peak, end; position as one move per layer), pointer press / release, layer
 in / out, component cues and comp markers (`settings.markers`). Nested comps
 are included with their times shifted. Components declare cues with
 `useStageCues(() => [{ time, name, data }])` (layer time), e.g. one per keystroke.
+
+### Loudness (meter)
+
+```bash
+bun run shaderlab meter "<project folder>" ["comp name"] [--out meter.json]
+```
+
+Master integrated LUFS (BS.1770 gating), short-term LUFS every 0.5 s, sample
+and true peak; each root audio layer / precomp group solo; and a sync report
+of every trigger hit (where its anchor lands vs. its picture event, in ms).
+Matches ffmpeg's `ebur128`.

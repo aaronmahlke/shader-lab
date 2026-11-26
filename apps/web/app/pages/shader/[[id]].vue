@@ -88,6 +88,9 @@ import { loadProjectComponents, projectComponents } from "~/utils/project-compon
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
 import { audioBufferToWav, useVideoExport } from "~/composables/use-video-export";
 import { collectCompEvents } from "~/utils/comp-events";
+import { measureLoudness } from "~/utils/audio-meter";
+import { soundAnchors, triggerHits } from "~/utils/audio-triggers";
+import { decodeAudio } from "~/composables/use-audio-playback";
 import type { AudioEffect } from "#shared/editor/audio-effects";
 import { seekTimelinePointers } from "~/utils/timeline-pointer";
 import { BUILT_IN_CURSORS, cursorAnchor } from "#shared/editor/cursors";
@@ -944,6 +947,41 @@ if (import.meta.client) {
     render: renderComp,
     /** True once nested comps, components and media are loaded enough to render. */
     ready: () => !!shaderId.value,
+    /** Loudness: master (integrated / short-term LUFS, true peak), each strip solo, trigger sync. */
+    meter: async () => {
+      const duration = settings.value.duration;
+      const mixOf = (ls: LayerInstance[]) =>
+        renderAudioMix(ls, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value });
+      const full = await mixOf(layers.value);
+      if (!full) return { ok: false, error: "This comp has no sound" };
+      const master = await measureLoudness(full);
+      const stripLayers = layers.value.filter((l) => l.type === "audio" || (l.type === "composition" && audioPlayback.entries.value.some((e) => e.hosts[0]?.key === l.id)));
+      const strips = [];
+      for (const l of stripLayers.slice(0, 32)) {
+        const solo = layers.value.map((x) => {
+          const { audioSolo: _s, ...rest } = x;
+          return x.id === l.id ? { ...rest, audioSolo: true } : rest;
+        }) as LayerInstance[];
+        const buf = await mixOf(solo);
+        const m = buf ? await measureLoudness(buf) : null;
+        strips.push({ layer: l.name ?? l.id, layerId: l.id, kind: l.type, integratedLufs: m?.integratedLufs ?? null, truePeakDb: m?.truePeakDb ?? null, maxShortTermLufs: m?.maxShortTermLufs ?? null });
+      }
+      // Trigger sync: where each hit's anchor lands vs its picture event.
+      const sync = [];
+      for (const l of layers.value.filter((x) => x.type === "audio" && x.trigger)) {
+        const srcs = [l.values.src as string, ...((((l.trigger as { alternates?: string[] }).alternates) ?? []))];
+        const bufs = new Map<string, AudioBuffer | null>();
+        for (const s of srcs) bufs.set(s, await decodeAudio(s));
+        for (const h of triggerHits(l, { layers: layers.value, tracks: tracks.value, settings: settings.value }, { prefix: "", resolveComposition, frame: settings.value, buffers: (s) => bufs.get(s) ?? null })) {
+          const buf = bufs.get(h.src);
+          const anchor = (l.trigger as { anchor?: "onset" | "peak" | "end" }).anchor ?? "onset";
+          const lands = buf ? h.start + soundAnchors(buf)[anchor] / h.rate : h.start;
+          const eventAt = h.event.type === "motion" ? ((l.trigger as { on: string }).on === "motionStart" ? h.event.start : (l.trigger as { on: string }).on === "motionEnd" ? h.event.end : h.event.time) ?? h.event.time : h.event.time;
+          sync.push({ layer: l.name ?? l.id, event: `${h.event.type}${h.event.name ? `:${h.event.name}` : ""}`, from: h.event.layer, eventAt: Math.round(eventAt * 1000) / 1000, lands: Math.round(lands * 1000) / 1000, offsetMs: Math.round((lands - eventAt) * 1000) });
+        }
+      }
+      return { ok: true, master, strips, sync };
+    },
     /** Sync points in comp time: motion peaks, presses, in/out, component cues, markers. */
     events: () =>
       collectCompEvents(

@@ -176,6 +176,18 @@ async function events(args: Args) {
   });
 }
 
+async function meter(args: Args) {
+  return openComp(args, " (meter)", async ({ project, comp, page }) => {
+    const r = await page.evaluate(() => (window as any).__shaderlab.meter());
+    const json = JSON.stringify({ project: project.name, comp: comp.name, compId: comp.id, ...(r as object) }, null, 2);
+    if (args.out) {
+      writeFileSync(resolve(String(args.out)), json);
+      log(`meter → ${resolve(String(args.out))}`);
+    } else process.stdout.write(json + "\n");
+    return (r as { ok?: boolean }).ok === false ? 1 : 0;
+  });
+}
+
 async function render(args: Args) {
   const audioOnly = args["audio-only"] === true;
   return openComp(args, audioOnly ? " (audio only)" : "", async ({ project, comp, page }) => {
@@ -218,8 +230,8 @@ async function render(args: Args) {
 
 const args = parseArgs(process.argv.slice(2));
 const cmd = args._[0];
-if (cmd === "render" || cmd === "events") {
-  (cmd === "render" ? render(args) : events(args))
+if (cmd === "render" || cmd === "events" || cmd === "meter") {
+  (cmd === "render" ? render(args) : cmd === "events" ? events(args) : meter(args))
     .then((code) => process.exit(code))
     .catch((err) => {
       log("error:", err instanceof Error ? err.message : err);
@@ -227,7 +239,7 @@ if (cmd === "render" || cmd === "events") {
     });
 } else {
   console.error(
-    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]",
+    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]\n  bun tools/shaderlab.ts meter <project folder> [comp] [--out meter.json]",
   );
   process.exit(cmd ? 1 : 0);
 }
