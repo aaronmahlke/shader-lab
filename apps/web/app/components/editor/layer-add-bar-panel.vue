@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { MagnifyingGlassIcon } from "@heroicons/vue/16/solid";
 import {
   ComboboxEmpty,
   ComboboxGroup,
@@ -92,52 +91,46 @@ function onItemLeave() {
 
 <template>
   <div class="flex h-full min-h-0 flex-col">
-    <div class="flex shrink-0 flex-col gap-3 border-b border-neutral p-3">
-      <div class="relative">
-        <MagnifyingGlassIcon
-          class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-tertiary"
-          aria-hidden="true"
-        />
+    <div class="flex shrink-0 flex-col gap-[6px] bg-[var(--s-band)] p-[6px]">
+      <div class="flex h-[22px] items-center gap-[6px] bg-[var(--s-inset)] px-[6px] shadow-[inset_0_0_0_1px_var(--s-edge)] focus-within:shadow-[inset_0_0_0_1px_var(--s-ring)]">
+        <StudioIcon name="search" class="text-[var(--s-dim)]" />
         <ComboboxInput
           v-model="query"
           placeholder="Search layers…"
-          class="h-8 w-full rounded-lg border border-edge bg-base-1 pr-3 pl-8 text-copy-sm text-primary outline-none transition-colors duration-150 placeholder:text-tertiary focus:border-edge-strong"
+          class="min-w-0 flex-1 bg-transparent text-[var(--s-txt)] outline-none placeholder:text-[var(--s-dim)]"
         />
       </div>
-
-      <div class="flex flex-wrap gap-1.5">
-        <UiButton
+      <div class="flex flex-wrap gap-[2px]">
+        <StudioButton
           v-for="section in SECTION_FILTERS"
           :key="section.key"
-          variant="option"
-          size="sm"
           :active="activeSection === section.key"
           @click="setSection(section.key)"
         >
           {{ section.label }}
-        </UiButton>
+        </StudioButton>
       </div>
     </div>
 
-    <ComboboxViewport class="min-h-0 flex-1 overflow-y-auto p-3">
+    <ComboboxViewport class="min-h-0 flex-1 overflow-y-auto p-[4px]">
       <div class="min-h-full">
         <template v-if="hasResults">
           <ComboboxGroup
             v-for="group in catalogGroups"
             :key="group.key"
-            class="not-first:mt-5"
+            class="not-first:mt-[8px]"
           >
-            <ComboboxLabel class="mb-2 block px-0.5 text-copy-sm text-tertiary uppercase select-none">
+            <ComboboxLabel class="block px-[4px] pt-[4px] pb-[3px] text-[var(--s-dim)] select-none">
               {{ group.label }}
             </ComboboxLabel>
 
-            <div class="flex flex-col gap-0.5">
+            <div class="flex flex-col">
               <ComboboxItem
                 v-for="entry in group.items"
                 :key="entry.type"
                 :value="entry.type"
                 :text-value="entry.searchText"
-                class="group flex cursor-default items-center gap-3 rounded-lg p-1.5 outline-none transition-colors duration-150 select-none data-[highlighted]:bg-surface-1"
+                class="group flex cursor-default items-center gap-[8px] p-[3px] text-[var(--s-txt)] outline-none select-none data-[highlighted]:bg-[var(--s-select)] data-[highlighted]:text-[var(--s-select-txt)]"
                 @pointerenter="onItemHover(entry)"
                 @pointerleave="onItemLeave"
               >
@@ -147,7 +140,7 @@ function onItemLeave() {
           </ComboboxGroup>
         </template>
 
-        <ComboboxEmpty class="flex min-h-full items-center justify-center py-10 text-center text-copy-sm text-tertiary">
+        <ComboboxEmpty class="flex min-h-full items-center justify-center py-10 text-center text-[var(--s-dim)]">
           No layers match your search.
         </ComboboxEmpty>
       </div>

@@ -153,32 +153,29 @@ function presetPath(curve: CubicBezierEase): string {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2.5 border-b border-neutral p-3">
-    <div class="flex items-baseline justify-between">
-      <span class="text-copy-2xs font-medium tracking-wide text-neutral-subtle uppercase">
-        Easing
-      </span>
-      <span class="tabular-nums text-copy-2xs text-neutral-weak">
+  <EditorInspectorSection title="Easing">
+    <template #actions>
+      <span class="pr-[4px] text-[var(--s-dim)] tabular-nums select-none">
         {{ selection.length }} key{{ selection.length === 1 ? "" : "s" }}
       </span>
-    </div>
+    </template>
 
     <!-- Curve editor -->
     <svg
       ref="svgRef"
       :viewBox="`0 0 ${EDITOR_W} ${EDITOR_H}`"
-      class="w-full touch-none rounded-lg bg-control/50 select-none"
+      class="w-full touch-none bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)] select-none"
     >
       <!-- Value bounds guides -->
       <line :x1="PAD_X" :y1="toPx(0, 0).y" :x2="EDITOR_W - PAD_X" :y2="toPx(0, 0).y" class="stroke-white/10" stroke-width="1" />
       <line :x1="PAD_X" :y1="toPx(0, 1).y" :x2="EDITOR_W - PAD_X" :y2="toPx(0, 1).y" class="stroke-white/10" stroke-width="1" />
 
       <!-- Handle stems -->
-      <line :x1="p0.x" :y1="p0.y" :x2="h1.x" :y2="h1.y" class="stroke-accent/40" stroke-width="1.5" />
-      <line :x1="p3.x" :y1="p3.y" :x2="h2.x" :y2="h2.y" class="stroke-accent/40" stroke-width="1.5" />
+      <line :x1="p0.x" :y1="p0.y" :x2="h1.x" :y2="h1.y" stroke="var(--s-accent)" stroke-opacity="0.45" stroke-width="1.5" />
+      <line :x1="p3.x" :y1="p3.y" :x2="h2.x" :y2="h2.y" stroke="var(--s-accent)" stroke-opacity="0.45" stroke-width="1.5" />
 
       <!-- The curve -->
-      <path :d="curvePath" fill="none" class="stroke-accent" stroke-width="2" stroke-linecap="round" />
+      <path :d="curvePath" fill="none" stroke="var(--s-accent)" stroke-width="2" stroke-linecap="round" />
 
       <!-- Endpoints -->
       <circle :cx="p0.x" :cy="p0.y" r="3" class="fill-white/60" />
@@ -189,7 +186,7 @@ function presetPath(curve: CubicBezierEase): string {
         :cx="h1.x"
         :cy="h1.y"
         r="5"
-        class="cursor-default fill-white stroke-accent"
+        class="cursor-default fill-white" stroke="var(--s-accent)"
         stroke-width="1.5"
         @pointerdown="onHandlePointerDown(0, $event)"
       />
@@ -197,30 +194,26 @@ function presetPath(curve: CubicBezierEase): string {
         :cx="h2.x"
         :cy="h2.y"
         r="5"
-        class="cursor-default fill-white stroke-accent"
+        class="cursor-default fill-white" stroke="var(--s-accent)"
         stroke-width="1.5"
         @pointerdown="onHandlePointerDown(1, $event)"
       />
     </svg>
 
     <!-- Named eases -->
-    <div class="flex gap-1">
-      <button
+    <div class="grid grid-flow-col gap-[2px]">
+      <StudioButton
         v-for="named in NAMED_EASINGS"
         :key="named.id"
-        type="button"
-        class="flex-1 rounded-md px-1 py-1 text-copy-2xs transition-colors"
-        :class="activeEasingId === named.id
-          ? 'bg-accent/25 text-neutral-strong ring-1 ring-accent/50'
-          : 'bg-control/60 text-neutral-subtle hover:bg-control hover:text-neutral-strong'"
+        :active="activeEasingId === named.id"
         @click="pickEasing(named.id)"
       >
         {{ named.label }}
-      </button>
+      </StudioButton>
     </div>
 
     <!-- Preset grid -->
-    <div class="grid grid-cols-6 gap-1">
+    <div class="grid grid-cols-6 gap-[2px]">
       <UiTooltip
         v-for="preset in EASING_PRESETS"
         :key="preset.id"
@@ -229,10 +222,10 @@ function presetPath(curve: CubicBezierEase): string {
       >
         <button
           type="button"
-          class="flex aspect-square w-full items-center justify-center rounded-md transition-colors"
+          class="flex aspect-square w-full cursor-default items-center justify-center outline-none"
           :class="activeEasingId === preset.id
-            ? 'bg-accent/25 ring-1 ring-accent/50'
-            : 'bg-control/60 hover:bg-control'"
+            ? 'bg-[var(--s-accent)] text-[var(--s-on-txt)]'
+            : 'bg-[var(--s-inset)] text-[var(--s-dim)] shadow-[inset_0_0_0_1px_var(--s-edge)] hover:bg-[var(--s-inset-hover)]'"
           @click="pickEasing(preset.curve)"
         >
           <svg viewBox="0 0 22 22" class="size-5 overflow-visible">
@@ -241,11 +234,11 @@ function presetPath(curve: CubicBezierEase): string {
               fill="none"
               stroke-width="1.5"
               stroke-linecap="round"
-              :class="activeEasingId === preset.id ? 'stroke-accent' : 'stroke-white/50'"
+              class="stroke-current"
             />
           </svg>
         </button>
       </UiTooltip>
     </div>
-  </div>
+  </EditorInspectorSection>
 </template>

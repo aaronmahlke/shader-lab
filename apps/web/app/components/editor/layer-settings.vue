@@ -714,7 +714,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
-    <div v-if="isDistortion" class="border-b border-neutral px-3 py-3">
+    <div v-if="isDistortion" class="border-b-[var(--s-gap)] border-[var(--s-frame)] bg-[var(--s-tile)] p-[6px]">
       <EditorWavePreview
         :wave-type="currentWaveType"
         :freq="getModulatedFloat('freq', 3)"
@@ -980,7 +980,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             v-else-if="isMediaLayer && def.name === 'src'"
             class="flex flex-col gap-1"
           >
-            <span class="text-copy-xs text-neutral-subtle">{{ def.label }}</span>
+            <span class="select-none">{{ def.label }}</span>
             <input
               ref="mediaFileInput"
               type="file"
@@ -995,7 +995,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               @drop.prevent="onMediaDrop(def, $event)"
             >
               <span
-                class="h-7 min-w-0 flex-1 truncate rounded-lg bg-control px-2.5 leading-7 text-copy-sm text-neutral-strong"
+                class="h-[var(--s-ctl)] min-w-0 flex-1 truncate px-[5px] leading-[var(--s-ctl)] bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)]"
                 :title="getText(def, layer.values)"
               >
                 {{ mediaSrcFileName(getText(def, layer.values)) }}
@@ -1024,14 +1024,14 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               v-else
               type="button"
               :disabled="mediaUploading"
-              class="flex h-16 w-full items-center justify-center rounded-lg border border-dashed border-neutral bg-control/40 text-copy-sm text-neutral-subtle transition-colors hover:bg-control hover:text-neutral-strong disabled:cursor-not-allowed disabled:opacity-60"
+              class="flex h-[44px] w-full cursor-default items-center justify-center border border-dashed border-[var(--s-edge)] bg-[var(--s-inset)] text-[var(--s-dim)] hover:bg-[var(--s-inset-hover)] hover:text-[var(--s-txt)]"
               @click="openMediaPicker"
               @dragover.prevent
               @drop.prevent="onMediaDrop(def, $event)"
             >
               {{ mediaUploading ? "Uploading…" : `Upload ${mediaKind}` }}
             </button>
-            <span v-if="mediaUploadError" class="text-copy-xs text-red-400">
+            <span v-if="mediaUploadError" class="text-[var(--s-danger)]">
               {{ mediaUploadError }}
             </span>
           </div>
@@ -1068,12 +1068,12 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             </template>
           </UiContextMenu>
           <div v-else-if="def.type === 'text'" class="flex flex-col gap-1">
-            <span class="text-copy-xs text-neutral-subtle">{{ def.label }}</span>
+            <span class="select-none">{{ def.label }}</span>
             <textarea
               :value="getText(def, layer.values)"
               rows="2"
               spellcheck="false"
-              class="w-full resize-y rounded-lg bg-control px-2.5 py-2 font-sans text-copy-sm text-neutral-strong outline-none focus:ring-1 focus:ring-accent/50"
+              class="w-full resize-y px-[5px] py-[3px] text-[var(--s-txt)] outline-none bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)] focus:shadow-[inset_0_0_0_1px_var(--s-ring)]"
               @change="setText(def, layer.values, ($event.target as HTMLTextAreaElement).value)"
             />
           </div>

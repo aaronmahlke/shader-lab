@@ -29,9 +29,10 @@ const {
     <TooltipPortal>
       <TooltipContent
         :side="side"
-        :side-offset="8"
+        :side-offset="4"
         :collision-padding="12"
-        class="z-50 rounded-lg border border-edge bg-base-1 px-2.5 py-1.5 text-copy-sm text-secondary shadow-lg backdrop-blur-xl animate-contentShow"
+        data-ui="studio"
+        class="z-50 rounded-[var(--s-r-ctl)] bg-[var(--s-band)] px-[6px] py-[3px] text-[var(--s-txt)] shadow-[0_0_0_1px_var(--s-edge),0_4px_12px_#0008]"
       >
         {{ label }}
       </TooltipContent>
@@ -46,9 +47,10 @@ const {
     <TooltipPortal>
       <TooltipContent
         :side="side"
-        :side-offset="8"
+        :side-offset="4"
         :collision-padding="12"
-        class="z-50 rounded-lg border border-edge bg-base-1 px-2.5 py-1.5 text-copy-sm text-secondary shadow-lg backdrop-blur-xl data-[state=delayed-open]:animate-contentShow"
+        data-ui="studio"
+        class="z-50 rounded-[var(--s-r-ctl)] bg-[var(--s-band)] px-[6px] py-[3px] text-[var(--s-txt)] shadow-[0_0_0_1px_var(--s-edge),0_4px_12px_#0008]"
       >
         {{ label }}
       </TooltipContent>

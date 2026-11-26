@@ -45,13 +45,12 @@ function remove(i: number) {
 </script>
 
 <template>
-  <section class="flex flex-col gap-2 border-b border-neutral-subtle px-3 pt-3 pb-3">
-    <div class="flex items-center justify-between">
-      <h3 class="text-xs font-medium text-neutral-subtle">Props</h3>
+  <EditorInspectorSection title="Props">
+    <template #actions>
       <StudioButton variant="ghost" square aria-label="Add prop" title="Add prop" @click="add">
         <StudioIcon name="plus" />
       </StudioButton>
-    </div>
+    </template>
     <p v-if="!modelValue.length" class="text-[var(--s-dim)]">
       Expose settings of this comp's layers; every precomp layer using it can set them per instance.
     </p>
@@ -83,5 +82,5 @@ function remove(i: number) {
         @update:model-value="update(i, { param: String($event) })"
       />
     </div>
-  </section>
+  </EditorInspectorSection>
 </template>

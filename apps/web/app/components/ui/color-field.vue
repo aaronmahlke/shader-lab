@@ -16,19 +16,19 @@ const open = ref(false);
   <div class="flex items-center justify-between gap-2">
     <span
       v-if="label"
-      class="text-copy-sm text-secondary select-none"
+      class="select-none"
     >{{ label }}</span>
 
     <PopoverRoot v-model:open="open">
       <PopoverTrigger as-child>
         <button
-          class="group flex h-7 items-center gap-2 rounded-lg border border-edge bg-surface-1 px-1.5 transition-colors hover:bg-surface-2"
+          class="group flex h-[var(--s-ctl)] cursor-default items-center gap-[5px] px-[3px] bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)] hover:bg-[var(--s-inset-hover)]"
         >
           <div
             class="size-4 rounded border border-edge-subtle"
             :style="{ backgroundColor: model }"
           />
-          <span class="tabular-nums text-copy-sm text-tertiary uppercase group-hover:text-secondary">
+          <span class="tabular-nums text-[var(--s-dim)] uppercase group-hover:text-[var(--s-txt)]">
             {{ model }}
           </span>
         </button>
@@ -41,7 +41,8 @@ const open = ref(false);
           :avoid-collisions="true"
           :collision-padding="{ top: 16, bottom: 16, left: 16, right: 16 }"
           :sticky="'partial'"
-          class="floating-content-enter z-50 w-56 origin-[var(--reka-popover-content-transform-origin)] rounded-xl border border-edge bg-base-1 p-3 shadow-2xl backdrop-blur-xl"
+          data-ui="studio"
+          class="w-56 z-50 rounded-[var(--s-r-ctl)] bg-[var(--s-band)] p-[6px] shadow-[0_0_0_1px_var(--s-edge),0_6px_16px_#0008]"
         >
           <UiColorPicker v-model="model" />
         </PopoverContent>

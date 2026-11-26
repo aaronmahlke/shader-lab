@@ -16,7 +16,8 @@ const emit = defineEmits<{
       <ContextMenuContent
         :collision-padding="12"
         @close-auto-focus="emit('closeAutoFocus', $event)"
-        class="floating-content-enter z-[9999] min-w-40 origin-[var(--reka-context-menu-content-transform-origin)] rounded-xl border border-edge bg-base-1 p-1 shadow-2xl backdrop-blur-xl"
+        data-ui="studio"
+        class="z-[9999] min-w-[160px] rounded-[var(--s-r-ctl)] bg-[var(--s-band)] p-[2px] text-[var(--s-txt)] shadow-[0_0_0_1px_var(--s-edge),0_6px_16px_#0008] outline-none"
       >
         <slot name="menu" />
       </ContextMenuContent>

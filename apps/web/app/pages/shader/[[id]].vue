@@ -2237,9 +2237,9 @@ registerKeyboard({
               <!-- Media drop target / upload status -->
               <div
                 v-if="mediaDropActive"
-                class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-accent/60 bg-accent/10"
+                class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-[var(--s-accent)] bg-[color-mix(in_srgb,var(--s-accent)_10%,transparent)]"
               >
-                <span class="rounded-lg border border-neutral bg-layer-1/90 px-3 py-1.5 text-copy-sm text-neutral-strong backdrop-blur">
+                <span class="rounded-[var(--s-r-ctl)] bg-[var(--s-band)] px-[8px] py-[4px] text-[var(--s-txt)] shadow-[0_0_0_1px_var(--s-edge)]">
                   Drop images or videos to add layers
                 </span>
               </div>
@@ -2249,8 +2249,8 @@ registerKeyboard({
                 class="pointer-events-none absolute top-16 left-1/2 z-40 -translate-x-1/2"
               >
                 <span
-                  class="rounded-lg border border-neutral bg-layer-1/90 px-3 py-1.5 text-copy-xs backdrop-blur"
-                  :class="mediaImportError ? 'text-red-400' : 'text-neutral-subtle'"
+                  class="rounded-[var(--s-r-ctl)] bg-[var(--s-band)] px-[8px] py-[4px] shadow-[0_0_0_1px_var(--s-edge)]"
+                  :class="mediaImportError ? 'text-[var(--s-danger)]' : 'text-[var(--s-dim)]'"
                 >
                   {{ mediaImportError || "Uploading media…" }}
                 </span>
@@ -2532,7 +2532,8 @@ registerKeyboard({
 
   <div
     v-if="draggingLfo"
-    class="pointer-events-none fixed z-50 flex w-max items-center gap-2 whitespace-nowrap rounded-lg border border-neutral bg-layer-1 px-2.5 py-1.5 text-copy-sm text-neutral-strong shadow-panel"
+    data-ui="studio"
+    class="pointer-events-none fixed z-50 flex w-max items-center gap-[6px] whitespace-nowrap rounded-[var(--s-r-ctl)] bg-[var(--s-band)] px-[6px] py-[3px] text-[var(--s-txt)] shadow-[0_0_0_1px_var(--s-edge),0_4px_12px_#0008]"
     :style="{
       left: `${dragPos.x}px`,
       top: `${dragPos.y}px`,

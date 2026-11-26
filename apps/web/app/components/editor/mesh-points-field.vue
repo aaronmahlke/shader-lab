@@ -152,7 +152,7 @@ const sliderSpecs: SliderSpec[] = [
 </script>
 
 <template>
-  <div class="-mx-3 flex flex-col border-t border-neutral">
+  <div class="-mx-[6px] flex flex-col border-t border-[var(--s-frame)]">
     <CollapsibleRoot
       v-for="(pt, i) in points"
       :key="i"
@@ -160,7 +160,7 @@ const sliderSpecs: SliderSpec[] = [
       @update:open="setSectionOpen(i, $event)"
     >
       <CollapsibleTrigger
-        class="flex w-full cursor-default items-center gap-2 border-b border-neutral px-3 py-2 text-copy-sm text-secondary transition-colors select-none hover:text-primary"
+        class="flex h-[var(--s-row)] w-full cursor-default items-center gap-[6px] border-b border-[var(--s-frame)] px-[6px] text-[var(--s-txt)] select-none hover:bg-[var(--s-inset-hover)]"
         :class="[
           isSectionOpen(i) && 'text-primary',
           draggingLfoId && !isSectionOpen(i) && hoverOpenTarget === i && 'bg-surface-1 text-primary',
@@ -182,7 +182,7 @@ const sliderSpecs: SliderSpec[] = [
       </CollapsibleTrigger>
 
       <CollapsibleContent
-        class="overflow-hidden border-b border-neutral data-[state=closed]:animate-collapse data-[state=open]:animate-expand"
+        class="overflow-hidden border-b border-[var(--s-frame)]"
       >
         <div class="flex flex-col gap-2.5 px-3 py-3">
           <UiColorField

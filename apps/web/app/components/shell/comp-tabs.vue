@@ -101,8 +101,7 @@ defineExpose({ refresh });
 
 <template>
   <div class="flex min-w-0 items-center gap-[2px] overflow-x-auto [scrollbar-width:none]" role="tablist">
-    <d-context-menu v-for="comp in tabs" :key="comp.id">
-      <d-context-menu-trigger>
+    <UiContextMenu v-for="comp in tabs" :key="comp.id" @close-auto-focus="onMenuCloseAutoFocus(comp.id, $event)">
         <div
           role="tab"
           :aria-selected="comp.id === rootCompId"
@@ -133,16 +132,15 @@ defineExpose({ refresh });
             <StudioIcon name="close" class="!size-[8px]" />
           </button>
         </div>
-      </d-context-menu-trigger>
-      <d-context-menu-content @close-auto-focus="onMenuCloseAutoFocus(comp.id, $event)">
-        <d-context-menu-item @select="renameQueued = comp.id">Rename</d-context-menu-item>
-        <d-context-menu-item @select="duplicate(comp)">Duplicate</d-context-menu-item>
+      <template #menu>
+        <UiContextMenuItem @click="renameQueued = comp.id">Rename</UiContextMenuItem>
+        <UiContextMenuItem @click="duplicate(comp)">Duplicate</UiContextMenuItem>
         <template v-if="comps.length > 1">
-          <d-context-menu-separator />
-          <d-context-menu-item tone="danger" @select="remove(comp)">Delete</d-context-menu-item>
+          <UiContextMenuSeparator />
+          <UiContextMenuItem tone="danger" @click="remove(comp)">Delete</UiContextMenuItem>
         </template>
-      </d-context-menu-content>
-    </d-context-menu>
+      </template>
+    </UiContextMenu>
     <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" aria-label="New composition" title="New composition" :disabled="busy" @click="create()">
       <StudioIcon name="plus" />
     </StudioButton>

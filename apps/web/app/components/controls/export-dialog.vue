@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { negotiateCanvasEncoding, type ExportFormatPreference } from "#shared/editor/video-encoding";
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
-import { ArrowDownTrayIcon, XMarkIcon } from "@heroicons/vue/16/solid";
 import {
   EXPORT_SCALE_MULTIPLIERS,
   scaledExportSize,
@@ -181,206 +180,118 @@ async function handleVideoExport() {
 <template>
   <DialogRoot v-model:open="open">
     <DialogPortal>
-      <DialogOverlay class="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-contentShow" />
+      <DialogOverlay class="fixed inset-0 z-50 bg-black/50" />
       <DialogContent
-        class="fixed left-1/2 top-[20%] z-50 w-[26rem] -translate-x-1/2 rounded-2xl border border-edge bg-base-1 shadow-2xl backdrop-blur-xl data-[state=open]:animate-contentShow"
+        data-ui="studio"
+        class="fixed top-[20%] left-1/2 z-50 w-[360px] -translate-x-1/2 overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)] shadow-[0_0_0_1px_var(--s-edge),0_12px_32px_#000b] outline-none"
       >
-        <div class="flex items-center justify-between border-b border-edge px-4 py-3">
-          <DialogTitle class="text-copy-sm text-primary">
-            Export
-          </DialogTitle>
-          <UiButton variant="ghost" size="sm" :icon-left="XMarkIcon" @click="open = false" />
+        <div class="flex h-[var(--s-row)] items-center bg-[var(--s-band)] pr-[2px] pl-[6px]">
+          <DialogTitle class="flex-1 select-none">Export</DialogTitle>
+          <StudioButton variant="ghost" square aria-label="Close" title="Close" @click="open = false">
+            <StudioIcon name="close" />
+          </StudioButton>
         </div>
 
-        <div class="p-4">
-          <div class="flex gap-1 rounded-lg bg-surface-1 p-1">
-            <button
-              v-for="t in (['image', 'video'] as const)"
-              :key="t"
-              class="flex-1 rounded-md px-3 py-1.5 text-copy-sm capitalize transition-colors"
-              :class="tab === t ? 'bg-base-1 text-primary shadow-sm' : 'text-tertiary hover:text-secondary'"
-              @click="tab = t"
-            >
-              {{ t }}
-            </button>
-          </div>
+        <div class="flex flex-col gap-[8px] p-[8px]">
+          <StudioSegmented
+            v-model="tab"
+            :options="[{ value: 'image', label: 'Image' }, { value: 'video', label: 'Video' }]"
+          />
 
-          <div v-if="tab === 'image'" class="mt-4 flex flex-col gap-4">
-            <div class="flex flex-col gap-2">
-              <span class="text-copy-sm text-tertiary">
-                {{ useScaleExport ? "Scale" : "Resolution" }}
-              </span>
-              <div v-if="useScaleExport" class="flex gap-1.5">
-                <UiButton
-                  v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
-                  :key="preset.label"
-                  variant="option"
-                  full-width
-                  :active="selectedScale === i"
-                  class="flex-1"
-                  @click="selectedScale = i"
-                >
-                  {{ preset.label }}
-                </UiButton>
-              </div>
-              <div v-else class="flex gap-1.5">
-                <UiButton
-                  v-for="(res, i) in LEGACY_RESOLUTIONS"
-                  :key="res.label"
-                  variant="option"
-                  full-width
-                  :active="selectedLegacyResolution === i"
-                  class="flex-1"
-                  @click="selectedLegacyResolution = i"
-                >
-                  {{ res.label }}
-                </UiButton>
-              </div>
-              <span class="text-copy-sm text-tertiary">
-                <template v-if="useScaleExport && designCanvas">
-                  {{ designCanvas.width }}×{{ designCanvas.height }} design →
-                  {{ exportSize.width }}×{{ exportSize.height }} export
-                </template>
-                <template v-else>
-                  {{ exportSize.width }} × {{ exportSize.height }}
-                </template>
-              </span>
-            </div>
+          <template v-if="tab === 'image'">
+            <StudioField :label="useScaleExport ? 'Scale' : 'Resolution'" inline>
+              <StudioSegmented
+                v-if="useScaleExport"
+                v-model="selectedScale"
+                :options="EXPORT_SCALE_MULTIPLIERS.map((p, i) => ({ value: i, label: p.label }))"
+              />
+              <StudioSegmented
+                v-else
+                v-model="selectedLegacyResolution"
+                :options="LEGACY_RESOLUTIONS.map((r, i) => ({ value: i, label: r.label }))"
+              />
+            </StudioField>
+            <p class="text-[var(--s-dim)] tabular-nums">
+              <template v-if="useScaleExport && designCanvas">
+                {{ designCanvas.width }} × {{ designCanvas.height }} → {{ exportSize.width }} × {{ exportSize.height }}
+              </template>
+              <template v-else>{{ exportSize.width }} × {{ exportSize.height }}</template>
+            </p>
+            <StudioButton active class="!h-[22px] justify-center" @click="handleImageExport">
+              <StudioIcon name="export" /> Download PNG
+            </StudioButton>
+          </template>
 
-            <UiButton variant="action" :icon-left="ArrowDownTrayIcon" @click="handleImageExport">
-              Download PNG
-            </UiButton>
-          </div>
+          <template v-if="tab === 'video'">
+            <template v-if="!videoState.exporting">
+              <StudioField :label="useScaleExport ? 'Scale' : 'Resolution'" inline>
+                <StudioSegmented
+                  v-if="useScaleExport"
+                  v-model="selectedScale"
+                  :options="EXPORT_SCALE_MULTIPLIERS.map((p, i) => ({ value: i, label: p.label }))"
+                />
+                <StudioSegmented
+                  v-else
+                  v-model="selectedLegacyResolution"
+                  :options="LEGACY_RESOLUTIONS.map((r, i) => ({ value: i, label: r.label }))"
+                />
+              </StudioField>
+              <p v-if="useScaleExport && designCanvas" class="text-[var(--s-dim)] tabular-nums">
+                {{ designCanvas.width }} × {{ designCanvas.height }} → {{ exportSize.width }} × {{ exportSize.height }}
+              </p>
 
-          <div v-if="tab === 'video'" class="mt-4 flex flex-col gap-4">
-            <div v-if="!videoState.exporting" class="flex flex-col gap-4">
-              <div class="flex flex-col gap-2">
-                <span class="text-copy-sm text-tertiary">
-                  {{ useScaleExport ? "Scale" : "Resolution" }}
-                </span>
-                <div v-if="useScaleExport" class="flex gap-1.5">
-                  <UiButton
-                    v-for="(preset, i) in EXPORT_SCALE_MULTIPLIERS"
-                    :key="preset.label"
-                    variant="option"
-                    full-width
-                    :active="selectedScale === i"
-                    class="flex-1"
-                    @click="selectedScale = i"
-                  >
-                    {{ preset.label }}
-                  </UiButton>
-                </div>
-                <div v-else class="flex gap-1.5">
-                  <UiButton
-                    v-for="(res, i) in LEGACY_RESOLUTIONS"
-                    :key="res.label"
-                    variant="option"
-                    full-width
-                    :active="selectedLegacyResolution === i"
-                    class="flex-1"
-                    @click="selectedLegacyResolution = i"
-                  >
-                    {{ res.label }}
-                  </UiButton>
-                </div>
-                <span
-                  v-if="useScaleExport && designCanvas"
-                  class="text-copy-sm text-tertiary"
-                >
-                  {{ designCanvas.width }}×{{ designCanvas.height }} →
-                  {{ exportSize.width }}×{{ exportSize.height }}
-                </span>
-              </div>
-
-              <div class="flex flex-col gap-2">
-                <span class="text-copy-sm text-tertiary">Duration</span>
-                <div class="grid grid-cols-3 gap-1.5">
-                  <UiButton
+              <StudioField label="Duration" inline>
+                <div class="grid grid-cols-3 gap-[2px]">
+                  <StudioButton
                     v-for="(dur, i) in durationOptions"
                     :key="dur.label"
-                    variant="option"
-                    full-width
                     :active="selectedDuration === i"
                     :class="dur.dynamic ? 'col-span-3' : ''"
+                    class="justify-center"
                     :title="dur.label"
                     @click="selectedDuration = i"
                   >
                     {{ dur.label }}
-                  </UiButton>
+                  </StudioButton>
                 </div>
-              </div>
+              </StudioField>
 
-              <div class="flex flex-col gap-2">
-                <span class="text-copy-sm text-tertiary">Frame rate</span>
-                <div class="flex gap-1.5">
-                  <UiButton
-                    v-for="(fps, i) in fpsOptions"
-                    :key="fps.label"
-                    variant="option"
-                    full-width
-                    :active="selectedFps === i"
-                    class="flex-1"
-                    @click="selectedFps = i"
-                  >
-                    {{ fps.label }} fps
-                  </UiButton>
-                </div>
-              </div>
-
-              <div class="flex flex-col gap-1.5">
-                <span class="text-copy-sm text-tertiary">Format</span>
-                <div class="flex gap-1.5">
-                  <UiButton
-                    v-for="f in formatOptions"
-                    :key="f.value"
-                    variant="option"
-                    full-width
-                    :active="selectedFormat === f.value"
-                    class="flex-1"
-                    @click="selectedFormat = f.value"
-                  >
-                    {{ f.label }}
-                  </UiButton>
-                </div>
-              </div>
-
-              <p v-if="compatWarning" class="text-copy-sm text-amber-400">
-                {{ compatWarning }}
-              </p>
-
-              <UiButton variant="action" :icon-left="ArrowDownTrayIcon" :disabled="formatUnsupported" @click="handleVideoExport">
-                Render video
-                <span v-if="resolvedFormat" class="ml-1 opacity-60">({{ resolvedFormat }})</span>
-              </UiButton>
-
-              <p v-if="videoState.error" class="text-copy-xs text-red-400">
-                {{ videoState.error }}
-              </p>
-            </div>
-
-            <div v-else class="flex flex-col gap-3">
-              <div class="flex items-center justify-between">
-                <span class="text-copy-sm text-secondary">
-                  Rendering frame {{ videoState.currentFrame }} / {{ videoState.totalFrames }}
-                </span>
-                <span class="text-copy-sm text-tertiary">
-                  {{ Math.round(videoState.progress * 100) }}%
-                </span>
-              </div>
-
-              <div class="h-1.5 overflow-hidden rounded-full bg-surface-1">
-                <div
-                  class="h-full rounded-full bg-secondary transition-all duration-150"
-                  :style="{ width: `${videoState.progress * 100}%` }"
+              <StudioField label="Frame rate" inline>
+                <StudioSegmented
+                  v-model="selectedFps"
+                  :options="fpsOptions.map((f, i) => ({ value: i, label: `${f.label} fps` }))"
                 />
-              </div>
+              </StudioField>
 
-              <UiButton variant="action" class="text-tertiary" @click="abort">
-                Cancel
-              </UiButton>
-            </div>
-          </div>
+              <StudioField label="Format" inline>
+                <StudioSegmented
+                  :model-value="selectedFormat"
+                  :options="formatOptions.map((f) => ({ value: f.value, label: f.label }))"
+                  @update:model-value="selectedFormat = $event as typeof selectedFormat"
+                />
+              </StudioField>
+
+              <p v-if="compatWarning" class="text-[#e5a54d]">{{ compatWarning }}</p>
+
+              <StudioButton active class="!h-[22px] justify-center" :disabled="formatUnsupported" @click="handleVideoExport">
+                <StudioIcon name="export" /> Render video
+                <span v-if="resolvedFormat" class="opacity-70">({{ resolvedFormat }})</span>
+              </StudioButton>
+
+              <p v-if="videoState.error" class="text-[var(--s-danger)]">{{ videoState.error }}</p>
+            </template>
+
+            <template v-else>
+              <div class="flex items-center justify-between tabular-nums">
+                <span>Rendering frame {{ videoState.currentFrame }} / {{ videoState.totalFrames }}</span>
+                <span class="text-[var(--s-dim)]">{{ Math.round(videoState.progress * 100) }} %</span>
+              </div>
+              <div class="h-[4px] bg-[var(--s-inset)]">
+                <div class="h-full bg-[var(--s-accent)]" :style="{ width: `${videoState.progress * 100}%` }" />
+              </div>
+              <StudioButton class="justify-center" @click="abort">Cancel</StudioButton>
+            </template>
+          </template>
         </div>
       </DialogContent>
     </DialogPortal>

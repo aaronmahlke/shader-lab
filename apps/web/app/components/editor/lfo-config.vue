@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { XMarkIcon } from "@heroicons/vue/16/solid";
 import {
   evaluatePropertyTrack,
   findPropertyTrack,
@@ -100,29 +99,18 @@ function applyPreset(key: string) {
 </script>
 
 <template>
-  <div class="w-[440px] rounded-lg bg-control-strong p-1 shadow-panel">
-    <div class="flex flex-col gap-1">
-      <div class="flex items-center gap-2">
-        <div class="flex min-w-0 flex-1 items-center gap-2 px-2">
-          <UiLfoSineIcon class="h-2 w-5 shrink-0" :style="{ color: lfo.color }" />
-          <UiEditableText
-            v-model="lfo.label"
-            fill
-            class="min-w-0 flex-1 text-copy-sm leading-5 text-neutral"
-          />
-        </div>
-        <UiButton
-          variant="secondary"
-          size="sm"
-          :active="true"
-          :icon-left="XMarkIcon"
-          title="Close"
-          class="shrink-0"
-          @click="emit('close')"
-        />
-      </div>
+  <!-- Studio floating panel: header band, dark wave inset, word toggles, value sliders. -->
+  <div data-ui="studio" class="w-[440px] overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)] shadow-[0_0_0_1px_var(--s-edge),0_8px_24px_#000a]">
+    <div class="flex h-[var(--s-row)] items-center gap-[6px] bg-[var(--s-band)] pr-[2px] pl-[6px]">
+      <UiLfoSineIcon class="h-1.5 w-4 shrink-0" :style="{ color: lfo.color }" />
+      <UiEditableText v-model="lfo.label" fill class="min-w-0 flex-1 !text-[length:var(--s-fs)]" />
+      <StudioButton variant="ghost" square aria-label="Close" title="Close" @click="emit('close')">
+        <StudioIcon name="close" />
+      </StudioButton>
+    </div>
 
-      <div class="overflow-hidden rounded-lg bg-black">
+    <div class="flex flex-col gap-[6px] p-[6px]">
+      <div class="overflow-hidden bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)]">
         <EditorWaveEditor
           v-model="lfo.points"
           :wave-shape="lfo.waveShape ?? 'sine'"
@@ -133,83 +121,50 @@ function applyPreset(key: string) {
         />
       </div>
 
-      <div class="flex flex-wrap items-center gap-1.5">
-        <UiButton
-          variant="option"
-          size="sm"
-          :active="isCustom"
-          @click="setCustom"
-        >
-          Custom
-        </UiButton>
-
-        <UiButton
-          variant="option"
-          size="sm"
-          :active="!isCustom"
-          @click="setSine"
-        >
-          Sine
-        </UiButton>
-
-        <UiButton
+      <div class="flex flex-wrap items-center gap-[2px]">
+        <StudioButton :active="isCustom && !activePreset" @click="setCustom">Custom</StudioButton>
+        <StudioButton :active="!isCustom" @click="setSine">Sine</StudioButton>
+        <StudioButton
           v-for="(preset, key) in LFO_PRESETS"
           v-show="key !== 'sine'"
           :key="key"
-          variant="option"
-          size="sm"
           :active="activePreset === key"
           @click="applyPreset(key as string)"
         >
           {{ preset.label }}
-        </UiButton>
-
-        <div class="ml-auto flex gap-1.5">
-          <UiButton
-            variant="option"
-            size="sm"
-            :active="lfo.mode === 'loop'"
-            @click="lfo.mode = 'loop'"
-          >
-            Loop
-          </UiButton>
-          <UiButton
-            variant="option"
-            size="sm"
-            :active="lfo.mode === 'pingpong'"
-            @click="lfo.mode = 'pingpong'"
-          >
-            Ping-pong
-          </UiButton>
-        </div>
-      </div>
-
-      <div class="flex flex-col gap-2.5">
-        <UiSliderField
-          v-model="rate.value"
-          label="Rate"
-          :min="0.01"
-          :max="3"
-          :step="0.01"
-          :animatable="rate.animatable"
-          :track-enabled="rate.active"
-          :keyed-at-playhead="rate.keyed"
-          @toggle-track="rate.toggleTrack"
-          @toggle-keyframe="rate.toggleKeyframe"
-        />
-        <UiSliderField
-          v-model="phase.value"
-          label="Phase"
-          :min="0"
-          :max="360"
-          :step="1"
-          :animatable="phase.animatable"
-          :track-enabled="phase.active"
-          :keyed-at-playhead="phase.keyed"
-          @toggle-track="phase.toggleTrack"
-          @toggle-keyframe="phase.toggleKeyframe"
+        </StudioButton>
+        <span class="flex-1" />
+        <StudioSegmented
+          :model-value="lfo.mode ?? 'loop'"
+          :options="[{ value: 'loop', label: 'Loop' }, { value: 'pingpong', label: 'Ping-pong' }]"
+          @update:model-value="lfo.mode = $event as 'loop' | 'pingpong'"
         />
       </div>
+
+      <UiSliderField
+        v-model="rate.value"
+        label="Rate"
+        :min="0.01"
+        :max="3"
+        :step="0.01"
+        :animatable="rate.animatable"
+        :track-enabled="rate.active"
+        :keyed-at-playhead="rate.keyed"
+        @toggle-track="rate.toggleTrack"
+        @toggle-keyframe="rate.toggleKeyframe"
+      />
+      <UiSliderField
+        v-model="phase.value"
+        label="Phase"
+        :min="0"
+        :max="360"
+        :step="1"
+        :animatable="phase.animatable"
+        :track-enabled="phase.active"
+        :keyed-at-playhead="phase.keyed"
+        @toggle-track="phase.toggleTrack"
+        @toggle-keyframe="phase.toggleKeyframe"
+      />
     </div>
   </div>
 </template>

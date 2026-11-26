@@ -115,6 +115,6 @@ onMounted(() => {
 <template>
   <canvas
     ref="canvasRef"
-    class="h-14 w-full rounded-lg text-secondary"
+    class="h-14 w-full text-[var(--s-dim)] bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)]"
   />
 </template>

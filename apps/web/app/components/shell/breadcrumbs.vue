@@ -49,17 +49,15 @@ register({
       <StudioIcon name="back" />
     </StudioButton>
     <template v-for="(step, i) in trail" :key="`${step.id}-${i}`">
-      <d-context-menu>
-        <d-context-menu-trigger>
+      <UiContextMenu>
           <StudioButton variant="ghost" @click="goTo(i)" @pointerdown.middle.prevent="openInTab(step.id)">
             {{ names[step.id] ?? "Comp" }}
           </StudioButton>
-        </d-context-menu-trigger>
-        <d-context-menu-content>
-          <d-context-menu-item @select="goTo(i)">Go to</d-context-menu-item>
-          <d-context-menu-item @select="openInTab(step.id)">Open in new tab</d-context-menu-item>
-        </d-context-menu-content>
-      </d-context-menu>
+        <template #menu>
+          <UiContextMenuItem @click="goTo(i)">Go to</UiContextMenuItem>
+          <UiContextMenuItem @click="openInTab(step.id)">Open in new tab</UiContextMenuItem>
+        </template>
+    </UiContextMenu>
       <StudioIcon name="forward" class="text-[var(--s-dim)]" />
     </template>
     <span class="px-[5px] text-[var(--s-bright)]">{{ compName }}</span>

@@ -25,13 +25,13 @@ const gradientCSS = computed(() => {
   <div class="flex flex-col gap-1.5">
     <span
       v-if="label"
-      class="text-copy-sm text-secondary select-none"
+      class="select-none"
     >{{ label }}</span>
 
     <PopoverRoot v-model:open="open">
       <PopoverTrigger as-child>
         <button
-          class="h-7 w-full cursor-default rounded-lg transition-all hover:ring-1 hover:ring-edge"
+          class="h-[var(--s-ctl)] w-full cursor-default shadow-[inset_0_0_0_1px_var(--s-edge)] hover:shadow-[inset_0_0_0_1px_var(--s-ring)]"
           :style="{ background: gradientCSS }"
         />
       </PopoverTrigger>
@@ -43,7 +43,8 @@ const gradientCSS = computed(() => {
           :avoid-collisions="true"
           :collision-padding="{ top: 16, bottom: 16, left: 16, right: 16 }"
           :sticky="'partial'"
-          class="floating-content-enter z-50 w-64 origin-[var(--reka-popover-content-transform-origin)] rounded-xl border border-edge bg-base-1 p-3 shadow-2xl backdrop-blur-xl"
+          data-ui="studio"
+          class="w-64 z-50 rounded-[var(--s-r-ctl)] bg-[var(--s-band)] p-[6px] shadow-[0_0_0_1px_var(--s-edge),0_6px_16px_#0008]"
         >
           <UiGradientEditor v-model="model" />
         </PopoverContent>

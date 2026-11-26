@@ -33,7 +33,7 @@ const emit = defineEmits<{ close: [id: string]; add: [] }>();
       </button>
     </div>
     <StudioButton variant="tile" square class="!h-[18px] !w-[18px]" aria-label="New tab" @click="emit('add')">
-      <d-icon-plus />
+      <StudioIcon name="plus" />
     </StudioButton>
   </div>
 </template>

@@ -55,8 +55,7 @@ function onMenuCloseAutoFocus(id: string, e: Event) {
 
     <div class="min-h-0 flex-1 overflow-y-auto py-[3px]">
       <div class="px-[6px] pt-[4px] pb-[3px] text-[var(--s-dim)]">Compositions</div>
-      <d-context-menu v-for="comp in comps" :key="comp.id">
-        <d-context-menu-trigger>
+      <UiContextMenu v-for="comp in comps" :key="comp.id" @close-auto-focus="onMenuCloseAutoFocus(comp.id, $event)">
           <div
             draggable="true"
             :title="`${comp.name}: drag into the timeline to nest, double-click to open`"
@@ -74,17 +73,16 @@ function onMenuCloseAutoFocus(id: string, e: Event) {
               />
             </StudioListRow>
           </div>
-        </d-context-menu-trigger>
-        <d-context-menu-content @close-auto-focus="onMenuCloseAutoFocus(comp.id, $event)">
-          <d-context-menu-item @select="openComp(comp)">Open</d-context-menu-item>
-          <d-context-menu-item @select="renameQueued = comp.id">Rename</d-context-menu-item>
-          <d-context-menu-item @select="duplicate(comp)">Duplicate</d-context-menu-item>
+        <template #menu>
+          <UiContextMenuItem @click="openComp(comp)">Open</UiContextMenuItem>
+          <UiContextMenuItem @click="renameQueued = comp.id">Rename</UiContextMenuItem>
+          <UiContextMenuItem @click="duplicate(comp)">Duplicate</UiContextMenuItem>
           <template v-if="comps.length > 1">
-            <d-context-menu-separator />
-            <d-context-menu-item tone="danger" @select="remove(comp)">Delete</d-context-menu-item>
+            <UiContextMenuSeparator />
+            <UiContextMenuItem tone="danger" @click="remove(comp)">Delete</UiContextMenuItem>
           </template>
-        </d-context-menu-content>
-      </d-context-menu>
+        </template>
+    </UiContextMenu>
 
       <div class="px-[6px] pt-[10px] pb-[3px] text-[var(--s-dim)]">Components</div>
       <div

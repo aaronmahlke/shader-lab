@@ -19,7 +19,7 @@ const previewImageFailed = ref(false);
 
 <template>
   <div
-    class="h-12 w-16 shrink-0 overflow-hidden rounded-md border border-edge bg-base-0"
+    class="h-[36px] w-[48px] shrink-0 overflow-hidden bg-[var(--s-inset)] shadow-[inset_0_0_0_1px_var(--s-edge)]"
     :style="previewImageFailed ? { background: categoryGradients[entry.category] } : undefined"
   >
     <img
@@ -34,7 +34,7 @@ const previewImageFailed = ref(false);
   </div>
 
   <div class="flex min-w-0 flex-1 flex-col">
-    <span class="truncate text-copy-sm text-primary">{{ entry.label }}</span>
-    <span class="truncate text-copy-xs text-tertiary">{{ entry.description }}</span>
+    <span class="truncate">{{ entry.label }}</span>
+    <span class="truncate opacity-60">{{ entry.description }}</span>
   </div>
 </template>

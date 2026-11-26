@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CheckIcon } from "@heroicons/vue/16/solid";
 import { LAYER_TEMPLATES, type LayerInstance } from "@shader-lab/core";
+import { layerStudioIcon } from "~/utils/layer-icons";
 
 /**
  * Pick layers from the current comp (cloner sources). Stores layer ids in
@@ -35,28 +36,30 @@ function toggle(id: string) {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1">
-    <span class="text-copy-xs text-neutral-subtle">{{ label }}</span>
-    <div class="flex max-h-48 flex-col overflow-y-auto rounded-lg bg-control/40 p-0.5">
-      <p v-if="candidates.length === 0" class="px-2 py-1.5 text-copy-xs text-neutral-subtle">
+  <!-- Studio: checklist in a dark inset; picked layers show their order (cloners cycle in it). -->
+  <div class="flex flex-col gap-[3px]">
+    <span class="select-none">{{ label }}</span>
+    <div class="flex max-h-48 flex-col overflow-y-auto bg-[var(--s-inset)] py-[2px] shadow-[inset_0_0_0_1px_var(--s-edge)]">
+      <p v-if="candidates.length === 0" class="px-[6px] py-[4px] text-[var(--s-dim)]">
         Add a layer to clone first.
       </p>
       <button
         v-for="layer in candidates"
         :key="layer.id"
         type="button"
-        class="flex h-7 items-center gap-2 rounded-md px-2 text-left text-copy-sm transition-colors hover:bg-control"
-        :class="model?.includes(layer.id) ? 'text-neutral-strong' : 'text-neutral-subtle'"
+        class="flex h-[var(--s-row)] cursor-default items-center gap-[6px] px-[6px] text-left outline-none hover:bg-[var(--s-inset-hover)]"
+        :class="model?.includes(layer.id) ? 'text-[var(--s-txt)]' : 'text-[var(--s-dim)]'"
         @click="toggle(layer.id)"
       >
         <span
-          class="flex size-3.5 shrink-0 items-center justify-center rounded-sm ring-1 ring-inset"
-          :class="model?.includes(layer.id) ? 'bg-accent ring-accent' : 'ring-white/20'"
+          class="flex size-[11px] shrink-0 items-center justify-center"
+          :class="model?.includes(layer.id) ? 'bg-[var(--s-accent)] text-[var(--s-on-txt)]' : 'shadow-[inset_0_0_0_1px_var(--s-edge)]'"
         >
-          <CheckIcon v-if="model?.includes(layer.id)" class="size-3 text-white" />
+          <CheckIcon v-if="model?.includes(layer.id)" class="size-[9px]" />
         </span>
+        <StudioIcon v-if="layerStudioIcon(layer.type)" :name="layerStudioIcon(layer.type)!" />
         <span class="min-w-0 flex-1 truncate">{{ layerName(layer) }}</span>
-        <span v-if="model?.includes(layer.id)" class="tabular-nums text-copy-xs text-neutral-subtle">
+        <span v-if="model?.includes(layer.id)" class="tabular-nums text-[var(--s-dim)]">
           {{ model.indexOf(layer.id) + 1 }}
         </span>
       </button>
