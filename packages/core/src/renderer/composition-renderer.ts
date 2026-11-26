@@ -61,6 +61,12 @@ export class CompositionRenderer {
     const gl = createGlContext(canvas);
     if (!gl) throw new Error("WebGL2 is required");
     this.gl = gl;
+    // Float render targets (motion-blur accumulation, camera chain) need these
+    // enabled explicitly; without them RGBA16F silently fell back to RGBA8 and
+    // banded dark gradients.
+    gl.getExtension("EXT_color_buffer_float");
+    gl.getExtension("EXT_color_buffer_half_float");
+    gl.getExtension("OES_texture_float_linear");
 
     this.loadStbnTexture(options.stbnTexturePath ?? STBN_TEXTURE_PATH);
   }

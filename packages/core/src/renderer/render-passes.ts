@@ -113,6 +113,8 @@ function resolvePassUniformValues(
   if (isComposite) {
     // Layer UV rect the content buffer holds (zoomed-in source layers render only what's visible).
     merged.u_window = ctx.contentWindows?.get(pass.colorSourceLayerId ?? "") ?? FULL_WINDOW;
+    // Nested comps hand over a premultiplied stack (see u_premultiplied in the composites).
+    merged.u_premultiplied = layer.type === "composition" ? 1 : 0;
     // Nested comps accumulate coverage alpha; the root comp flattens to 1.
     merged.u_keepAlpha = pass.preserveAlpha ? 1 : 0;
     // Layer blur radius is in comp px; content textures are buffer-sized.

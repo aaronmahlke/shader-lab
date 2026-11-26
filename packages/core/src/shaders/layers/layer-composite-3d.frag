@@ -337,11 +337,19 @@ float blurHash(vec2 p) {
 // Content window: u_color holds layer-UV rect (x0, y0, w, h) only (zoomed-in
 // source layers render just their visible part); (0,0,1,1) = whole layer.
 uniform vec4 u_window;
+// 1 when the content is a nested comp's stack (premultiplied over transparency).
+// sampleLayerContent then returns premultiplied color and the composite blends
+// it as such (no divide → no 8-bit banding, no double-darkened soft edges).
+uniform float u_premultiplied;
+
+vec4 fetchContent(sampler2D tex, vec2 uv, float lod) {
+  return texture2D(tex, uv, lod);
+}
 
 vec4 sampleLayerContent(sampler2D tex, vec2 layerUv, vec2 res) {
   vec2 luv = (layerUv - u_window.xy) / u_window.zw;
   vec2 cuv = clamp(luv, 0.0, 1.0);
-  if (layerBlur <= 0.01) return texture2D(tex, cuv);
+  if (layerBlur <= 0.01) return fetchContent(tex, cuv, 0.0);
   // Blur radius is in layer space; the windowed buffer is magnified by 1/w.
   float radiusPx = layerBlur * u_blurScale / min(u_window.z, u_window.w);
   vec2 radius = vec2(radiusPx) / res;
@@ -357,13 +365,15 @@ vec4 sampleLayerContent(sampler2D tex, vec2 layerUv, vec2 res) {
     float th = fi * 2.39996323 + rot;
     vec2 q = luv + vec2(cos(th), sin(th)) * r * radius;
     float w = exp(-2.0 * r * r);
-    vec4 s = texture2D(tex, clamp(q, 0.0, 1.0), lod);
+    vec4 s = fetchContent(tex, clamp(q, 0.0, 1.0), lod);
     s.a *= step(0.0, q.x) * step(q.x, 1.0) * step(0.0, q.y) * step(q.y, 1.0);
-    rgb += s.rgb * s.a * w;
+    rgb += (u_premultiplied > 0.5 ? s.rgb : s.rgb * s.a) * w;
     a += s.a * w;
     wsum += w;
   }
-  return vec4(a > 1e-5 ? rgb / a : vec3(0.0), a / wsum);
+  vec3 straight = a > 1e-5 ? rgb / a : vec3(0.0);
+  float aOut = a / wsum;
+  return u_premultiplied > 0.5 ? vec4(straight * aOut, aOut) : vec4(straight, aOut);
 }
 
 void main() {
@@ -450,13 +460,13 @@ void main() {
         vec4 content = sampleLayerContent(u_color, luv, u_frameSize);
         if (layerBlur > 0.01) coverage = 1.0;
         alpha = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage * content.a;
-        src = content.rgb;
+        src = u_premultiplied > 0.5 ? content.rgb / max(content.a, 1e-5) : content.rgb;
 
         // Shade the quad with the group's lights when the layer accepts them
         // (flip the normal toward the viewer — both faces are lit).
         if (layerAcceptsLight > 0.5 && u_lightCount > 0) {
           vec3 N = denom > 0.0 ? -n : n;
-          src = shadeQuad(content.rgb, hit, N, dir, rcam);
+          src = shadeQuad(src, hit, N, dir, rcam);
         }
       }
     }

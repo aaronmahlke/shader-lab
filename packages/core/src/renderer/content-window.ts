@@ -111,6 +111,8 @@ export function computeContentWindow(
   height: number,
   blurScale = 1,
 ): ContentWindow {
+  // Blurred layers don't need the extra detail (and the windowed mip blur rings) — keep the full layer.
+  if (num(uniforms, "layerBlur", 0) > 0.5) return FULL_WINDOW;
   const scale = num(uniforms, "layerScale", 100) / 100;
   // Only zoomed-in layers gain anything; 3D layers can also magnify through depth.
   if (!is3d && scale <= 1.05) return FULL_WINDOW;
