@@ -512,7 +512,7 @@ const renderLayers = computed<LayerInstance[]>(() => {
 
 // Nested compositions: fetch referenced comps (and their refs) into a
 // registry the compiler and renderer resolve against.
-const { registry, registryVersion, resolveComposition } = useCompRegistry({
+const { registry, registryVersion, resolveComposition, refetch: refetchNestedComp } = useCompRegistry({
   projectId,
   layers,
 });
@@ -1040,6 +1040,43 @@ const shaderData = computed(() => ({
 }));
 
 useAutoSave(shaderId, shaderName, shaderData, { getCanvas, projectId });
+
+// --- Auto-reload: comps changed on disk (agents, git) show up without a refresh ---
+
+/** Last known file time per comp; our own saves update it so they don't count as external. */
+const compMtimes = new Map<string, number>();
+let ownSaveAt = 0;
+watch(shaderData, () => (ownSaveAt = Date.now()), { deep: true });
+async function pollDisk() {
+  if (!projectId.value || document.hidden) return;
+  const res = await $fetch<{ comps: Record<string, number> }>(`/api/local/project-mtimes/${projectId.value}`).catch(() => null);
+  if (!res) return;
+  for (const [id, mtime] of Object.entries(res.comps)) {
+    const known = compMtimes.get(id);
+    compMtimes.set(id, mtime);
+    if (known === undefined || mtime <= known) continue;
+    if (id === shaderId.value) {
+      // Our own autosave writes too: only reload when we haven't edited lately.
+      if (Date.now() - ownSaveAt < 2500) continue;
+      const doc = await $fetch<ShaderDoc>(`/api/shaders/${id}`).catch(() => null);
+      if (!doc?.data) continue;
+      layers.value = doc.data.layers;
+      settings.value = { ...DEFAULT_COMPOSITION_SETTINGS, ...doc.data.settings };
+      tracks.value = doc.data.tracks ?? [];
+      normalizeComposition({ version: 1, layers: layers.value, lfos: doc.data.lfos, assignments: doc.data.assignments, settings: settings.value, tracks: tracks.value });
+      lfos.value = doc.data.lfos.map((lfo) => normalizeLfo(lfo));
+      assignments.value = doc.data.assignments;
+      ownSaveAt = Date.now(); // the reload itself triggers an autosave of the same data
+    } else {
+      void refetchNestedComp(id);
+    }
+  }
+}
+onMounted(() => {
+  const timer = setInterval(() => void pollDisk(), 1500);
+  onBeforeUnmount(() => clearInterval(timer));
+});
+
 
 // --- Keyframe / track helpers ---
 

@@ -42,7 +42,8 @@ export type ProjectManifest = {
 
 type Registry = { projects: { id: string; path: string }[] };
 
-const MEDIA_KEY_RE = /^local\/[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+$/;
+// local/<projectId>/<file> or a subfolder path (assets/sfx/…); no "." / ".." segments.
+const MEDIA_KEY_RE = /^local\/[A-Za-z0-9_-]+\/(?:(?!\.{1,2}\/)[A-Za-z0-9._-]+\/)*(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
 
 async function writeJsonAtomic(path: string, value: unknown) {
   await mkdir(dirname(path), { recursive: true });
@@ -362,7 +363,8 @@ export function createFileStore(): ProjectStore {
     },
 
     async getMedia(key) {
-      const [, projectId, name] = key.split("/");
+      const [, projectId, ...rest] = key.split("/");
+      const name = rest.join("/");
       const dir = projectId === "_shared" ? join(localHome(), "media") : (() => null)();
       let base = dir;
       if (!base) {

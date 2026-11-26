@@ -32,6 +32,10 @@ export type CompositionSettings = {
   shutterAngle?: number;
   /** Sub-frame renders per frame (cost multiplier). */
   motionBlurSamples?: number;
+  /** Musical grid: tempo (0/unset = off), time of a downbeat, beats per bar. */
+  bpm?: number;
+  bpmOffset?: number;
+  beatsPerBar?: number;
   /** Master bus level in dB (mixer). */
   masterVolume?: number;
   /** Master bus effect chain (automate via `fx:<id>:<param>` tracks on layer id "master"). */

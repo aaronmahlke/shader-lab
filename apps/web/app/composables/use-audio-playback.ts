@@ -125,6 +125,11 @@ export type AudioEntry = {
   gainDb: number;
   /** Fade the voice out to silence by this comp time (trigger fit-to-move). */
   fadeOutAt?: number;
+  /** Clip fades in comp time: in until inEnd, out from outStart to outEnd. */
+  fades?: { inEnd?: number; outStart?: number; outEnd?: number };
+  /** Loop region in source seconds. */
+  loop?: [number, number];
+  reverse?: boolean;
 };
 
 /** What trigger expansion needs (anchors read decoded buffers). */
@@ -176,7 +181,18 @@ export function collectAudio(
         continue;
       }
       if (to > from) {
-        out.push({ key, strip: key, layer, tracks, offset, from: Math.max(from, a), to, hosts, start: a, src: layer.values.src, rate: 1, gainDb: 0 });
+        // Clip tools: start offset (trim), pitch (varispeed), fades, loop, reverse.
+        const v = layer.values;
+        const num = (k: string) => (typeof v[k] === "number" ? (v[k] as number) : 0);
+        const rate = Math.pow(2, num("pitch") / 12);
+        const start = a - num("startOffset") / rate;
+        const fades: AudioEntry["fades"] = {};
+        if (num("fadeIn") > 0) fades.inEnd = a + num("fadeIn");
+        if (num("fadeOut") > 0 && Number.isFinite(to)) Object.assign(fades, { outStart: to - num("fadeOut"), outEnd: to });
+        out.push({
+          key, strip: key, layer, tracks, offset, from: Math.max(from, a), to, hosts, start, src: v.src as string, rate, gainDb: 0,
+          fades, loop: v.loop === true ? [num("loopStart"), num("loopEnd")] : undefined, reverse: v.reverse === true,
+        });
       }
       continue;
     }
@@ -308,7 +324,24 @@ function buildGraph(ctx: BaseAudioContext, entries: readonly AudioEntry[], mix: 
 function voiceGain(ctx: BaseAudioContext, e: AudioEntry, at: (compTime: number) => number): GainNode {
   const g = ctx.createGain();
   const level = dbToGain(e.gainDb);
-  g.gain.setValueAtTime(level, Math.max(0, at(e.from)));
+  const f = e.fades;
+  if (f?.inEnd != null && e.from < f.inEnd) {
+    // Linear fade from the layer's in point (where gain is 0) to inEnd.
+    const layerIn = e.offset + (e.layer.timing?.in ?? 0);
+    const span = Math.max(1e-3, f.inEnd - layerIn);
+    const g0 = level * Math.min(1, Math.max(0, (e.from - layerIn) / span));
+    g.gain.setValueAtTime(g0, Math.max(0, at(e.from)));
+    g.gain.linearRampToValueAtTime(level, Math.max(0, at(f.inEnd)));
+  } else {
+    g.gain.setValueAtTime(level, Math.max(0, at(e.from)));
+  }
+  if (f?.outStart != null && f.outEnd != null) {
+    const s0 = Math.max(f.outStart, e.from);
+    const span = Math.max(1e-3, f.outEnd - f.outStart);
+    const g1 = level * Math.min(1, Math.max(0, (f.outEnd - s0) / span));
+    g.gain.setValueAtTime(g1, Math.max(0, at(s0)));
+    g.gain.linearRampToValueAtTime(0, Math.max(0, at(f.outEnd)));
+  }
   if (e.fadeOutAt != null) {
     const end = at(e.fadeOutAt);
     g.gain.setValueAtTime(level, Math.max(0, end - 0.06));
@@ -318,6 +351,53 @@ function voiceGain(ctx: BaseAudioContext, e: AudioEntry, at: (compTime: number) 
 }
 
 type Voice = { source: AudioBufferSourceNode; entry: AudioEntry };
+
+const reversed = new WeakMap<AudioBuffer, AudioBuffer>();
+/** The buffer a voice plays (a reversed copy when the clip is reversed). */
+function voiceBuffer(ctx: BaseAudioContext, buffer: AudioBuffer, reverse?: boolean): AudioBuffer {
+  if (!reverse) return buffer;
+  let r = reversed.get(buffer);
+  if (!r) {
+    r = ctx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    for (let c = 0; c < buffer.numberOfChannels; c++) r.getChannelData(c).set(buffer.getChannelData(c).slice().reverse());
+    reversed.set(buffer, r);
+  }
+  return r;
+}
+
+/**
+ * Start one voice: rate, loop region, reverse, per-voice gain (jitter,
+ * fades). `at` maps comp time to the context clock. Returns null when the
+ * sound has already ended by `begin`.
+ */
+function startVoice(
+  ctx: BaseAudioContext,
+  e: AudioEntry,
+  raw: AudioBuffer,
+  begin: number,
+  at: (compTime: number) => number,
+  dest: AudioNode,
+): AudioBufferSourceNode | null {
+  const buffer = voiceBuffer(ctx, raw, e.reverse);
+  let srcAt = (begin - e.start) * e.rate;
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = e.rate;
+  if (e.loop) {
+    const ls = Math.max(0, Math.min(e.loop[0], buffer.duration));
+    const le = e.loop[1] > ls ? Math.min(e.loop[1], buffer.duration) : buffer.duration;
+    source.loop = true;
+    source.loopStart = ls;
+    source.loopEnd = le;
+    if (srcAt > le) srcAt = ls + ((srcAt - ls) % Math.max(1e-3, le - ls));
+  } else if (srcAt >= buffer.duration) {
+    return null;
+  }
+  source.connect(voiceGain(ctx, e, at)).connect(dest);
+  source.start(Math.max(0, at(begin)), Math.max(0, srcAt));
+  if (Number.isFinite(e.to)) source.stop(Math.max(0, at(e.to)));
+  return source;
+}
 
 export function useAudioPlayback(opts: {
   layers: Ref<LayerInstance[]>;
@@ -385,10 +465,12 @@ export function useAudioPlayback(opts: {
         opts.layers.value.flatMap((l) => (l.type === "audio" ? [l.values.src as string, ...(((l.trigger as { alternates?: string[] } | undefined)?.alternates) ?? [])] : [])).concat(entries.value.map((e) => e.src)),
       ),
     ].filter(Boolean),
-    (srcs) =>
+    (srcs) => {
+      if (typeof window === "undefined") return; // never decode during SSR
       srcs.forEach((s) => {
         if (!ready.has(s)) void decodeAudio(s).then((b) => b && (ready.set(s, b), decodedVersion.value++));
-      }),
+      });
+    },
     { immediate: true },
   );
 
@@ -463,18 +545,8 @@ export function useAudioPlayback(opts: {
       const input = graph.inputFor(entry);
       if (t >= entry.to) continue;
       const begin = Math.max(t, entry.from);
-      // Source time (buffer seconds) at `begin`.
-      const srcAt = (begin - entry.start) * entry.rate;
-      if (srcAt >= buffer.duration) continue;
-      const when = now + (begin - t);
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.playbackRate.value = entry.rate;
-      const vg = voiceGain(ctx, entry, (ct) => when + (ct - begin));
-      source.connect(vg).connect(input.pan);
-      source.start(when, Math.max(0, srcAt));
-      if (Number.isFinite(entry.to)) source.stop(when + (entry.to - begin));
-      voices.push({ source, entry });
+      const source = startVoice(ctx, entry, buffer, begin, (ct) => now + (ct - t), input.pan);
+      if (source) voices.push({ source, entry });
     }
     applyLevels(t, false);
     if (meterRaf === null) meterRaf = requestAnimationFrame(meterLoop);
@@ -568,8 +640,7 @@ export async function renderAudioMix(
     const from = Math.max(0, e.from);
     const to = Math.min(e.to, duration);
     if (to <= from) continue;
-    const srcAt = (from - e.start) * e.rate;
-    if (srcAt >= buffer.duration) continue;
+    if (!e.loop && (from - e.start) * e.rate >= buffer.duration) continue;
     const st = graph.inputFor(e);
     const on = audible(e, solo);
     automate(st.gain.gain, (t) => (on ? dbToGain(paramAt(e.layer, e.tracks, "volume", t - e.offset, 0)) : 0), hasKeys(e.layer, e.tracks, "volume"), from, to);
@@ -581,12 +652,7 @@ export async function renderAudioMix(
       automate(hs.gain.gain, (t) => dbToGain(paramAt(h.layer, h.tracks, "audioVolume", t - h.offset, 0)), hasKeys(h.layer, h.tracks, "audioVolume"), 0, duration);
       automate(hs.pan.pan, (t) => paramAt(h.layer, h.tracks, "audioPan", t - h.offset, 0), hasKeys(h.layer, h.tracks, "audioPan"), 0, duration);
     }
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = e.rate;
-    source.connect(voiceGain(ctx, e, (ct) => ct)).connect(st.pan);
-    source.start(from, Math.max(0, srcAt));
-    source.stop(to);
+    startVoice(ctx, { ...e, to }, buffer, from, (ct) => ct, st.pan);
     any = true;
   }
   return any ? await ctx.startRendering() : null;

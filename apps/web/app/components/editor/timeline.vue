@@ -89,6 +89,7 @@ import {
   TIMELINE_SNAP_RELEASE_PX,
   TIMELINE_SNAP_THRESHOLD_PX,
 } from "#shared/editor/timeline-snapping";
+import { beatTimes, nearestBeat } from "#shared/editor/beat-grid";
 import UIcon from "../UIcon.vue";
 import { PEAKS_PER_SECOND, peaksVersion, waveformPeaks } from "~/composables/use-audio-playback";
 import {
@@ -1777,8 +1778,18 @@ function timeFromPointerEvent(e: PointerEvent): number {
 
 function snapTime(time: number): number {
   const step = 1 / settings.fps;
+  // BPM grid: keys land on beats when within a few px (snapping on).
+  if (snapping.value) {
+    const beat = nearestBeat(settings, time, TIMELINE_SNAP_THRESHOLD_PX / pxPerSecond.value);
+    if (beat !== null) return beat;
+  }
   return Math.round(time / step) * step;
 }
+
+/** Bar / beat lines when the comp has a BPM (bars brighter). */
+const beatLines = computed(() =>
+  beatTimes(settings, settings.duration).map((b) => ({ x: b.time * pxPerSecond.value, bar: b.bar })),
+);
 
 function onKeyframePointerDown(
   layerId: string,
@@ -2288,12 +2299,16 @@ function onLayerBarPointerDown(layer: LayerInstance, mode: LayerBarDragMode, e: 
   const startWindowList = [...startWindows.values()];
 
   // Edge snapping like the canvas: comp bounds, playhead, other bars' edges.
-  const snapTargets = collectBarSnapTargets(
-    layers.value.map((l) => ({ id: l.id, in: layerInPoint(l), out: layerOutPoint(l) })),
-    movedIds,
-    settings.duration,
-    currentTime.value,
-  );
+  const snapTargets = [
+    ...collectBarSnapTargets(
+      layers.value.map((l) => ({ id: l.id, in: layerInPoint(l), out: layerOutPoint(l) })),
+      movedIds,
+      settings.duration,
+      currentTime.value,
+    ),
+    // BPM grid: layer edges snap to beats too.
+    ...beatTimes(settings, settings.duration).map((b) => b.time),
+  ];
   const snapThreshold = () => TIMELINE_SNAP_THRESHOLD_PX / pxPerSecond.value;
   const snapRelease = () => TIMELINE_SNAP_RELEASE_PX / pxPerSecond.value;
   // The currently held target (hysteresis), kept across pointermoves.
@@ -3289,6 +3304,15 @@ function selectAllLayers() {
               v-if="marquee"
               class="pointer-events-none absolute z-30 border border-[var(--s-select)]/80 bg-[var(--s-select)]/10"
               :style="marqueeStyle"
+            />
+
+            <!-- BPM grid: bar / beat lines. -->
+            <div
+              v-for="(b, i) in beatLines"
+              :key="`beat-${i}`"
+              class="pointer-events-none absolute top-0 bottom-0 z-[1] w-px"
+              :class="b.bar ? 'bg-white/[0.14]' : 'bg-white/[0.05]'"
+              :style="{ left: `${b.x}px` }"
             />
 
             <div

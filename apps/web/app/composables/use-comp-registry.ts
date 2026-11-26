@@ -119,5 +119,10 @@ export function useCompRegistry(options: {
   const resolveComposition = (id: string): CompositionConfig | null =>
     (registry.value[id] ? toRaw(registry.value[id]) : null) ?? null;
 
-  return { registry, registryVersion, resolveComposition };
+  /** Re-fetch one nested comp (changed on disk). */
+  async function refetch(compId: string) {
+    if (registry.value[compId]) await fetchComp(compId);
+  }
+
+  return { registry, registryVersion, resolveComposition, refetch };
 }

@@ -82,6 +82,47 @@ const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
       </StudioField>
     </EditorInspectorSection>
 
+    <EditorInspectorSection title="Tempo">
+      <StudioField label="BPM" inline>
+        <StudioValue
+          :model-value="settings.bpm ?? 0"
+          :min="0"
+          :max="300"
+          :step="0.1"
+          :precision="1"
+          :fill="false"
+          title="0 = no grid"
+          @update:model-value="emit('update', { bpm: $event > 0 ? $event : undefined })"
+        />
+      </StudioField>
+      <template v-if="(settings.bpm ?? 0) > 0">
+        <StudioField label="Offset" inline>
+          <StudioValue
+            :model-value="settings.bpmOffset ?? 0"
+            :min="-10"
+            :max="60"
+            :step="0.001"
+            :precision="3"
+            unit=" s"
+            :fill="false"
+            title="Time of a downbeat"
+            @update:model-value="emit('update', { bpmOffset: $event })"
+          />
+        </StudioField>
+        <StudioField label="Beats / bar" inline>
+          <StudioValue
+            :model-value="settings.beatsPerBar ?? 4"
+            :min="1"
+            :max="16"
+            :step="1"
+            :precision="0"
+            :fill="false"
+            @update:model-value="emit('update', { beatsPerBar: Math.round($event) })"
+          />
+        </StudioField>
+      </template>
+    </EditorInspectorSection>
+
     <EditorInspectorSection title="Master (audio)">
       <StudioField label="Volume" inline>
         <StudioValue

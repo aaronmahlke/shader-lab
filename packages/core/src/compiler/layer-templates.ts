@@ -370,6 +370,15 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
       { name: "volume", type: "float", label: "Volume (dB)", default: 0, min: -48, max: 12, step: 0.1 },
       // −1 left … 1 right (keyframeable).
       { name: "pan", type: "float", label: "Pan", default: 0, min: -1, max: 1, step: 0.01 },
+      // Clip tools (seconds of source / layer time; not keyframeable).
+      { name: "startOffset", type: "float", label: "Start offset (s)", default: 0, min: 0, max: 600, step: 0.01, keyframeable: false },
+      { name: "fadeIn", type: "float", label: "Fade in (s)", default: 0, min: 0, max: 30, step: 0.01, keyframeable: false },
+      { name: "fadeOut", type: "float", label: "Fade out (s)", default: 0, min: 0, max: 30, step: 0.01, keyframeable: false },
+      { name: "pitch", type: "float", label: "Pitch (st, varispeed)", default: 0, min: -24, max: 24, step: 0.1, keyframeable: false },
+      { name: "reverse", type: "bool", label: "Reverse", default: false, keyframeable: false },
+      { name: "loop", type: "bool", label: "Loop", default: false, keyframeable: false },
+      { name: "loopStart", type: "float", label: "Loop start (s)", default: 0, min: 0, max: 600, step: 0.01, keyframeable: false },
+      { name: "loopEnd", type: "float", label: "Loop end (s, 0 = end)", default: 0, min: 0, max: 600, step: 0.01, keyframeable: false },
     ],
   },
 
