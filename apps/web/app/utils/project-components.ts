@@ -16,6 +16,7 @@ export type ProjectComponentInfo = { name: string; version: string };
 type Compiled = ProjectComponentInfo & {
   code: string;
   imports: string[];
+  local: Record<string, string>;
   css: string;
   scopeId: string | null;
   candidates: string[];
@@ -70,19 +71,32 @@ const AUTO_IMPORTS: Record<string, unknown> = (() => {
 export async function loadProjectComponent(name: string): Promise<{ default: Component }> {
   const projectId = currentProject;
   if (!projectId) throw new Error("No project open");
-  let compiled: Compiled;
+  type Graph = { entry: string; modules: Compiled[] };
+  let graph: Graph;
   try {
-    compiled = await $fetch<Compiled>(`/api/projects/${projectId}/components/${encodeURIComponent(name)}`);
+    graph = await $fetch<Graph>(`/api/projects/${projectId}/components/${encodeURIComponent(name)}`);
   } catch (err) {
     const msg = (err as { data?: { statusMessage?: string }; message?: string }).data?.statusMessage;
     throw new Error(`${name}.vue: ${msg ?? (err as Error).message}`);
   }
 
-  const mods: Record<string, unknown> = {};
+  const loaded = new Map<string, { default: Component }>();
+  for (const compiled of graph.modules) {
+    loaded.set(compiled.name + ".vue", await evaluate(compiled, loaded));
+  }
+  return loaded.get(graph.entry)!;
+}
+
+async function evaluate(compiled: Compiled, loaded: Map<string, { default: Component }>) {
+  const { name } = compiled;
+  const mods: Record<string, unknown> = Object.create(null);
   for (const spec of compiled.imports) {
-    const load = MODULES[spec];
-    if (!load) throw new Error(`${name}.vue imports "${spec}", which project components can't use.`);
-    mods[spec] = await load();
+    if (Object.hasOwn(compiled.local, spec)) {
+      mods[spec] = loaded.get(compiled.local[spec]!);
+    } else {
+      if (!Object.hasOwn(MODULES, spec)) throw new Error(name + ".vue imports unsupported module " + spec);
+      mods[spec] = await MODULES[spec]!();
+    }
   }
 
   injectStyle(name, compiled.css + "\n" + (await utilitiesFor(compiled.candidates)));
