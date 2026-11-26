@@ -227,7 +227,8 @@ export function useFrameCache(opts: FrameCacheOptions) {
     lastEditAt = performance.now();
     scheduleIdle();
   };
-  const INPUT_EVENTS = ["pointerdown", "pointermove", "wheel", "keydown"] as const;
+  // Real interaction only — merely moving the mouse over the app must not stall caching.
+  const INPUT_EVENTS = ["pointerdown", "wheel", "keydown"] as const;
   if (typeof window !== "undefined") {
     for (const ev of INPUT_EVENTS) window.addEventListener(ev, onInput, { passive: true, capture: true });
   }
