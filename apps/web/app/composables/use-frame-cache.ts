@@ -87,10 +87,14 @@ export function useFrameCache(opts: FrameCacheOptions) {
   const sizeOf = (b: ImageBitmap) => b.width * b.height * 4;
   const budget = () => opts.budgetBytes ?? 3e9;
 
-  /** Forward distance from the playhead (frames ahead are near, just-behind is farthest). */
+  /**
+   * How far a frame is from the playhead, in time, either direction (ahead
+   * counts a little nearer, playback goes forward). Eviction drops the
+   * largest first: far away on the timeline, never right behind the playhead.
+   */
   function dist(f: number): number {
-    const n = frameCount();
-    return (f - frameOf(opts.currentTime.value) + n) % n;
+    const d = f - frameOf(opts.currentTime.value);
+    return d >= 0 ? d : -d * 1.5;
   }
 
   function clear() {
@@ -195,7 +199,7 @@ export function useFrameCache(opts: FrameCacheOptions) {
   }
 
   /** Evict the frames farthest behind the playhead (playback direction) once over budget. */
-  /** Over budget: drop the frames farthest from the playhead (just behind it first). */
+  /** Over budget: drop the frames farthest from the playhead on the timeline. */
   function evict(_around?: number) {
     if (bytes <= budget()) return;
     const order = [...frames.keys()].sort((a, b) => dist(b) - dist(a));
