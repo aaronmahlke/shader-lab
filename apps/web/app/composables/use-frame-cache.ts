@@ -44,7 +44,7 @@ const IDLE_DELAY_MS = 400;
  * come back to the same state and the frames are still there.
  */
 type CacheEntry = { frames: Map<number, ImageBitmap>; bytes: number; usedAt: number };
-const MAX_ENTRIES = 3;
+const MAX_ENTRIES = 8;
 function store(): Map<string, CacheEntry> {
   const w = globalThis as unknown as { __shaderlabFrameCache?: Map<string, CacheEntry> };
   return (w.__shaderlabFrameCache ??= new Map());
@@ -111,7 +111,9 @@ export function useFrameCache(opts: FrameCacheOptions) {
     if (!next) {
       next = { frames: new Map(), bytes: 0, usedAt: Date.now() };
       all.set(key, next);
-      // Keep only the most recently used states (bitmaps are big).
+      // Drop empty states first (transient ones while nested comps load must
+      // never push real caches out), then keep the most recently used.
+      for (const [k, e] of all) if (e !== next && e !== entry && e.frames.size === 0) all.delete(k);
       const old = [...all.entries()].sort((a, b) => b[1].usedAt - a[1].usedAt).slice(MAX_ENTRIES);
       for (const [k, e] of old) {
         if (e === next) continue;
