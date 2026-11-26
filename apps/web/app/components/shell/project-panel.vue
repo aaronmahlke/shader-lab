@@ -2,6 +2,7 @@
 import type { CompositionMeta } from "#shared/types/project";
 import { COMP_DRAG_TYPE, type CompDragPayload } from "#shared/editor/comp-drag";
 import { stageComponentEntries } from "~/utils/stage-components";
+import { COMPONENT_DRAG_TYPE } from "~/utils/ref-drag";
 
 /**
  * Everything in the project as one list: comps and components are both
@@ -89,7 +90,9 @@ function onMenuCloseAutoFocus(id: string, e: Event) {
       <div
         v-for="entry in stageComponentEntries()"
         :key="entry.name"
-        :title="`${entry.label}: double-click to add`"
+        draggable="true"
+        :title="`${entry.label}: double-click to add, drag onto a Component field`"
+        @dragstart="$event.dataTransfer?.setData(COMPONENT_DRAG_TYPE, entry.name)"
         @dblclick="emit('add-component', entry.name)"
       >
         <StudioListRow>

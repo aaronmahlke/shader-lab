@@ -182,16 +182,10 @@ function selectedLayerIndices(): number[] {
 
 const { containerRef: layerListRef, draggingIndices } = useDragReorder(layers, {
   getSelectedIndices: selectedLayerIndices,
-  onDragStartIndex(index, e) {
-    if (e.shiftKey || e.metaKey || e.ctrlKey) return;
-    const layer = layers.value[index];
-    if (!layer || selectedLayerIds.value.has(layer.id)) return;
-    selectedLayerIds.value = new Set([layer.id]);
-    selectedLayerId.value = layer.id;
-    selectionAnchorId.value = layer.id;
-    selectedKeyframes.value = [];
-    history?.record();
-  },
+  // Drag a layer row onto an object field (Parent, Pointer, …) to assign it.
+  dragPayload: (indices) => ({ kind: "layer", ids: indices.map((i) => layers.value[i]?.id).filter((id): id is string => !!id) }),
+  // No selection on press (Unity-style): a plain click selects (row @click),
+  // and dragging a row onto an object field must not swap the inspector away.
   onReorderGestureStart: () => history?.beginGesture(),
   onReorderGestureCommit: () => history?.commitGesture(),
   onReorderGestureCancel: () => history?.cancelGesture(),

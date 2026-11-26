@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { layerStudioIcon } from "~/utils/layer-icons";
 import { BUILT_IN_CURSORS, builtInCursor, cursorAnchor } from "#shared/editor/cursors";
 import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource, PropertyTrack } from "@shader-lab/core";
 import type { GradientStop, MeshPoint } from "@shader-lab/core";
@@ -303,12 +304,9 @@ const ANCHOR_POINT = "__anchor__";
 
 const parentOptions = computed(() => {
   const all = editorLayers?.value ?? [];
-  return [
-    { label: "None", value: NO_PARENT },
-    ...all
-      .filter((l) => l.id !== layer.id && canParent(all, layer.id, l.id))
-      .map((l) => ({ label: l.name ?? LAYER_TEMPLATES[l.type]?.label ?? l.type, value: l.id })),
-  ];
+  return all
+    .filter((l) => l.id !== layer.id && canParent(all, layer.id, l.id))
+    .map((l) => ({ label: l.name ?? LAYER_TEMPLATES[l.type]?.label ?? l.type, value: l.id, icon: layerStudioIcon(l.type) }));
 });
 
 const parentLayer = computed(() =>
@@ -579,13 +577,15 @@ const mediaKind = computed<MediaUploadKind>(() =>
 const isAudio = computed(() => layer.type === "audio");
 
 // Pointer: components pick one (same comp); cursor images pick a built-in graphic.
-const NO_POINTER = "__none";
-const pointerOptions = computed(() => [
-  { label: "None", value: NO_POINTER },
-  ...(editorLayers?.value ?? [])
+const pointerOptions = computed(() =>
+  (editorLayers?.value ?? [])
     .filter((l) => l.type === "pointer")
-    .map((l) => ({ label: l.name ?? "Pointer", value: l.id })),
-]);
+    .map((l) => ({ label: l.name ?? "Pointer", value: l.id, icon: "cursor" as const })),
+);
+const componentRefOptions = computed(() =>
+  componentPickerOptions.value.map((o) => ({ ...o, value: String(o.value), icon: "component" as const })),
+);
+const compRefFieldOptions = computed(() => compRefOptions.value.map((o) => ({ ...o, icon: "comp" as const })));
 const CURSOR_OPTIONS = BUILT_IN_CURSORS.map((c) => ({ label: c.label, value: c.src }));
 const isBuiltInCursor = computed(
   () => layer.type === "image" && typeof layer.values.src === "string" && layer.values.src.startsWith("/cursors/"),
@@ -733,12 +733,13 @@ function isUniformVisible(def: LayerUniformDef): boolean {
         />
       </template>
       <div v-if="isGenerator" class="flex gap-1.5">
-        <UiSelect
+        <StudioRefField
           class="min-w-0 flex-1"
-          :model-value="layer.parent ?? NO_PARENT"
+          kind="layer"
+          :model-value="layer.parent ?? ''"
           :options="parentOptions"
           label="Parent"
-          @update:model-value="onParentChange"
+          @update:model-value="onParentChange($event || NO_PARENT)"
         />
         <UiSelect
           v-if="attachOptions.length"
@@ -920,32 +921,37 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             :owner-id="layer.id"
             @update:model-value="layer.values[def.name] = $event"
           />
-          <UiSelect
+          <StudioRefField
             v-else-if="layer.type === 'component' && def.name === 'pointer'"
-            :model-value="(layer.values.pointer as string) || NO_POINTER"
+            kind="layer"
+            :model-value="(layer.values.pointer as string) || ''"
             :options="pointerOptions"
             :label="def.label"
-            @update:model-value="setText(def, layer.values, $event === NO_POINTER ? '' : String($event))"
+            @update:model-value="setText(def, layer.values, $event)"
           />
-          <UiSelect
+          <StudioRefField
             v-else-if="layer.type === 'component' && def.name === 'componentName'"
+            kind="component"
             :model-value="getText(def, layer.values)"
-            :options="componentPickerOptions"
+            :options="componentRefOptions"
             :label="def.label"
-            @update:model-value="setText(def, layer.values, String($event))"
+            :clearable="false"
+            placeholder="Pick a component…"
+            @update:model-value="setText(def, layer.values, $event)"
           />
           <div
             v-else-if="layer.type === 'composition' && def.name === 'compRefId'"
             class="flex items-center gap-1.5"
           >
-            <UiSelect
+            <StudioRefField
               class="min-w-0 flex-1"
-              :model-value="getSelect(def, layer.values) as string"
-              :options="compRefOptions"
+              kind="comp"
+              :model-value="(getSelect(def, layer.values) as string) || ''"
+              :options="compRefFieldOptions"
               :label="def.label"
+              :clearable="false"
               placeholder="Pick a composition…"
-              @update:model-value="setSelect(def, layer.values, $event as string | number)"
-              @select="setSelect(def, layer.values, $event)"
+              @update:model-value="setSelect(def, layer.values, $event)"
             />
             <UiButton
               v-if="layer.values.compRefId"

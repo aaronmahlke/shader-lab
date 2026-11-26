@@ -1,3 +1,4 @@
+import { REF_DROP_EVENT, refDrag, refDropTarget, refFieldAt, type RefDragPayload } from "~/utils/ref-drag";
 /** Base z-index for dragged rows — above list neighbors and inline controls. */
 const DRAG_Z_BASE = 50;
 
@@ -16,6 +17,8 @@ type DragReorderOptions = {
   onReorderGestureCommit?: () => void;
   /** Called when a drag ends without reordering the list. */
   onReorderGestureCancel?: () => void;
+  /** What the dragged rows are, for dropping onto object fields (ref slots). */
+  dragPayload?: (indices: number[]) => RefDragPayload | null;
 };
 
 type RowRect = {
@@ -59,6 +62,7 @@ export function useDragReorder<T>(
     onReorderGestureStart,
     onReorderGestureCommit,
     onReorderGestureCancel,
+    dragPayload,
   } = options;
   const containerRef = ref<HTMLElement | null>(null);
   const draggingIndices = ref<Set<number>>(new Set());
@@ -575,6 +579,7 @@ export function useDragReorder<T>(
           onReorderGestureStart?.();
         }
         draggingIndices.value = new Set(dragIndices);
+        refDrag.value = dragPayload?.(dragIndices) ?? null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "none";
         beginDrag();
@@ -582,6 +587,8 @@ export function useDragReorder<T>(
 
       processPointerPosition(ev.clientY);
     }
+    // Over an object field: highlight it (the drop assigns instead of reordering).
+    if (active && refDrag.value) refDropTarget.value = refFieldAt(e.clientX, e.clientY);
   }
 
   function cancelStackPhase() {
@@ -602,6 +609,14 @@ export function useDragReorder<T>(
 
     if (!active) {
       cleanup();
+      return;
+    }
+
+    // Released over an object field: assign there, put the rows back.
+    const field = refDrag.value ? refFieldAt(e.clientX, e.clientY) : null;
+    if (field) {
+      field.dispatchEvent(new CustomEvent(REF_DROP_EVENT, { detail: refDrag.value }));
+      onKeyDown(new KeyboardEvent("keydown", { key: "Escape" }));
       return;
     }
 
@@ -715,6 +730,8 @@ export function useDragReorder<T>(
   }
 
   function cleanup() {
+    refDrag.value = null;
+    refDropTarget.value = null;
     reorderGestureStarted = false;
     active = false;
     draggingIndices.value = new Set();
