@@ -201,6 +201,7 @@ export {
   supports3D,
   isLayer3D,
   isControlLayer,
+  isAudioLayer,
 } from "./compiler/universal-uniforms";
 export {
   compositePassId,

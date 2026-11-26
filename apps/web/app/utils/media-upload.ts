@@ -1,5 +1,5 @@
 /** Media kinds the editor can upload; each maps to its own endpoint. */
-export type MediaUploadKind = "image" | "video";
+export type MediaUploadKind = "image" | "video" | "audio";
 
 /**
  * POST a media file to the upload endpoint (multipart field "file", session
@@ -25,6 +25,7 @@ export async function uploadMediaFile(
 export function mediaUploadKindForFile(file: File): MediaUploadKind | null {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
   return null;
 }
 

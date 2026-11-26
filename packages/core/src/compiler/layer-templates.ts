@@ -356,6 +356,19 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     ],
   },
 
+  audio: {
+    type: "audio",
+    label: "Audio",
+    category: "generator",
+    description: "Sound on the timeline (plays in sync, mixed into exports); renders nothing",
+    uniforms: [
+      // The host decodes and plays the src; core only stores it.
+      { name: "src", type: "text", label: "Source", default: "", keyframeable: false },
+      // AE-style audio level in dB (0 = as recorded); keyframe it for fades.
+      { name: "volume", type: "float", label: "Volume (dB)", default: 0, min: -48, max: 12, step: 0.1 },
+    ],
+  },
+
   image: {
     type: "image",
     label: "Image",

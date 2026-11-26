@@ -13,6 +13,12 @@ const MIME_BY_EXT: Record<string, string> = {
   mp4: "video/mp4",
   webm: "video/webm",
   mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
 };
 
 export default defineEventHandler(async (event) => {

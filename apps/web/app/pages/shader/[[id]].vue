@@ -85,6 +85,7 @@ import {
 import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
+import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
 import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
 import {
   beginExportClock,
@@ -353,6 +354,9 @@ let lastPlaybackMs = 0;
 /** A playback-driven render of the next uncached frame is in flight. */
 let renderStepping = false;
 let playbackClock = 0;
+const audioLayerIds = computed(() => new Set(layers.value.filter((l) => l.type === "audio").map((l) => l.id)));
+/** Audio layers: in sync while playback is real time, quiet while it steps. */
+const audioPlayback = useAudioPlayback({ layers, tracks });
 
 function playbackTick(now: number) {
   if (!playing.value) return;
@@ -377,7 +381,9 @@ function playbackTick(now: number) {
   if (fc.has(frame)) {
     fc.buffering.value = false;
     currentTime.value = frame * step;
+    audioPlayback.tick(playbackClock, true);
   } else {
+    audioPlayback.tick(currentTime.value, false);
     playbackClock = currentTime.value; // hold the clock while this frame renders
     if (!renderStepping) {
       renderStepping = true;
@@ -404,9 +410,12 @@ watch(playing, (isPlaying) => {
     playbackClock = currentTime.value;
     lastPlaybackMs = 0;
     playbackId = requestAnimationFrame(playbackTick);
-  } else if (playbackId !== null) {
-    cancelAnimationFrame(playbackId);
-    playbackId = null;
+  } else {
+    audioPlayback.stop();
+    if (playbackId !== null) {
+      cancelAnimationFrame(playbackId);
+      playbackId = null;
+    }
   }
 });
 
@@ -721,6 +730,7 @@ const shaderExport = {
     componentCapture.resume();
     mediaSources.resume();
   },
+  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration),
   getCanvas,
   configureRenderer,
   restoreRenderer,
@@ -756,7 +766,10 @@ const frameCache = useFrameCache({
   // Content, not counters: nested comps by their data (a remount re-loads them,
   // the hash comes back the same and the cached frames are reused).
   signature: () => [
-    layers.value, lfos.value, assignments.value, settings.value, tracks.value,
+    // Audio layers don't change the picture: editing them keeps cached frames.
+    layers.value.filter((l) => l.type !== "audio"),
+    lfos.value, assignments.value, settings.value,
+    tracks.value.filter((t) => !audioLayerIds.value.has(t.layerId)),
     // Sorted: nested comps load in any order; the hash must not depend on it.
     Object.keys(registry.value).sort().map((k) => [k, registry.value[k]]),
     previewResolution.value, textEditingLayerId.value,

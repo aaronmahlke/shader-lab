@@ -1,4 +1,12 @@
-import { Output, Mp4OutputFormat, WebMOutputFormat, BufferTarget, CanvasSource } from "mediabunny";
+import {
+  Output,
+  Mp4OutputFormat,
+  WebMOutputFormat,
+  BufferTarget,
+  CanvasSource,
+  AudioBufferSource,
+  getFirstEncodableAudioCodec,
+} from "mediabunny";
 import { negotiateCanvasEncoding, type ExportFormatPreference } from "#shared/editor/video-encoding";
 
 type ExportOptions = {
@@ -17,6 +25,8 @@ type ShaderControls = {
   configureRenderer: (width: number, height: number) => void;
   restoreRenderer: () => void;
   renderFrame: (time: number) => void | Promise<void>;
+  /** The comp's sound mixed down (audio layers), or null when silent. */
+  renderAudio?: (duration: number) => Promise<AudioBuffer | null>;
 };
 
 type ExportState = {
@@ -74,15 +84,35 @@ export function useVideoExport() {
       // levels cap out around 4K, so 4x-scale exports fall back to VP9/AV1.
       const encoding = await negotiateCanvasEncoding(width, height, fps, format);
 
-      const output = new Output({
-        format: encoding.container === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat(),
-        target: new BufferTarget(),
-      });
+      const outputFormat = encoding.container === "webm" ? new WebMOutputFormat() : new Mp4OutputFormat();
+      const output = new Output({ format: outputFormat, target: new BufferTarget() });
 
       const videoSource = new CanvasSource(canvas, encoding.config);
 
       output.addVideoTrack(videoSource);
+
+      // Sound: audio layers mixed offline, encoded as AAC (MP4) or Opus.
+      const mix = shader.renderAudio ? await shader.renderAudio(duration) : null;
+      let audioSource: AudioBufferSource | null = null;
+      if (mix) {
+        const preferred = outputFormat.getSupportedAudioCodecs().filter((c) => c === "aac" || c === "opus");
+        const codec = await getFirstEncodableAudioCodec(preferred, {
+          numberOfChannels: mix.numberOfChannels,
+          sampleRate: mix.sampleRate,
+          bitrate: 192_000,
+        });
+        if (codec) {
+          audioSource = new AudioBufferSource({ codec, bitrate: 192_000 });
+          output.addAudioTrack(audioSource);
+        } else {
+          console.warn("[export] no encodable audio codec; exporting without sound");
+        }
+      }
       await output.start();
+      if (audioSource && mix) {
+        await audioSource.add(mix);
+        audioSource.close();
+      }
 
       // Render frames
       for (let i = 0; i < totalFrames; i++) {

@@ -33,7 +33,7 @@ import type { RenderPassType } from "../types/editor";
 // slots; composition layers expand into their nested comp's passes;
 // effectors never render (they act through the modulation fn).
 export const FRAG_SHADERS: Record<
-  Exclude<RenderPassType, "camera" | "object3d" | "light" | "composition" | "effector" | "cloner">,
+  Exclude<RenderPassType, "camera" | "object3d" | "light" | "composition" | "effector" | "cloner" | "audio">,
   string
 > & {
   camera?: undefined;
@@ -42,6 +42,7 @@ export const FRAG_SHADERS: Record<
   composition?: undefined;
   effector?: undefined;
   cloner?: undefined;
+  audio?: undefined;
 } = {
   gradient: gradientFrag,
   mesh: meshFrag,

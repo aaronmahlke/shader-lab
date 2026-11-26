@@ -16,6 +16,7 @@ type ShaderControls = {
   configureRenderer: (width: number, height: number) => void;
   restoreRenderer: () => void;
   renderFrame: (time: number) => void | Promise<void>;
+  renderAudio?: (duration: number) => Promise<AudioBuffer | null>;
 };
 
 /** Fixed presets when no design canvas is provided (shader-only editor). */

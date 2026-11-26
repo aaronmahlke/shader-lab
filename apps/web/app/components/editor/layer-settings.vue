@@ -569,10 +569,12 @@ function resetUniform(def: LayerUniformDef) {
 
 // --- Media (image/video) source upload ---
 
-const isMediaLayer = computed(() => layer.type === "image" || layer.type === "video");
+const isMediaLayer = computed(() => layer.type === "image" || layer.type === "video" || layer.type === "audio");
 const mediaKind = computed<MediaUploadKind>(() =>
-  layer.type === "video" ? "video" : "image",
+  layer.type === "video" ? "video" : layer.type === "audio" ? "audio" : "image",
 );
+/** Audio layers have no picture: no Transform / Appearance sections. */
+const isAudio = computed(() => layer.type === "audio");
 
 const mediaFileInput = ref<HTMLInputElement | null>(null);
 const mediaUploading = ref(false);
@@ -673,7 +675,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       />
     </div>
 
-    <EditorInspectorSection title="Transform">
+    <EditorInspectorSection v-if="!isAudio" title="Transform">
       <template v-if="supports3D(layer)" #actions>
         <UiToggle
           label="3D"
@@ -800,7 +802,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       </template>
     </EditorInspectorSection>
 
-    <EditorInspectorSection title="Appearance">
+    <EditorInspectorSection v-if="!isAudio" title="Appearance">
       <template #actions>
         <UiButton
           variant="ghost"
@@ -909,7 +911,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               ref="mediaFileInput"
               type="file"
               class="hidden"
-              :accept="mediaKind === 'video' ? 'video/*' : 'image/*'"
+              :accept="`${mediaKind}/*`"
               @change="onMediaFileChange(def, $event)"
             >
             <div
@@ -953,7 +955,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               @dragover.prevent
               @drop.prevent="onMediaDrop(def, $event)"
             >
-              {{ mediaUploading ? "Uploading…" : mediaKind === "video" ? "Upload video" : "Upload image" }}
+              {{ mediaUploading ? "Uploading…" : `Upload ${mediaKind}` }}
             </button>
             <span v-if="mediaUploadError" class="text-copy-xs text-red-400">
               {{ mediaUploadError }}
