@@ -375,13 +375,17 @@ function playbackTick(now: number) {
       renderStepping = true;
       fc.buffering.value = true;
       const next = (fc.frameOf(currentTime.value) + 1) % fc.frameCount();
-      void fc.ensure(next).then(() => {
-        renderStepping = false;
-        if (!playing.value) return;
-        currentTime.value = next * step;
-        playbackClock = currentTime.value;
-        lastPlaybackMs = 0; // continue from here, no catch-up jump
-      });
+      void fc
+        .ensure(next)
+        .catch(() => false)
+        .finally(() => {
+          renderStepping = false;
+          if (!playing.value) return;
+          // Advance even if the frame couldn't be kept (cache full): it's on screen live.
+          currentTime.value = next * step;
+          playbackClock = currentTime.value;
+          lastPlaybackMs = 0; // continue from here, no catch-up jump
+        });
     }
   }
   playbackId = requestAnimationFrame(playbackTick);

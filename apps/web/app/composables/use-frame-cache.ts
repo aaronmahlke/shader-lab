@@ -52,16 +52,22 @@ export function useFrameCache(opts: FrameCacheOptions) {
   const frameCount = () => Math.max(1, Math.floor(opts.duration() * opts.fps()));
   const frameOf = (t: number) => Math.min(frameCount() - 1, Math.max(0, Math.round(t * opts.fps())));
 
-  function capacity(): number {
-    const c = opts.getCanvas();
-    const bytes = Math.max(1, (c?.width ?? 1920) * (c?.height ?? 1080) * 4);
-    return Math.max(30, Math.floor((opts.budgetBytes ?? 1.5e9) / bytes));
+  /** Bytes held by cached bitmaps (frames can differ in size after zoom/resize). */
+  let bytes = 0;
+  const sizeOf = (b: ImageBitmap) => b.width * b.height * 4;
+  const budget = () => opts.budgetBytes ?? 3e9;
+
+  /** Forward distance from the playhead (frames ahead are near, just-behind is farthest). */
+  function dist(f: number): number {
+    const n = frameCount();
+    return (f - frameOf(opts.currentTime.value) + n) % n;
   }
 
   function clear() {
     generation++;
     for (const bmp of frames.values()) bmp.close();
     frames.clear();
+    bytes = 0;
     showing.value = false;
     version.value++;
   }
@@ -85,26 +91,34 @@ export function useFrameCache(opts: FrameCacheOptions) {
   }
 
   /** Evict the frames farthest behind the playhead (playback direction) once over budget. */
-  function evict(around: number) {
-    const cap = capacity();
-    if (frames.size <= cap) return;
-    const n = frameCount();
-    const dist = (f: number) => (f - around + n) % n; // forward distance from the playhead
+  /** Over budget: drop the frames farthest from the playhead (just behind it first). */
+  function evict(_around?: number) {
+    if (bytes <= budget()) return;
     const order = [...frames.keys()].sort((a, b) => dist(b) - dist(a));
-    for (const f of order.slice(0, frames.size - cap)) {
-      frames.get(f)?.close();
+    for (const f of order) {
+      if (bytes <= budget()) break;
+      const b = frames.get(f)!;
+      bytes -= sizeOf(b);
+      b.close();
       frames.delete(f);
     }
+  }
+
+  /** Cache full and every cached frame is nearer than `f`: rendering it would only evict closer frames. */
+  function wouldThrash(f: number): boolean {
+    if (bytes < budget() * 0.98) return false;
+    let farthest = -1;
+    for (const k of frames.keys()) farthest = Math.max(farthest, dist(k));
+    return farthest <= dist(f);
   }
 
   /** Next frame to render: first uncached frame at/after the playhead (wrapping). */
   function nextTarget(): number | null {
     const n = frameCount();
     const start = frameOf(opts.currentTime.value);
-    const limit = Math.min(n, capacity());
-    for (let i = 0; i < limit; i++) {
+    for (let i = 0; i < n; i++) {
       const f = (start + i) % n;
-      if (!frames.has(f)) return f;
+      if (!frames.has(f)) return wouldThrash(f) ? null : f;
     }
     return null;
   }
@@ -117,7 +131,12 @@ export function useFrameCache(opts: FrameCacheOptions) {
     const run = chain.then(async () => {
       if (gen !== generation) return false;
       if (frames.has(f)) return true;
-      await opts.renderAt(f / opts.fps());
+      try {
+        await opts.renderAt(f / opts.fps());
+      } catch (err) {
+        console.error("[frame cache] render failed", err);
+        return false;
+      }
       if (gen !== generation) return false;
       const canvas = opts.getCanvas();
       if (!canvas) return false;
@@ -127,7 +146,8 @@ export function useFrameCache(opts: FrameCacheOptions) {
         return false;
       }
       frames.set(f, bmp);
-      evict(frameOf(opts.currentTime.value));
+      bytes += sizeOf(bmp);
+      evict();
       if (frames.has(frameOf(opts.currentTime.value))) showing.value = true;
       version.value++;
       return true;
