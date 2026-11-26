@@ -33,10 +33,7 @@ type FrameCacheOptions = {
 };
 
 const IDLE_DELAY_MS = 400;
-/** While paused, only top up this far ahead of the playhead (no endless background burn). */
-const IDLE_AHEAD_SEC = 5;
-/** Playback buffers this far ahead (or to the end) before it (re)starts playing. */
-const PLAY_BUFFER_SEC = 3;
+
 
 export function useFrameCache(opts: FrameCacheOptions) {
   const frames = new Map<number, ImageBitmap>();
@@ -81,11 +78,7 @@ export function useFrameCache(opts: FrameCacheOptions) {
     return k;
   }
 
-  /** Enough is buffered to play smoothly: PLAY_BUFFER_SEC ahead, the whole loop, or a full cache. */
-  function readyToPlay(frame: number): boolean {
-    const want = Math.min(frameCount(), Math.ceil(PLAY_BUFFER_SEC * opts.fps()), capacity() - 1);
-    return bufferedFrom(frame) >= want;
-  }
+
 
   function get(frame: number): ImageBitmap | undefined {
     return frames.get(frame);
@@ -108,13 +101,44 @@ export function useFrameCache(opts: FrameCacheOptions) {
   function nextTarget(): number | null {
     const n = frameCount();
     const start = frameOf(opts.currentTime.value);
-    const ahead = opts.playing.value ? n : Math.ceil(IDLE_AHEAD_SEC * opts.fps());
-    const limit = Math.min(n, capacity(), ahead);
+    const limit = Math.min(n, capacity());
     for (let i = 0; i < limit; i++) {
       const f = (start + i) % n;
       if (!frames.has(f)) return f;
     }
     return null;
+  }
+
+  /** Serializes renders (worker and playback share the one canvas). */
+  let chain: Promise<unknown> = Promise.resolve();
+
+  /** Render frame `f` into the cache; false when invalidated meanwhile. */
+  function renderInto(f: number, gen = generation): Promise<boolean> {
+    const run = chain.then(async () => {
+      if (gen !== generation) return false;
+      if (frames.has(f)) return true;
+      await opts.renderAt(f / opts.fps());
+      if (gen !== generation) return false;
+      const canvas = opts.getCanvas();
+      if (!canvas) return false;
+      const bmp = await createImageBitmap(canvas);
+      if (gen !== generation) {
+        bmp.close();
+        return false;
+      }
+      frames.set(f, bmp);
+      evict(frameOf(opts.currentTime.value));
+      if (frames.has(frameOf(opts.currentTime.value))) showing.value = true;
+      version.value++;
+      return true;
+    });
+    chain = run.catch(() => false);
+    return run;
+  }
+
+  /** Make sure `frame` is cached (renders it now if needed). */
+  function ensure(frame: number): Promise<boolean> {
+    return frames.has(frame) ? Promise.resolve(true) : renderInto(frame);
   }
 
   async function work() {
@@ -125,27 +149,14 @@ export function useFrameCache(opts: FrameCacheOptions) {
       while (gen === generation) {
         const idleEnough = performance.now() - lastEditAt >= IDLE_DELAY_MS;
         if (!opts.playing.value && !idleEnough) break;
-        // Playing from cache: never render (a render blocks the main thread for
-        // 100 ms+ and starves playback). Only fill while playback is buffering.
-        if (opts.playing.value && !buffering.value) break;
+        // Playing: playback renders the frames it needs itself (ensure); a background
+        // render would block the main thread and starve the playback clock.
+        if (opts.playing.value) break;
         // Background tab: don't spin the fans for frames nobody is looking at.
         if (typeof document !== "undefined" && document.hidden) break;
         const f = nextTarget();
         if (f === null) break;
-        // The playhead's frame first, so the overlay can take over immediately.
-        await opts.renderAt(f / opts.fps());
-        if (gen !== generation) break;
-        const canvas = opts.getCanvas();
-        if (!canvas) break;
-        const bmp = await createImageBitmap(canvas);
-        if (gen !== generation) {
-          bmp.close();
-          break;
-        }
-        frames.set(f, bmp);
-        evict(frameOf(opts.currentTime.value));
-        if (frames.has(frameOf(opts.currentTime.value))) showing.value = true;
-        version.value++;
+        if (!(await renderInto(f, gen))) break;
         // Yield so playback ticks, input and the overlay get a turn.
         await new Promise((r) => setTimeout(r, 0));
       }
@@ -229,5 +240,5 @@ export function useFrameCache(opts: FrameCacheOptions) {
     return out;
   }
 
-  return { has, get, frameOf, readyToPlay, showing, buffering, version, ranges, clear, kick: () => void work() };
+  return { has, get, ensure, frameOf, frameCount, showing, buffering, version, ranges, clear, kick: () => void work() };
 }

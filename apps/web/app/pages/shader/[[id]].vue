@@ -342,6 +342,8 @@ provide("editorTime", currentTime);
 
 let playbackId: number | null = null;
 let lastPlaybackMs = 0;
+/** A playback-driven render of the next uncached frame is in flight. */
+let renderStepping = false;
 let playbackClock = 0;
 
 function playbackTick(now: number) {
@@ -352,31 +354,36 @@ function playbackTick(now: number) {
   playbackClock += delta;
   const fps = settings.value.fps;
   const step = 1 / fps;
-  let frame = Math.floor(playbackClock / step);
+  // Epsilon: frame·step/step must land back on the same frame (no back-step flicker).
+  let frame = Math.floor(playbackClock / step + 1e-6);
   const maxFrame = Math.floor(settings.value.duration * fps);
   if (frame >= maxFrame) {
     frame = 0;
     playbackClock = 0;
   }
 
-  // AE-style buffering: playback never renders while it plays (a render blocks
-  // the main thread and starves the clock). When the next frame isn't cached it
-  // holds, fills a buffer ahead at full speed, then plays from cache again.
+  // AE-style: cached frames play in real time; on uncached frames playback
+  // steps frame by frame as fast as they render (caching them), then returns
+  // to real time. Nothing else renders while playing.
   const fc = frameCache;
-  if (fc.buffering.value) {
-    playbackClock = currentTime.value;
-    if (fc.readyToPlay(fc.frameOf(currentTime.value))) {
-      fc.buffering.value = false;
-      lastPlaybackMs = 0; // restart the clock without a catch-up jump
-    }
-  } else if (fc.has(frame)) {
+  if (fc.has(frame)) {
+    fc.buffering.value = false;
     currentTime.value = frame * step;
   } else {
-    fc.buffering.value = true;
-    playbackClock = currentTime.value;
-    fc.kick();
+    playbackClock = currentTime.value; // hold the clock while this frame renders
+    if (!renderStepping) {
+      renderStepping = true;
+      fc.buffering.value = true;
+      const next = (fc.frameOf(currentTime.value) + 1) % fc.frameCount();
+      void fc.ensure(next).then(() => {
+        renderStepping = false;
+        if (!playing.value) return;
+        currentTime.value = next * step;
+        playbackClock = currentTime.value;
+        lastPlaybackMs = 0; // continue from here, no catch-up jump
+      });
+    }
   }
-
   playbackId = requestAnimationFrame(playbackTick);
 }
 
@@ -2277,7 +2284,7 @@ registerKeyboard({
               v-if="!previewing"
               class="absolute inset-x-0 bottom-0 flex h-[20px] items-center justify-end gap-[2px] border-t-2 border-[var(--s-frame)] bg-[var(--s-tile)] px-[2px]"
             >
-              <span v-if="playing && frameCache.buffering.value" class="mr-auto pl-[4px] text-[var(--s-dim)]">Buffering…</span>
+              <span v-if="playing && frameCache.buffering.value" class="mr-auto pl-[4px] text-[var(--s-dim)]">Rendering…</span>
               <div class="grid w-[78px]" title="Preview resolution">
                 <StudioSelect v-model="previewResolution" :options="PREVIEW_RES_OPTIONS" />
               </div>
