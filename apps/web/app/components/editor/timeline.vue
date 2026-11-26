@@ -35,7 +35,8 @@ import {
   ViewfinderCircleIcon,
   CursorArrowRaysIcon,
 } from "@heroicons/vue/16/solid";
-import { useEventListener } from "@vueuse/core";
+import { onClickOutside, useEventListener } from "@vueuse/core";
+import { newComment, type CompComment } from "#shared/editor/comments";
 import {
   EditorKeyboardPriority,
   useEditorKeyboard,
@@ -104,6 +105,65 @@ const MotionBlurIcon = () => h(UIcon, { name: "i-lucide-wind" });
 
 function toggleMotionBlur() {
   settings.motionBlur = !settings.motionBlur;
+  history?.record();
+}
+
+// --- Comments + markers (ruler pins) ---
+
+const showResolved = ref(false);
+const rulerPins = computed(() => {
+  // Pins at (nearly) the same time sit side by side instead of on top of each other.
+  const seen = new Map<number, number>();
+  return rulerPinList.value.map((p) => {
+    const k = Math.round(p.time * 100);
+    const n = seen.get(k) ?? 0;
+    seen.set(k, n + 1);
+    return { ...p, stack: n };
+  });
+});
+const rulerPinList = computed(() => [
+  ...(settings.markers ?? []).map((m, i) => ({ key: `m${i}`, kind: "marker" as const, time: m.time, label: m.name, resolved: false })),
+  ...(settings.comments ?? [])
+    .filter((c) => showResolved.value || !c.resolved)
+    .map((c) => ({ key: c.id, kind: "comment" as const, time: c.time, label: `${c.author ?? "?"}: ${c.text || "(empty)"}`, resolved: !!c.resolved })),
+]);
+/** Open comment popover: id + screen position under its pin. */
+const openComment = ref<{ id: string; x: number; y: number } | null>(null);
+const openCommentData = computed(() => (settings.comments ?? []).find((c) => c.id === openComment.value?.id) ?? null);
+const commentPopover = ref<HTMLElement | null>(null);
+onClickOutside(commentPopover, () => closeComment());
+
+function pinScreenPos(time: number) {
+  const el = rulerScrollRef.value;
+  const r = el?.getBoundingClientRect();
+  return { x: (r?.left ?? 0) + timeToX(time) - (el?.scrollLeft ?? 0), y: (r?.top ?? 0) + 18 };
+}
+function onPinClick(pin: { key: string; kind: "marker" | "comment"; time: number }) {
+  currentTime.value = pin.time;
+  if (pin.kind === "comment") openComment.value = { id: pin.key, ...pinScreenPos(pin.time) };
+}
+function addCommentAtPlayhead() {
+  const c = newComment(currentTime.value);
+  settings.comments = [...(settings.comments ?? []), c];
+  history?.record();
+  void nextTick(() => {
+    openComment.value = { id: c.id, ...pinScreenPos(c.time) };
+    void nextTick(() => commentPopover.value?.querySelector("textarea")?.focus());
+  });
+}
+function patchComment(id: string, patch: Partial<CompComment>) {
+  settings.comments = (settings.comments ?? []).map((c) => (c.id === id ? { ...c, ...patch } : c));
+  history?.record();
+}
+function closeComment() {
+  // Empty new comments disappear on close.
+  const c = openCommentData.value;
+  if (c && !c.text.trim()) settings.comments = (settings.comments ?? []).filter((x) => x.id !== c.id);
+  openComment.value = null;
+}
+function deleteComment(id: string) {
+  settings.comments = (settings.comments ?? []).filter((c) => c.id !== id);
+  openComment.value = null;
   history?.record();
 }
 
@@ -2614,6 +2674,19 @@ function selectAllLayers() {
             <StudioButton square :active="animatedOnly" aria-label="Animated properties only" title="Animated properties only (U)" @click="toggleAnimatedOnly">
               <StudioIcon :name="animatedOnly ? 'key-filled' : 'key'" />
             </StudioButton>
+            <StudioButton square aria-label="Add comment" title="Add comment at playhead" @click="addCommentAtPlayhead">
+              <StudioIcon name="comment" />
+            </StudioButton>
+            <StudioButton
+              v-if="settings.comments?.some((c) => c.resolved)"
+              square
+              :active="showResolved"
+              aria-label="Show resolved comments"
+              :title="showResolved ? 'Hide resolved comments' : 'Show resolved comments'"
+              @click="showResolved = !showResolved"
+            >
+              <StudioIcon name="check" />
+            </StudioButton>
             <StudioButton square :active="snapping" aria-label="Snapping" :title="snapping ? 'Snapping on (hold ⌥ to bypass)' : 'Snapping off'" @click="snapping = !snapping">
               <StudioIcon name="magnet" />
             </StudioButton>
@@ -2646,6 +2719,24 @@ function selectAllLayers() {
               class="pointer-events-none absolute bottom-0 z-[6] h-[2px] bg-[#5bd16b]"
               :style="{ left: `${timeToX(a)}px`, width: `${Math.max(1, timeToX(b) - timeToX(a))}px` }"
             />
+            <!-- Markers + comments: pins along the top of the ruler. -->
+            <button
+              v-for="pin in rulerPins"
+              :key="pin.key"
+              type="button"
+              class="absolute top-[2px] z-[7] flex h-[14px] max-w-[140px] -translate-x-[1px] cursor-default items-center gap-[3px] overflow-hidden pr-[4px] pl-[2px] whitespace-nowrap"
+              :class="[
+                pin.kind === 'marker' ? 'border-l border-[var(--s-accent)] text-[var(--s-accent)]' : 'border-l border-[#e8c54a] text-[#e8c54a]',
+                pin.resolved ? 'opacity-40' : '',
+              ]"
+              :style="{ left: `${timeToX(pin.time) + pin.stack * 16}px` }"
+              :title="pin.label"
+              @pointerdown.stop
+              @click.stop="onPinClick(pin)"
+            >
+              <StudioIcon v-if="pin.kind === 'comment'" name="comment" />
+              <span class="truncate">{{ pin.kind === "marker" ? pin.label : "" }}</span>
+            </button>
             <template v-for="mark in rulerMarks" :key="`${mark.kind}-${mark.time}`">
               <div
                 class="absolute top-0 flex h-full flex-col justify-end pb-0.5"
@@ -3362,6 +3453,43 @@ function selectAllLayers() {
         </div>
       </div>
     </div>
+    <!-- Comment popover (fixed: the ruler clips). -->
+    <Teleport to="body">
+      <div
+        v-if="openComment && openCommentData"
+        ref="commentPopover"
+        data-ui="studio"
+        class="fixed z-[200] flex w-[240px] flex-col gap-[4px] bg-[var(--s-tile)] p-[6px] text-[12px] font-medium shadow-[0_0_0_1px_var(--s-frame),0_8px_24px_rgb(0_0_0/0.5)]"
+        :style="{ left: `${Math.min(openComment.x, (typeof window !== 'undefined' ? window.innerWidth : 1e4) - 250)}px`, top: `${openComment.y}px` }"
+        @keydown.stop
+      >
+        <div class="flex items-center gap-[4px] text-[var(--s-dim)]">
+          <span class="flex-1 truncate tabular-nums">{{ openCommentData.author ?? "?" }} · {{ openCommentData.time.toFixed(2) }}s</span>
+          <StudioButton
+            variant="ghost"
+            square
+            :active="openCommentData.resolved"
+            :title="openCommentData.resolved ? 'Reopen' : 'Resolve'"
+            :aria-label="openCommentData.resolved ? 'Reopen' : 'Resolve'"
+            @click="patchComment(openCommentData.id, { resolved: !openCommentData.resolved })"
+          >
+            <StudioIcon name="check" />
+          </StudioButton>
+          <StudioButton variant="ghost" square title="Delete comment" aria-label="Delete comment" @click="deleteComment(openCommentData.id)">
+            <StudioIcon name="trash" />
+          </StudioButton>
+        </div>
+        <textarea
+          :value="openCommentData.text"
+          rows="3"
+          placeholder="Comment…"
+          class="resize-none bg-[var(--s-inset)] px-[6px] py-[4px] text-[var(--s-text)] shadow-[inset_0_0_0_1px_var(--s-edge)] outline-none focus:shadow-[inset_0_0_0_1px_var(--s-select)]"
+          @change="patchComment(openCommentData.id, { text: ($event.target as HTMLTextAreaElement).value })"
+          @keydown.enter.exact.prevent="patchComment(openCommentData.id, { text: ($event.target as HTMLTextAreaElement).value }); closeComment()"
+          @keydown.escape="closeComment()"
+        />
+      </div>
+    </Teleport>
   </div>
 </template>
 

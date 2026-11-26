@@ -40,6 +40,8 @@ export const STUDIO_ICONS = {
   // actions
   plus: { d: "M6 2v8M2 6h8" },
   minus: { d: "M2 6h8" },
+  comment: { d: "M1.5 2h9v6.5h-5l-2.5 2v-2h-1.5z" },
+  check: { d: "M2 6.5 4.5 9l5.5-6" },
   close: { d: "M2.5 2.5l7 7M9.5 2.5l-7 7" },
   search: { d: "M5 8.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM7.5 7.5l3 3" },
   magnet: { d: "M2.5 3.5v2.5a3.5 3.5 0 0 0 7 0V3.5M4.5 3.5v2.5a1.5 1.5 0 0 0 3 0V3.5", extra: [{ d: "M2 1h3v2.5H2zM7 1h3v2.5H7z", fill: true }] },

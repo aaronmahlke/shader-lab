@@ -45,6 +45,8 @@ export type CompositionSettings = {
   masterEffects?: { id: string; type: string; enabled?: boolean; params: Record<string, number>; source?: string }[];
   /** Named moments on the timeline ("drop", "payoff"); read by the events API. */
   markers?: { time: number; name: string }[];
+  /** Timestamped review comments (see the editor's comments helper). */
+  comments?: { id: string; time: number; text: string; author?: string; createdAt: string; resolved?: boolean; layerId?: string }[];
   /** Comp props: settings of inner layers that precomp layers can set per instance. */
   props?: import("../compiler/comp-props").CompProp[];
 };

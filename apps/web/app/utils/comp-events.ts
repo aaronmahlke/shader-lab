@@ -16,12 +16,13 @@ import { cuesForLayer } from "~/composables/use-stage-cues";
  *   - in / out: layer in and out points
  *   - cue: component cues (useStageCues), e.g. keystrokes
  *   - marker: comp markers (settings.markers)
+ *   - comment: open review comments (settings.comments; name = "author: text")
  * Nested comps are walked (props applied), their times shifted into the
  * root comp; every event names its layer path.
  */
 export type CompEvent = {
   time: number;
-  type: "motion" | "press" | "release" | "in" | "out" | "cue" | "marker";
+  type: "motion" | "press" | "release" | "in" | "out" | "cue" | "marker" | "comment";
   layer?: string;
   layerId?: string;
   name?: string;
@@ -88,6 +89,9 @@ function walk(
 
   for (const m of (config.settings as { markers?: { time: number; name: string }[] } | undefined)?.markers ?? []) {
     out.push({ time: offset + m.time, type: "marker", name: m.name, layer: path || undefined });
+  }
+  for (const c of config.settings?.comments ?? []) {
+    if (!c.resolved) out.push({ time: offset + c.time, type: "comment", name: `${c.author ?? "?"}: ${c.text}`, layer: path || undefined });
   }
 
   for (const layer of config.layers) {
