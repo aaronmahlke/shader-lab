@@ -743,7 +743,8 @@ const frameCache = useFrameCache({
   duration: () => settings.value.duration,
   signature: () => [
     layers.value, lfos.value, assignments.value, settings.value, tracks.value,
-    registryVersion.value, renderBufferSize.value, textEditingLayerId.value,
+    // Not the viewport size/zoom: cached frames just scale (resizing must not clear).
+    registryVersion.value, previewResolution.value, textEditingLayerId.value,
   ],
   getCanvas,
   renderAt: async (time: number) => {
@@ -779,11 +780,15 @@ watch(
     const c = cacheCanvasRef.value;
     const bmp = frameCache.get(frameCache.frameOf(currentTime.value));
     if (!c || !bmp) return;
+    // Frames cached at another size (zoom / resize since) are scaled to fit.
     if (c.width !== bmp.width || c.height !== bmp.height) {
       c.width = bmp.width;
       c.height = bmp.height;
     }
-    c.getContext("2d")?.drawImage(bmp, 0, 0);
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bmp, 0, 0, c.width, c.height);
   },
   { flush: "post" },
 );
