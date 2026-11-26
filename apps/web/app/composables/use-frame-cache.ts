@@ -33,6 +33,8 @@ type FrameCacheOptions = {
 };
 
 const IDLE_DELAY_MS = 400;
+/** While paused, only top up this far ahead of the playhead (no endless background burn). */
+const IDLE_AHEAD_SEC = 5;
 
 export function useFrameCache(opts: FrameCacheOptions) {
   const frames = new Map<number, ImageBitmap>();
@@ -90,7 +92,8 @@ export function useFrameCache(opts: FrameCacheOptions) {
   function nextTarget(): number | null {
     const n = frameCount();
     const start = frameOf(opts.currentTime.value);
-    const limit = Math.min(n, capacity());
+    const ahead = opts.playing.value ? n : Math.ceil(IDLE_AHEAD_SEC * opts.fps());
+    const limit = Math.min(n, capacity(), ahead);
     for (let i = 0; i < limit; i++) {
       const f = (start + i) % n;
       if (!frames.has(f)) return f;
@@ -106,6 +109,8 @@ export function useFrameCache(opts: FrameCacheOptions) {
       while (gen === generation) {
         const idleEnough = performance.now() - lastEditAt >= IDLE_DELAY_MS;
         if (!opts.playing.value && !idleEnough) break;
+        // Background tab: don't spin the fans for frames nobody is looking at.
+        if (typeof document !== "undefined" && document.hidden) break;
         const f = nextTarget();
         if (f === null) break;
         // The playhead's frame first, so the overlay can take over immediately.
@@ -165,8 +170,14 @@ export function useFrameCache(opts: FrameCacheOptions) {
     },
   );
 
+  const onVisibility = () => {
+    if (!document.hidden) scheduleIdle();
+  };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+
   onBeforeUnmount(() => {
     if (idleTimer) clearTimeout(idleTimer);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
     clear();
   });
 
