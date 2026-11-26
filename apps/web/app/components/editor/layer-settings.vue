@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { BUILT_IN_CURSORS, builtInCursor, cursorAnchor } from "#shared/editor/cursors";
 import type { LayerInstance, LayerTemplate, LayerUniformDef, ModulationAssignment, LFOSource, PropertyTrack } from "@shader-lab/core";
 import type { GradientStop, MeshPoint } from "@shader-lab/core";
 import {
@@ -161,6 +162,7 @@ function getModInfo(def: LayerUniformDef): { color: string; depth: number } | nu
 }
 
 const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
+const editorSettings = inject<Ref<{ width: number; height: number }> | null>("editorSettings", null);
 
 /** Animated amount (stopwatch on in the timeline): key the playhead instead of the static depth. */
 function onDepthUpdate(def: LayerUniformDef, depth: number) {
@@ -584,14 +586,43 @@ const pointerOptions = computed(() => [
     .filter((l) => l.type === "pointer")
     .map((l) => ({ label: l.name ?? "Pointer", value: l.id })),
 ]);
-const CURSOR_OPTIONS = [
-  { label: "Arrow", value: "/cursors/arrow.svg" },
-  { label: "Hand", value: "/cursors/hand.svg" },
-  { label: "Text", value: "/cursors/text.svg" },
-];
+const CURSOR_OPTIONS = BUILT_IN_CURSORS.map((c) => ({ label: c.label, value: c.src }));
 const isBuiltInCursor = computed(
   () => layer.type === "image" && typeof layer.values.src === "string" && layer.values.src.startsWith("/cursors/"),
 );
+/** Old (v1) cursors: centered art; show which one in the picker. */
+const cursorPickerValue = computed(() => {
+  const src = String(layer.values.src ?? "");
+  return builtInCursor(src)?.src ?? src.replace("/cursors/", "/cursors/v2/");
+});
+
+/**
+ * Switch the built-in cursor: real size, anchor on the new tip, and position
+ * (static + keys) shifted so the tip stays exactly where it was.
+ */
+function pickCursor(src: string) {
+  const next = builtInCursor(src);
+  if (!next) return;
+  const comp = editorSettings?.value ?? { width: 1920, height: 1080 };
+  const a = cursorAnchor(next, comp);
+  const oldX = Number(layer.values.layerAnchorX ?? 0.5);
+  const oldY = Number(layer.values.layerAnchorY ?? 0.5);
+  const dx = oldX - a.x;
+  const dy = oldY - a.y;
+  layer.values.src = next.src;
+  layer.values.layerScale = 100;
+  layer.values.layerAnchorX = a.x;
+  layer.values.layerAnchorY = a.y;
+  layer.values.layerPositionX = Number(layer.values.layerPositionX ?? 0) + dx;
+  layer.values.layerPositionY = Number(layer.values.layerPositionY ?? 0) + dy;
+  for (const t of editorTracks?.value ?? []) {
+    if (t.layerId !== layer.id) continue;
+    if (t.paramName === "layerPositionX") for (const k of t.keys) k.value += dx;
+    if (t.paramName === "layerPositionY") for (const k of t.keys) k.value += dy;
+    if (t.paramName === "layerScale") t.enabled = false;
+  }
+  history?.record();
+}
 
 const mediaFileInput = ref<HTMLInputElement | null>(null);
 const mediaUploading = ref(false);
@@ -928,10 +959,10 @@ function isUniformVisible(def: LayerUniformDef): boolean {
           </div>
           <UiSelect
             v-else-if="isBuiltInCursor && def.name === 'src'"
-            :model-value="layer.values.src as string"
+            :model-value="cursorPickerValue"
             :options="CURSOR_OPTIONS"
             label="Cursor"
-            @update:model-value="setText(def, layer.values, String($event))"
+            @update:model-value="pickCursor(String($event))"
           />
           <div
             v-else-if="isMediaLayer && def.name === 'src'"

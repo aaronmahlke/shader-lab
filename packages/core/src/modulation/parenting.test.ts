@@ -130,3 +130,27 @@ describe("attach to text end", () => {
     expect(setup([text, cursor], 1, tracks, measure)("cur", "layerPositionY", 0)).toBeCloseTo(0, 9);
   });
 });
+
+describe("pointer press feedback", () => {
+  it("shrinks the pointer's cursor graphic while pressed, eased over 0.1 s", async () => {
+    const { ModulationEngine } = await import("./engine");
+    const { createAnimatedModulationFn } = await import("../animation/create-modulation-fn");
+    const { buildLayerValues } = await import("../compiler/build-layer-values");
+    const layers: LayerInstance[] = [
+      { id: "cur", type: "image", enabled: true, parent: "ptr", values: { ...buildLayerValues("image"), layerScale: 10 } },
+      { id: "ptr", type: "pointer", enabled: true, values: buildLayerValues("pointer") },
+    ];
+    const tracks = [{ layerId: "ptr", paramName: "press", enabled: true, keys: [{ time: 0, value: 0, ease: "hold" as const }, { time: 1, value: 1, ease: "hold" as const }] }];
+    const at = (t: number) => {
+      const engine = new ModulationEngine();
+      engine.setConfig({ layers, lfos: [], assignments: [], tracks, settings: { duration: 5, fps: 60, width: 1000, height: 1000 } });
+      engine.sampleAt(t);
+      return createAnimatedModulationFn(t, tracks, engine)("cur", "layerScale", 10);
+    };
+    expect(at(0.5)).toBeCloseTo(10, 6);
+    expect(at(1.5)).toBeCloseTo(8.5, 6);
+    const mid = at(1.05);
+    expect(mid).toBeLessThan(10);
+    expect(mid).toBeGreaterThan(8.5);
+  });
+});

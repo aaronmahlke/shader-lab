@@ -379,6 +379,8 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     uniforms: [
       // 1 = button down. Hold keys give sharp clicks; ≥ 0.5 counts as pressed.
       { name: "press", type: "float", label: "Press", default: 0, min: 0, max: 1, step: 1 },
+      // The cursor graphic (child) shrinks to this while pressed, around its anchor (the tip).
+      { name: "pressScale", type: "float", label: "Press scale %", default: 85, min: 50, max: 100, step: 1, keyframeable: false },
     ],
   },
 

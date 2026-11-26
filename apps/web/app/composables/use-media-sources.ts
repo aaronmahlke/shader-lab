@@ -61,6 +61,11 @@ type SvgState = {
   canvas: HTMLCanvasElement;
   /** Raster px per display px (supersampling for scaled-up layers). Only grows. */
   density: number;
+  /**
+   * `<svg data-native-size="true">`: shown at its own size (cursors, icons) instead
+   * of filling the comp, so scale 100 % is real size and anchors stay local.
+   */
+  native?: boolean;
 };
 
 type MediaEntry = {
@@ -97,10 +102,11 @@ function isSvgSrc(src: string): boolean {
  * numbers (or px), else the viewBox. Browsers disagree on `naturalWidth` for
  * attribute-less SVGs, so this parse is the single source of truth.
  */
-function svgDocumentSize(text: string): { width: number; height: number } | null {
+function svgDocumentSize(text: string): { width: number; height: number; native: boolean } | null {
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const root = doc.documentElement;
   if (root.tagName.toLowerCase() !== "svg") return null;
+  const native = root.hasAttribute("data-native-size");
   const attrPx = (name: string): number | null => {
     const raw = root.getAttribute(name)?.trim();
     if (!raw || !/^\d*\.?\d+(px)?$/.test(raw)) return null;
@@ -109,10 +115,10 @@ function svgDocumentSize(text: string): { width: number; height: number } | null
   };
   const width = attrPx("width");
   const height = attrPx("height");
-  if (width !== null && height !== null) return { width, height };
+  if (width !== null && height !== null) return { width, height, native };
   const viewBox = root.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
   if (viewBox?.length === 4 && viewBox[2]! > 0 && viewBox[3]! > 0) {
-    return { width: viewBox[2]!, height: viewBox[3]! };
+    return { width: viewBox[2]!, height: viewBox[3]!, native };
   }
   return null;
 }
@@ -253,6 +259,10 @@ export function useMediaSources(options: MediaSourcesOptions) {
       if (entry.element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
       width = entry.element.videoWidth;
       height = entry.element.videoHeight;
+    } else if (entry.element instanceof HTMLCanvasElement && entry.svg?.native) {
+      // Native-size SVG: displayed at its declared size (raster may be denser).
+      width = entry.svg.width;
+      height = entry.svg.height;
     } else if (entry.element instanceof HTMLCanvasElement) {
       // SVG raster: already sized to the comp times a density factor.
       width = entry.element.width;
@@ -326,10 +336,11 @@ export function useMediaSources(options: MediaSourcesOptions) {
     if (!svg) return;
     const comp = options.compSize();
     if (!(comp.width > 0) || !(comp.height > 0)) return;
-    const fit = Math.min(comp.width / svg.width, comp.height / svg.height);
+    const fit = svg.native ? 1 : Math.min(comp.width / svg.width, comp.height / svg.height);
     const maxDensity = SVG_MAX_RASTER_DIM / Math.max(1, svg.width * fit, svg.height * fit);
     const density = Math.min(
-      Math.max(svg.density, svgTargetDensity(liveInstance(layerId)?.layer)),
+      // Native-size SVGs are tiny: rasterize dense so 4K exports stay crisp.
+      Math.max(svg.density, svgTargetDensity(liveInstance(layerId)?.layer), svg.native ? 4 : 0),
       Math.max(1, maxDensity),
     );
     const width = Math.max(1, Math.round(svg.width * fit * density));
@@ -347,7 +358,8 @@ export function useMediaSources(options: MediaSourcesOptions) {
     entry.element = svg.canvas;
     // The raster is the layer's natural size: extent math applies the same
     // mediaDisplayFit, so the density factor cancels and gizmos stay honest.
-    naturalSizes.set(layerId, { width, height });
+    // Native-size SVGs: their declared size is the display size at any density.
+    naturalSizes.set(layerId, svg.native ? { width: svg.width, height: svg.height } : { width, height });
     pushFrame(layerId, entry, render);
   }
 
@@ -369,6 +381,7 @@ export function useMediaSources(options: MediaSourcesOptions) {
           height: Math.max(1, size?.height ?? options.compSize().height),
           canvas: document.createElement("canvas"),
           density: 0,
+          native: !!size?.native,
         };
         rasterizeSvg(instance.key, entry);
       }).catch(() => {});
@@ -378,8 +391,8 @@ export function useMediaSources(options: MediaSourcesOptions) {
       img.src = "";
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-    let resolveSize: (size: { width: number; height: number } | null) => void;
-    const pendingSize = new Promise<{ width: number; height: number } | null>((resolve) => {
+    let resolveSize: (size: { width: number; height: number; native: boolean } | null) => void;
+    const pendingSize = new Promise<{ width: number; height: number; native: boolean } | null>((resolve) => {
       resolveSize = resolve;
     });
     void fetch(entry.src, { mode: "cors" })

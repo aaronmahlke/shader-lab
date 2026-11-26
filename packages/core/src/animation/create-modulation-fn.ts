@@ -95,12 +95,42 @@ export function createAnimatedModulationFn(
   const direct = now.direct;
   const world = now.world;
 
-  const timed: ModulationFn = !needsRouting
+  const routed: ModulationFn = !needsRouting
     ? direct
     : (layerId, paramName, baseValue) => {
         const layer = engine.getLayer(layerId);
         return layer ? world(layer, paramName, baseValue) : direct(layerId, paramName, baseValue);
       };
+
+  /**
+   * Pointer press feedback: a pointer's cursor graphic (its child) shrinks
+   * to Press scale while pressed. Press is usually hold keys (0/1), so it's
+   * smoothed over PRESS_EASE seconds (box filter → linear ramp, then
+   * smoothstep) for a quick, eased squeeze instead of a 1-frame pop.
+   */
+  const PRESS_EASE = 0.1;
+  const PRESS_SAMPLES = 6;
+  function pressFactor(pointer: LayerInstance): number {
+    const shrink = Number(pointer.values.pressScale ?? 85);
+    if (!Number.isFinite(shrink) || shrink >= 100) return 1;
+    const base = staticParamValue(pointer, "press");
+    let sum = 0;
+    for (let i = 0; i < PRESS_SAMPLES; i++) {
+      const t = time - (PRESS_EASE * i) / (PRESS_SAMPLES - 1);
+      sum += at(t).direct(pointer.id, "press", base) >= 0.5 ? 1 : 0;
+    }
+    const x = sum / PRESS_SAMPLES;
+    const eased = x * x * (3 - 2 * x);
+    return 1 - (1 - shrink / 100) * eased;
+  }
+
+  const timed: ModulationFn = (layerId, paramName, baseValue) => {
+    const value = routed(layerId, paramName, baseValue);
+    if (paramName !== "layerScale") return value;
+    const layer = engine.getLayer(layerId);
+    const parent = layer?.parent ? engine.getLayer(layer.parent) : undefined;
+    return parent?.type === "pointer" ? value * pressFactor(parent) : value;
+  };
 
   if (!engine.hasEffectors()) return timed;
 

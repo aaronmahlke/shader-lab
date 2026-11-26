@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
-  <!-- Hotspot (I-beam center) at the exact center: 48,48 -->
+  <!-- Legacy (v1): hotspot at the center, fills the comp. New layers use v2/. -->
   <g fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(48 48) scale(1.45) translate(-48 -48)">
-    <path id="b" d="M41.5 33 Q48 33 48 37 Q48 33 54.5 33 M48 37 V59 M41.5 63 Q48 63 48 59 Q48 63 54.5 63" stroke="#fff" stroke-width="4"/>
+    <path d="M41.5 33 Q48 33 48 37 Q48 33 54.5 33 M48 37 V59 M41.5 63 Q48 63 48 59 Q48 63 54.5 63" stroke="#fff" stroke-width="4"/>
     <path d="M41.5 33 Q48 33 48 37 Q48 33 54.5 33 M48 37 V59 M41.5 63 Q48 63 48 59 Q48 63 54.5 63" stroke="#000" stroke-width="1.7"/>
   </g>
 </svg>

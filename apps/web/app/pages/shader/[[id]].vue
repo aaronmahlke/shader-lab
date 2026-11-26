@@ -87,6 +87,7 @@ import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
 import { seekTimelinePointers } from "~/utils/timeline-pointer";
+import { BUILT_IN_CURSORS, cursorAnchor } from "#shared/editor/cursors";
 import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
 import {
   beginExportClock,
@@ -338,6 +339,7 @@ provide("lfoValues", lfoValues);
 // Modulator editors (LFO config) read/write keyframed params (mod:<id> tracks).
 provide("editorTracks", tracks);
 provide("editorLayers", layers);
+provide("editorSettings", settings);
 provide("editorProjectId", projectId);
 
 // Project-level components (`<project>/components/*.vue`): load with the
@@ -1019,8 +1021,11 @@ function addLayer(type: LayerType, overrides: Record<string, unknown> = {}) {
   layers.value.unshift({ id, type, enabled: true, values });
 
   if (type === "pointer") {
-    // Default cursor graphic (built-in arrow, hotspot at its center), parented
-    // so it follows the pointer; swap or delete it freely.
+    // Default cursor graphic (built-in arrow at real size), parented so it
+    // follows the pointer. Anchor on the tip: it scales (press) and rotates
+    // around where it points; positioned so the tip sits on the pointer.
+    const cursor = BUILT_IN_CURSORS[0]!;
+    const anchor = cursorAnchor(cursor, settings.value);
     const cursorId = createUniqueLayerId("image", layers.value, layerCounter);
     layers.value.unshift({
       id: cursorId,
@@ -1028,11 +1033,14 @@ function addLayer(type: LayerType, overrides: Record<string, unknown> = {}) {
       name: "Cursor",
       enabled: true,
       parent: id,
-      // SVGs fit the comp; scale so the 96 px cursor art shows at 96 comp px.
       values: {
         ...buildLayerValues("image"),
-        src: "/cursors/arrow.svg",
-        layerScale: Math.round((100 * 96 * 100) / Math.min(settings.value.width, settings.value.height)) / 100,
+        src: cursor.src,
+        layerScale: 100,
+        layerAnchorX: anchor.x,
+        layerAnchorY: anchor.y,
+        layerPositionX: 0.5 - anchor.x,
+        layerPositionY: 0.5 - anchor.y,
       },
     });
     // Components without a pointer follow this one right away.

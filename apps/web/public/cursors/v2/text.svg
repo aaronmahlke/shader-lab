@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" data-native-size="true" width="24" height="48" viewBox="0 0 24 48">
+  <!-- Hotspot (I-beam center) at 12,24 — see shared/editor/cursors.ts -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(12 24) scale(1.4) translate(-48 -48)">
+    <path d="M41.5 33 Q48 33 48 37 Q48 33 54.5 33 M48 37 V59 M41.5 63 Q48 63 48 59 Q48 63 54.5 63" stroke="#fff" stroke-width="4"/>
+    <path d="M41.5 33 Q48 33 48 37 Q48 33 54.5 33 M48 37 V59 M41.5 63 Q48 63 48 59 Q48 63 54.5 63" stroke="#000" stroke-width="1.7"/>
+  </g>
+</svg>

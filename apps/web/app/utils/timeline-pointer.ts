@@ -6,7 +6,7 @@ import { prepareStageStyles, stageHit, StagePointer } from "./stage-pointer";
  * Pointer layers → component hover / pressed state at a timeline time.
  *
  * Each component layer names a Pointer layer (`values.pointer`, same comp).
- * The pointer's world anchor (parents, keys, links included) is mapped into
+ * The hotspot (the pointer's cursor graphic's anchor, or the pointer's own) (parents, keys, links included) is mapped into
  * the component's layer UV and hit-tested against its mounted DOM; the hit
  * path gets `data-stage-hover` / `data-stage-active` (authored `:hover` /
  * `:active` rules are rewritten to match those) and a `stagepointerstate`
@@ -57,7 +57,11 @@ export function seekTimelinePointers(
       prepareStageStyles(); // only ever when some component follows a pointer
       styled = true;
     }
-    const tip = transformCenter(transform(pointer));
+    // Hotspot: the cursor graphic's anchor when the pointer has one (that's
+    // what you see and drag on the canvas), else the pointer itself. Child
+    // transforms are world values (parent included), so animating either works.
+    const graphic = layers.find((l) => l.parent === pointer.id && l.enabled && l.type !== "pointer");
+    const tip = transformCenter(transform(graphic ?? pointer));
     const uv = compToLayerUv(tip, transform(layer), frame.width / frame.height);
     let hit: Element | null = null;
     if (uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) {
