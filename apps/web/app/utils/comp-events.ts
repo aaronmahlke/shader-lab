@@ -64,9 +64,11 @@ function peakOf(f: (t: number) => number, a: number, b: number) {
   return best;
 }
 
-export function collectCompEvents(config: CompositionConfig, ctx: Ctx): CompEvent[] {
+export function collectCompEvents(config: CompositionConfig, ctx: Ctx & { prefix?: string; nested?: boolean }): CompEvent[] {
   const out: CompEvent[] = [];
-  walk(config, "", 0, "", new Set(), 0, ctx, out);
+  // prefix: stage id prefix of this comp (nested comps' cue lookups); nested:
+  // false = this comp's own events only (triggers read their own comp).
+  walk(config, ctx.prefix ?? "", 0, "", new Set(), ctx.nested === false ? 99 : 0, ctx, out);
   return out.sort((a, b) => a.time - b.time || a.type.localeCompare(b.type));
 }
 

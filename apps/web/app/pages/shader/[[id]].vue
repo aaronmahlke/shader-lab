@@ -539,6 +539,8 @@ const audioPlayback = useAudioPlayback({
   masterVolume: () => settings.value.masterVolume ?? 0,
   masterEffects: () => settings.value.masterEffects as AudioEffect[] | undefined,
   duration: () => settings.value.duration,
+  frame: () => settings.value,
+  settings: () => settings.value,
 });
 
 // Project comp list, shared with the project panel, the comp tab strip and
@@ -803,7 +805,7 @@ const shaderExport = {
     componentCapture.resume();
     mediaSources.resume();
   },
-  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined),
+  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value }),
   getCanvas,
   configureRenderer,
   restoreRenderer,
@@ -909,7 +911,7 @@ async function renderComp(opts: { scale?: number; fps?: number; format?: "auto" 
   const fps = opts.fps ?? settings.value.fps;
   const duration = settings.value.duration;
   if (opts.audioOnly) {
-    const mix = await renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined);
+    const mix = await renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value });
     if (!mix) return { ok: false, error: "This comp has no audio layers" };
     const meta = {
       app: "shader-lab", kind: "audio", projectId: projectId.value, compId: shaderId.value, compName: shaderName.value,

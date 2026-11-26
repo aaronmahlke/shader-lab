@@ -1,6 +1,8 @@
 import { computed, onBeforeUnmount, shallowRef, watch, type Ref } from "vue";
 import type { AudioEffect } from "#shared/editor/audio-effects";
 import { buildFxChain, duckCurve, type DuckCurves, type FxAutomation } from "~/utils/audio-fx";
+import { triggerHits } from "~/utils/audio-triggers";
+import { stageCuesVersion } from "~/composables/use-stage-cues";
 import { applyCompProps, evaluatePropertyTrack, type CompositionConfig, type LayerInstance, type PropertyTrack } from "@shader-lab/core";
 
 /**
@@ -111,6 +113,25 @@ export type AudioEntry = {
   from: number;
   to: number;
   hosts: AudioHost[];
+  /** Comp time where the source's 0 plays. */
+  start: number;
+  /** Mixer strip (trigger hits share their layer's strip). */
+  strip: string;
+  /** Source override (trigger round-robin). */
+  src: string;
+  /** Playback rate (pitch); 1 = as recorded. */
+  rate: number;
+  /** Extra gain for this voice (trigger jitter). */
+  gainDb: number;
+  /** Fade the voice out to silence by this comp time (trigger fit-to-move). */
+  fadeOutAt?: number;
+};
+
+/** What trigger expansion needs (anchors read decoded buffers). */
+export type AudioEnv = {
+  frame: { width: number; height: number };
+  buffers: (src: string) => AudioBuffer | null;
+  settings?: CompositionConfig["settings"];
 };
 
 type Resolve = ((compId: string) => CompositionConfig | null | undefined) | undefined;
@@ -125,6 +146,7 @@ export function collectAudio(
   visited: ReadonlySet<string> = new Set(),
   depth = 0,
   hosts: AudioHost[] = [],
+  env?: AudioEnv,
 ): AudioEntry[] {
   const out: AudioEntry[] = [];
   for (const layer of layers) {
@@ -134,7 +156,28 @@ export function collectAudio(
     const from = Math.max(win[0], layer.timing?.in != null ? a : -Infinity);
     const to = Math.min(win[1], b);
     if (layer.type === "audio" && typeof layer.values.src === "string" && layer.values.src) {
-      if (to > from) out.push({ key: `${prefix}${layer.id}`, layer, tracks, offset, from: Math.max(from, a), to, hosts });
+      const key = `${prefix}${layer.id}`;
+      if (layer.trigger && env && resolve) {
+        // One voice per picture event (press, motion peak, cue…), anchored.
+        const hits = triggerHits(layer, { layers, tracks, settings: env.settings }, { prefix, resolveComposition: resolve, frame: env.frame, buffers: env.buffers });
+        hits.forEach((h, i) => {
+          const start = offset + h.start;
+          const buf = env.buffers(h.src);
+          const natural = buf ? start + buf.duration / h.rate : Infinity;
+          const hitTo = Math.min(win[1], b, natural, h.fadeOutAt != null ? offset + h.fadeOutAt + 0.02 : Infinity);
+          const hitFrom = Math.max(win[0], start);
+          if (hitTo > hitFrom) {
+            out.push({
+              key: `${key}#${i}`, strip: key, layer, tracks, offset, from: hitFrom, to: hitTo, hosts, start,
+              src: h.src, rate: h.rate, gainDb: h.gainDb, fadeOutAt: h.fadeOutAt != null ? offset + h.fadeOutAt : undefined,
+            });
+          }
+        });
+        continue;
+      }
+      if (to > from) {
+        out.push({ key, strip: key, layer, tracks, offset, from: Math.max(from, a), to, hosts, start: a, src: layer.values.src, rate: 1, gainDb: 0 });
+      }
       continue;
     }
     if (layer.type !== "composition" || depth >= 4 || !resolve) continue;
@@ -145,7 +188,7 @@ export function collectAudio(
     const cfg = applyCompProps(nested, layer);
     const host: AudioHost = { key: `${prefix}${layer.id}`, layer, tracks, offset };
     out.push(
-      ...collectAudio(cfg.layers, cfg.tracks ?? [], resolve, `${prefix}${layer.id}::`, a, [from, to], new Set([...visited, compId]), depth + 1, [...hosts, host]),
+      ...collectAudio(cfg.layers, cfg.tracks ?? [], resolve, `${prefix}${layer.id}::`, a, [from, to], new Set([...visited, compId]), depth + 1, [...hosts, host], env ? { ...env, settings: cfg.settings } : undefined),
     );
   }
   return out;
@@ -189,9 +232,9 @@ function duckCurvesFor(entries: readonly AudioEntry[], mix: MixSettings, buffers
   const owners: { prefix: string; effects?: AudioEffect[] }[] = [{ prefix: "", effects: mix.masterEffects }];
   const seen = new Set<string>();
   for (const e of entries) {
-    const p = e.key.slice(0, e.key.length - e.layer.id.length);
-    if (!seen.has(e.key)) owners.push({ prefix: p, effects: e.layer.audioEffects as AudioEffect[] | undefined });
-    seen.add(e.key);
+    const p = e.strip.slice(0, e.strip.length - e.layer.id.length);
+    if (!seen.has(e.strip)) owners.push({ prefix: p, effects: e.layer.audioEffects as AudioEffect[] | undefined });
+    seen.add(e.strip);
     for (const h of e.hosts) {
       if (seen.has(h.key)) continue;
       seen.add(h.key);
@@ -203,8 +246,8 @@ function duckCurvesFor(entries: readonly AudioEntry[], mix: MixSettings, buffers
       if (fx.type !== "duck" || fx.enabled === false || !fx.source) continue;
       const src = `${o.prefix}${fx.source}`;
       const triggers = entries
-        .filter((t) => t.key === src || t.key.startsWith(`${src}::`))
-        .map((t) => ({ buffer: buffers(t.layer.values.src as string), start: t.offset + (t.layer.timing?.in ?? 0), from: t.from, to: t.to }))
+        .filter((t) => t.strip === src || t.strip.startsWith(`${src}::`))
+        .map((t) => ({ buffer: buffers(t.src), start: t.start, from: t.from, to: t.to }))
         .filter((t): t is { buffer: AudioBuffer; start: number; from: number; to: number } => !!t.buffer);
       if (!triggers.length) continue;
       const par = (n: string, d: number) => fx.params[n] ?? d;
@@ -250,12 +293,28 @@ function buildGraph(ctx: BaseAudioContext, entries: readonly AudioEntry[], mix: 
     // Outer → inner: each group's input feeds the level above it.
     let parent: AudioNode = sum;
     for (const h of e.hosts) parent = strip(h.key, parent, h).pan;
-    return strip(e.key, parent, e);
+    return strip(e.strip, parent, e);
   };
   // Every strip up front: their effect automations must exist before the
   // caller schedules them (they used to appear lazily, after scheduling).
   for (const e of entries) inputFor(e);
   return { master, masterMeter, strips, inputFor, autos };
+}
+
+/**
+ * Per-voice gain: trigger jitter + fades. `at(compTime)` maps comp time to
+ * the context's clock (live: offset from now; offline: comp time itself).
+ */
+function voiceGain(ctx: BaseAudioContext, e: AudioEntry, at: (compTime: number) => number): GainNode {
+  const g = ctx.createGain();
+  const level = dbToGain(e.gainDb);
+  g.gain.setValueAtTime(level, Math.max(0, at(e.from)));
+  if (e.fadeOutAt != null) {
+    const end = at(e.fadeOutAt);
+    g.gain.setValueAtTime(level, Math.max(0, end - 0.06));
+    g.gain.linearRampToValueAtTime(0, Math.max(0, end));
+  }
+  return g;
 }
 
 type Voice = { source: AudioBufferSourceNode; entry: AudioEntry };
@@ -272,6 +331,10 @@ export function useAudioPlayback(opts: {
   masterEffects?: () => AudioEffect[] | undefined;
   /** Comp length (duck curves span it). */
   duration?: () => number;
+  /** Comp size (motion speeds for trigger events). */
+  frame?: () => { width: number; height: number };
+  /** Comp settings (markers for trigger events). */
+  settings?: () => CompositionConfig["settings"];
 }) {
   let voices: Voice[] = [];
   let graph: ReturnType<typeof buildGraph> | null = null;
@@ -280,9 +343,17 @@ export function useAudioPlayback(opts: {
   let anchorCtx = 0;
   let missing = false; // a layer's buffer wasn't decoded yet when we started
 
+  /** Bumps when a decode finishes (trigger anchors need buffers). */
+  const decodedVersion = shallowRef(0);
   const entries = computed(() => {
     void opts.registryVersion?.value;
-    return collectAudio(opts.layers.value, opts.tracks.value, opts.resolveComposition);
+    void decodedVersion.value;
+    void stageCuesVersion.value;
+    return collectAudio(opts.layers.value, opts.tracks.value, opts.resolveComposition, "", 0, [-Infinity, Infinity], new Set(), 0, [], {
+      frame: opts.frame?.() ?? { width: 1920, height: 1080 },
+      buffers: (src) => ready.get(src) ?? null,
+      settings: opts.settings?.(),
+    });
   });
 
   /** Peak level per strip key (+ "master") in dB while playing; -Infinity when silent. */
@@ -309,8 +380,15 @@ export function useAudioPlayback(opts: {
 
   // Decode ahead so pressing play is instant.
   watch(
-    () => entries.value.map((e) => e.layer.values.src as string),
-    (srcs) => srcs.forEach((s) => bufferNow(s)),
+    () => [
+      ...new Set(
+        opts.layers.value.flatMap((l) => (l.type === "audio" ? [l.values.src as string, ...(((l.trigger as { alternates?: string[] } | undefined)?.alternates) ?? [])] : [])).concat(entries.value.map((e) => e.src)),
+      ),
+    ].filter(Boolean),
+    (srcs) =>
+      srcs.forEach((s) => {
+        if (!ready.has(s)) void decodeAudio(s).then((b) => b && (ready.set(s, b), decodedVersion.value++));
+      }),
     { immediate: true },
   );
 
@@ -377,7 +455,7 @@ export function useAudioPlayback(opts: {
     };
     graph = buildGraph(ctx, entries.value, mix, duckCurvesFor(entries.value, mix, bufferNow));
     for (const entry of entries.value) {
-      const buffer = bufferNow(entry.layer.values.src as string);
+      const buffer = bufferNow(entry.src);
       if (!buffer) {
         missing = true;
         continue;
@@ -385,13 +463,15 @@ export function useAudioPlayback(opts: {
       const input = graph.inputFor(entry);
       if (t >= entry.to) continue;
       const begin = Math.max(t, entry.from);
-      // Source time: the sound starts at its layer's in point.
-      const srcAt = begin - (entry.offset + (entry.layer.timing?.in ?? 0));
+      // Source time (buffer seconds) at `begin`.
+      const srcAt = (begin - entry.start) * entry.rate;
       if (srcAt >= buffer.duration) continue;
       const when = now + (begin - t);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      source.connect(input.pan);
+      source.playbackRate.value = entry.rate;
+      const vg = voiceGain(ctx, entry, (ct) => when + (ct - begin));
+      source.connect(vg).connect(input.pan);
       source.start(when, Math.max(0, srcAt));
       if (Number.isFinite(entry.to)) source.stop(when + (entry.to - begin));
       voices.push({ source, entry });
@@ -413,7 +493,7 @@ export function useAudioPlayback(opts: {
     const ctx = audioContext();
     const expected = anchorT + (ctx.currentTime - anchorCtx);
     const drift = Math.abs(expected - t);
-    if (!graph || drift > 0.12 || (missing && entries.value.every((e) => bufferNow(e.layer.values.src as string)))) {
+    if (!graph || drift > 0.12 || (missing && entries.value.every((e) => bufferNow(e.src)))) {
       stop();
       start(t);
       return;
@@ -424,7 +504,7 @@ export function useAudioPlayback(opts: {
   // Sound edits while playing (src, timing, nested changes): rebuild the voices.
   watch(
     () =>
-      entries.value.map((e) => `${e.key}:${e.layer.values.src}:${e.from}:${e.to}:${JSON.stringify(e.layer.audioEffects ?? null)}:${JSON.stringify(e.hosts.map((h) => h.layer.audioEffects ?? null))}`).join("|") +
+      entries.value.map((e) => `${e.key}:${e.src}:${e.from}:${e.to}:${JSON.stringify(e.layer.audioEffects ?? null)}:${JSON.stringify(e.hosts.map((h) => h.layer.audioEffects ?? null))}`).join("|") +
       JSON.stringify(opts.masterEffects?.() ?? null),
     () => {
       if (graph) stop();
@@ -450,17 +530,24 @@ export async function renderAudioMix(
   resolveComposition?: (compId: string) => CompositionConfig | null | undefined,
   masterVolume = 0,
   masterEffects?: AudioEffect[],
+  extra: { frame?: { width: number; height: number }; settings?: CompositionConfig["settings"] } = {},
   sampleRate = 48000,
 ): Promise<AudioBuffer | null> {
-  const list = collectAudio(layers, tracks, resolveComposition);
+  const { frame, settings } = extra;
+  // Decode every source first (trigger anchors + duck curves read them).
+  const decodedBufs = new Map<string, AudioBuffer | null>();
+  const decodeAll = async (srcs: string[]) => {
+    for (const src of srcs) if (src && !decodedBufs.has(src)) decodedBufs.set(src, await decodeAudio(src));
+  };
+  const allSrcs = (ls: readonly LayerInstance[]) =>
+    ls.flatMap((l) => (l.type === "audio" ? [l.values.src as string, ...(((l.trigger as { alternates?: string[] } | undefined)?.alternates) ?? [])] : []));
+  await decodeAll(allSrcs(layers));
+  const env: AudioEnv = { frame: frame ?? { width: 1920, height: 1080 }, buffers: (src) => decodedBufs.get(src) ?? null, settings };
+  let list = collectAudio(layers, tracks, resolveComposition, "", 0, [-Infinity, Infinity], new Set(), 0, [], env);
+  await decodeAll(list.map((e) => e.src));
+  list = collectAudio(layers, tracks, resolveComposition, "", 0, [-Infinity, Infinity], new Set(), 0, [], env);
   if (!list.length || duration <= 0) return null;
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
-  // Decode everything first (duck curves read the trigger sounds).
-  const decodedBufs = new Map<string, AudioBuffer | null>();
-  for (const e of list) {
-    const src = e.layer.values.src as string;
-    if (!decodedBufs.has(src)) decodedBufs.set(src, await decodeAudio(src));
-  }
   const mix: MixSettings = { masterVolume, masterEffects, rootTracks: tracks, duration };
   const graph = buildGraph(ctx, list, mix, duckCurvesFor(list, mix, (src) => decodedBufs.get(src) ?? null));
   for (const a of graph.autos) {
@@ -476,12 +563,12 @@ export async function renderAudioMix(
   let any = false;
   const doneHosts = new Set<string>();
   for (const e of list) {
-    const buffer = decodedBufs.get(e.layer.values.src as string) ?? null;
+    const buffer = decodedBufs.get(e.src) ?? null;
     if (!buffer) continue;
     const from = Math.max(0, e.from);
     const to = Math.min(e.to, duration);
     if (to <= from) continue;
-    const srcAt = from - (e.offset + (e.layer.timing?.in ?? 0));
+    const srcAt = (from - e.start) * e.rate;
     if (srcAt >= buffer.duration) continue;
     const st = graph.inputFor(e);
     const on = audible(e, solo);
@@ -496,7 +583,8 @@ export async function renderAudioMix(
     }
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(st.pan);
+    source.playbackRate.value = e.rate;
+    source.connect(voiceGain(ctx, e, (ct) => ct)).connect(st.pan);
     source.start(from, Math.max(0, srcAt));
     source.stop(to);
     any = true;

@@ -79,6 +79,8 @@ export type LayerInstance = {
    * audio-effects definitions. Params automate via `fx:<id>:<param>` tracks.
    */
   audioEffects?: { id: string; type: string; enabled?: boolean; params: Record<string, number>; source?: string }[];
+  /** Audio layers: play once per picture event (see the editor's audio-triggers). */
+  trigger?: { on: string; [key: string]: unknown };
   /** Mixer: silence this layer's sound (audio layers, precomp buses) without hiding it. */
   audioMuted?: boolean;
   /** Mixer: solo — when any layer is soloed, only soloed sounds (and their groups) play. */
