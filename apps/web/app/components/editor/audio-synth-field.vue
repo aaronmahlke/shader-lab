@@ -9,7 +9,8 @@ const history = useEditorHistory();
 const src = computed(() => (typeof props.layer.values.src === "string" ? props.layer.values.src : ""));
 const patch = computed(() => (isSynthSrc(src.value) ? parseSynth(src.value) : null));
 const presetOptions = [
-  { value: "", label: isSynthSrc(src.value) ? "Load preset…" : "Generate from preset…" },
+  // reka-ui Select items can't have an empty value: "none" is the placeholder.
+  { value: "none", label: isSynthSrc(src.value) ? "Load preset…" : "Generate from preset…" },
   ...Object.keys(SYNTH_PRESETS).map((k) => ({ value: k, label: k })),
 ];
 
@@ -51,7 +52,7 @@ function applyDraft() {
 
 <template>
   <EditorInspectorSection title="Synth">
-    <UiSelect :model-value="''" :options="presetOptions" @update:model-value="$event && loadPreset($event as string)" />
+    <UiSelect model-value="none" :options="presetOptions" @update:model-value="$event !== 'none' && loadPreset($event as string)" />
     <template v-if="patch">
       <textarea
         v-model="draft"
