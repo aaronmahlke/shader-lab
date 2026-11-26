@@ -2702,8 +2702,8 @@ function selectAllLayers() {
               >
                 <div
                   data-drag-handle
-                  class="relative flex w-full cursor-default items-start gap-0.5 border-b border-[var(--s-frame)] px-1 pt-[5px] select-none"
-                  :style="{ height: `${rowHeight(layer)}px` }"
+                  class="relative flex w-full cursor-default items-center gap-0.5 border-b border-[var(--s-frame)] px-1 select-none"
+                  :style="{ height: `${rowHeight(layer)}px`, paddingBottom: `${rowHeight(layer) - LAYER_ROW_H}px` }"
                   :data-layer-id="layer.id"
                   :class="pickWhip && pickWhipTargetId === layer.id && 'ring-1 ring-inset ring-[var(--s-select)]'"
                   :title="layer.type === 'composition' ? 'Double-click to open the composition' : undefined"
