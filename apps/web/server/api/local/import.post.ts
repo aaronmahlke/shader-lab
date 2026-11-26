@@ -45,9 +45,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Not a Shader Lab project" });
   }
 
-  // Name: the zipped folder, else the zip's file name, else the manifest.
+  // Name: the zip's file name (what you picked), else the zipped folder, else the manifest.
   const zippedFolder = prefix.replace(/\/$/, "").split("/").pop();
-  const folderName = (zippedFolder || file.filename?.replace(/\.zip$/i, "") || manifest.name || "Imported").replace(/[/\\:]/g, "-");
+  const folderName = (file.filename?.replace(/\.zip$/i, "") || zippedFolder || manifest.name || "Imported").replace(/[/\\:]/g, "-");
   const base = join(defaultProjectsDir(), folderName);
   let folder = base;
   for (let i = 2; existsSync(folder); i++) folder = `${base} ${i}`;
