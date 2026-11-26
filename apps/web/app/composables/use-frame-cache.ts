@@ -302,9 +302,13 @@ export function useFrameCache(opts: FrameCacheOptions) {
         if (typeof document !== "undefined" && document.hidden) break;
         const f = nextTarget();
         if (f === null) break;
+        const started = performance.now();
         if (!(await renderInto(f, gen))) break;
-        // Yield so playback ticks, input and the overlay get a turn.
-        await new Promise((r) => setTimeout(r, 0));
+        // Gentle on the machine: rest as long as the frame took (~50 % duty),
+        // 3× that when the window isn't focused (you're in another app).
+        const took = performance.now() - started;
+        const focused = typeof document === "undefined" || document.hasFocus();
+        await new Promise((r) => setTimeout(r, Math.min(1000, took * (focused ? 1 : 3))));
       }
     } finally {
       working = false;
