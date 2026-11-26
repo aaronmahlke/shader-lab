@@ -35,6 +35,8 @@ type FrameCacheOptions = {
 const IDLE_DELAY_MS = 400;
 /** While paused, only top up this far ahead of the playhead (no endless background burn). */
 const IDLE_AHEAD_SEC = 5;
+/** Playback buffers this far ahead (or to the end) before it (re)starts playing. */
+const PLAY_BUFFER_SEC = 3;
 
 export function useFrameCache(opts: FrameCacheOptions) {
   const frames = new Map<number, ImageBitmap>();
@@ -69,6 +71,20 @@ export function useFrameCache(opts: FrameCacheOptions) {
 
   function has(frame: number) {
     return frames.has(frame);
+  }
+
+  /** Consecutive cached frames from `frame` on (wrapping at the end). */
+  function bufferedFrom(frame: number): number {
+    const n = frameCount();
+    let k = 0;
+    while (k < n && frames.has((frame + k) % n)) k++;
+    return k;
+  }
+
+  /** Enough is buffered to play smoothly: PLAY_BUFFER_SEC ahead, the whole loop, or a full cache. */
+  function readyToPlay(frame: number): boolean {
+    const want = Math.min(frameCount(), Math.ceil(PLAY_BUFFER_SEC * opts.fps()), capacity() - 1);
+    return bufferedFrom(frame) >= want;
   }
 
   function get(frame: number): ImageBitmap | undefined {
@@ -109,6 +125,9 @@ export function useFrameCache(opts: FrameCacheOptions) {
       while (gen === generation) {
         const idleEnough = performance.now() - lastEditAt >= IDLE_DELAY_MS;
         if (!opts.playing.value && !idleEnough) break;
+        // Playing from cache: never render (a render blocks the main thread for
+        // 100 ms+ and starves playback). Only fill while playback is buffering.
+        if (opts.playing.value && !buffering.value) break;
         // Background tab: don't spin the fans for frames nobody is looking at.
         if (typeof document !== "undefined" && document.hidden) break;
         const f = nextTarget();
@@ -210,5 +229,5 @@ export function useFrameCache(opts: FrameCacheOptions) {
     return out;
   }
 
-  return { has, get, frameOf, showing, buffering, version, ranges, clear, kick: () => void work() };
+  return { has, get, frameOf, readyToPlay, showing, buffering, version, ranges, clear, kick: () => void work() };
 }

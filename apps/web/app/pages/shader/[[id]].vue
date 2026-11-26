@@ -359,15 +359,22 @@ function playbackTick(now: number) {
     playbackClock = 0;
   }
 
-  // Buffering: only step onto frames the cache already has; otherwise hold here
-  // (the clock too) until the worker renders it — smooth instead of stuttering.
-  if (frameCache.has(frame)) {
-    frameCache.buffering.value = false;
+  // AE-style buffering: playback never renders while it plays (a render blocks
+  // the main thread and starves the clock). When the next frame isn't cached it
+  // holds, fills a buffer ahead at full speed, then plays from cache again.
+  const fc = frameCache;
+  if (fc.buffering.value) {
+    playbackClock = currentTime.value;
+    if (fc.readyToPlay(fc.frameOf(currentTime.value))) {
+      fc.buffering.value = false;
+      lastPlaybackMs = 0; // restart the clock without a catch-up jump
+    }
+  } else if (fc.has(frame)) {
     currentTime.value = frame * step;
   } else {
-    frameCache.buffering.value = true;
+    fc.buffering.value = true;
     playbackClock = currentTime.value;
-    frameCache.kick();
+    fc.kick();
   }
 
   playbackId = requestAnimationFrame(playbackTick);
@@ -2270,6 +2277,7 @@ registerKeyboard({
               v-if="!previewing"
               class="absolute inset-x-0 bottom-0 flex h-[20px] items-center justify-end gap-[2px] border-t-2 border-[var(--s-frame)] bg-[var(--s-tile)] px-[2px]"
             >
+              <span v-if="playing && frameCache.buffering.value" class="mr-auto pl-[4px] text-[var(--s-dim)]">Buffering…</span>
               <div class="grid w-[78px]" title="Preview resolution">
                 <StudioSelect v-model="previewResolution" :options="PREVIEW_RES_OPTIONS" />
               </div>
