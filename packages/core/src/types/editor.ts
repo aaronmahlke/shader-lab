@@ -10,6 +10,7 @@ export type LayerType =
   | "image"
   | "video"
   | "audio"
+  | "pointer"
   | "camera"
   | "shape"
   | "waveFill"

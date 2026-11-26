@@ -341,6 +341,8 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         step: 1,
         keyframeable: false,
       },
+      // Pointer layer (same comp) that drives :hover / :active in this component.
+      { name: "pointer", type: "text", label: "Pointer", default: "", keyframeable: false },
       {
         // Capture pixels per CSS px. Raise it when the layer is scaled up a lot
         // (zoomed-in UI) so text stays sharp; costs texture memory.
@@ -366,6 +368,17 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
       { name: "src", type: "text", label: "Source", default: "", keyframeable: false },
       // AE-style audio level in dB (0 = as recorded); keyframe it for fades.
       { name: "volume", type: "float", label: "Volume (dB)", default: 0, min: -48, max: 12, step: 0.1 },
+    ],
+  },
+
+  pointer: {
+    type: "pointer",
+    label: "Pointer",
+    category: "generator",
+    description: "A mouse for UI demos: component layers set to follow it show hover / pressed states (renders nothing; parent a cursor graphic to it)",
+    uniforms: [
+      // 1 = button down. Hold keys give sharp clicks; ≥ 0.5 counts as pressed.
+      { name: "press", type: "float", label: "Press", default: 0, min: 0, max: 1, step: 1 },
     ],
   },
 

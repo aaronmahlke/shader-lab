@@ -123,7 +123,7 @@ const ALWAYS_3D = new Set<LayerInstance["type"]>(["object3d", "light", "effector
 
 /** Layers that never render or join a 3D group (they act on other layers). */
 export function isControlLayer(layer: Pick<LayerInstance, "type">): boolean {
-  return layer.type === "effector" || layer.type === "audio";
+  return layer.type === "effector" || layer.type === "audio" || layer.type === "pointer";
 }
 
 /** Layers with no picture at all (no transform, appearance or 3D switch). */
@@ -133,7 +133,7 @@ export function isAudioLayer(layer: Pick<LayerInstance, "type">): boolean {
 
 /** True when the layer type supports the 3D SWITCH (generators; always-3D types excluded). */
 export function supports3D(layer: Pick<LayerInstance, "type">): boolean {
-  return LAYER_TEMPLATES[layer.type]?.category === "generator" && !ALWAYS_3D.has(layer.type) && layer.type !== "audio";
+  return LAYER_TEMPLATES[layer.type]?.category === "generator" && !ALWAYS_3D.has(layer.type) && layer.type !== "audio" && layer.type !== "pointer";
 }
 
 /** True when the layer renders as a 3D group member. */

@@ -576,6 +576,23 @@ const mediaKind = computed<MediaUploadKind>(() =>
 /** Audio layers have no picture: no Transform / Appearance sections. */
 const isAudio = computed(() => layer.type === "audio");
 
+// Pointer: components pick one (same comp); cursor images pick a built-in graphic.
+const NO_POINTER = "__none";
+const pointerOptions = computed(() => [
+  { label: "None", value: NO_POINTER },
+  ...(editorLayers?.value ?? [])
+    .filter((l) => l.type === "pointer")
+    .map((l) => ({ label: l.name ?? "Pointer", value: l.id })),
+]);
+const CURSOR_OPTIONS = [
+  { label: "Arrow", value: "/cursors/arrow.svg" },
+  { label: "Hand", value: "/cursors/hand.svg" },
+  { label: "Text", value: "/cursors/text.svg" },
+];
+const isBuiltInCursor = computed(
+  () => layer.type === "image" && typeof layer.values.src === "string" && layer.values.src.startsWith("/cursors/"),
+);
+
 const mediaFileInput = ref<HTMLInputElement | null>(null);
 const mediaUploading = ref(false);
 const mediaUploadError = ref("");
@@ -802,7 +819,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
       </template>
     </EditorInspectorSection>
 
-    <EditorInspectorSection v-if="!isAudio" title="Appearance">
+    <EditorInspectorSection v-if="!isAudio && layer.type !== 'pointer'" title="Appearance">
       <template #actions>
         <UiButton
           variant="ghost"
@@ -873,6 +890,13 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             @update:model-value="layer.values[def.name] = $event"
           />
           <UiSelect
+            v-else-if="layer.type === 'component' && def.name === 'pointer'"
+            :model-value="(layer.values.pointer as string) || NO_POINTER"
+            :options="pointerOptions"
+            :label="def.label"
+            @update:model-value="setText(def, layer.values, $event === NO_POINTER ? '' : String($event))"
+          />
+          <UiSelect
             v-else-if="layer.type === 'component' && def.name === 'componentName'"
             :model-value="getText(def, layer.values)"
             :options="componentPickerOptions"
@@ -902,6 +926,13 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               @click="openReferencedComposition"
             />
           </div>
+          <UiSelect
+            v-else-if="isBuiltInCursor && def.name === 'src'"
+            :model-value="layer.values.src as string"
+            :options="CURSOR_OPTIONS"
+            label="Cursor"
+            @update:model-value="setText(def, layer.values, String($event))"
+          />
           <div
             v-else-if="isMediaLayer && def.name === 'src'"
             class="flex flex-col gap-1"

@@ -1,3 +1,5 @@
+import { stageStylesRevision } from "./stage-pointer";
+
 /**
  * Adapted from evlog's Render labs (apps/lab/app/utils/lab/dom-texture.ts),
  * MIT (c) Hugo Richard - https://github.com/HugoRCD/evlog
@@ -282,15 +284,19 @@ async function inlineNodes(
 let stylePromise: Promise<string> | null = null;
 let encodedStyle: string | null = null;
 let styleSheetCount = -1;
+let styleRevision = -1;
 const imageCache = new Map<string, string | null>();
 
 function styles(): Promise<string> {
-  if (stylePromise && document.styleSheets.length !== styleSheetCount) {
+  // Pointer hover rules rewritten since the last collect: re-collect.
+  const revision = stageStylesRevision();
+  if (stylePromise && (revision !== styleRevision || document.styleSheets.length !== styleSheetCount)) {
     stylePromise = null;
     encodedStyle = null;
     imageCache.clear();
   }
   if (!stylePromise) {
+    styleRevision = revision;
     styleSheetCount = document.styleSheets.length;
     stylePromise = collectCss().then(inlineFonts);
   }

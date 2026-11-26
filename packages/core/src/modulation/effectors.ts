@@ -40,7 +40,7 @@ export const EFFECTOR_PARAMS = new Set([
 
 /** Layers effectors never touch. */
 function isImmune(layer: Pick<LayerInstance, "type">): boolean {
-  return layer.type === "effector" || layer.type === "camera" || layer.type === "audio";
+  return layer.type === "effector" || layer.type === "camera" || layer.type === "audio" || layer.type === "pointer";
 }
 
 /** 1 inside `inner`, 0 beyond `outer`, linear or smoothstep in between. */

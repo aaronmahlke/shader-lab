@@ -61,7 +61,7 @@ export function clonerSourceIds(cloner: LayerInstance, byId: Map<string, LayerIn
   return raw.filter((id): id is string => {
     if (typeof id !== "string" || id === cloner.id) return false;
     const layer = byId.get(id);
-    return !!layer && layer.type !== "cloner" && layer.type !== "effector" && layer.type !== "camera" && layer.type !== "audio";
+    return !!layer && layer.type !== "cloner" && layer.type !== "effector" && layer.type !== "camera" && layer.type !== "audio" && layer.type !== "pointer";
   });
 }
 

@@ -86,6 +86,7 @@ import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
+import { seekTimelinePointers } from "~/utils/timeline-pointer";
 import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
 import {
   beginExportClock,
@@ -614,8 +615,21 @@ const stagedComponents = computed(() => {
 });
 const stagedComponentLayers = computed(() => stagedComponents.value.map((c) => c.layer));
 
+/** Pointer layers drive hover / pressed in the components that follow them (this comp). */
+function samplePointers(time = currentTime.value) {
+  if (!layers.value.some((l) => l.type === "pointer")) return;
+  seekTimelinePointers(
+    layers.value,
+    time,
+    settings.value,
+    (id) => stageHostRef.value?.getElement(id) ?? null,
+    time === currentTime.value ? getModulatedValue : modFnAt(time),
+  );
+}
+
 const componentCapture = useComponentCapture({
   layers: stagedComponentLayers,
+  samplePointer: samplePointers,
   isActive: (layerId, time) => {
     const t = time ?? currentTime.value;
     const entry = stagedComponents.value.find((c) => c.layer.id === layerId);
@@ -738,7 +752,9 @@ const shaderExport = {
     currentTime.value = time;
     // 1. Seek sequences to the frame time (fires their due events).
     seekStageToCompTime(time);
-    // 2. Let Vue flush the resulting DOM changes so new CSS transitions exist.
+    // 2. Pointer hover/press for this frame, then let Vue flush the resulting
+    //    DOM changes so new CSS transitions exist (and get stepped below).
+    samplePointers(time);
     await nextTick();
     // 3. Freeze + step all stage animations by exactly one frame. The first
     //    frame instead cancels animations inherited from the live preview so
@@ -752,7 +768,7 @@ const shaderExport = {
     // 4. Seek every video layer to the exact frame time (awaits `seeked`).
     await mediaSources.syncForExport(time);
     // 5. Capture the DOM in that exact state and render.
-    await componentCapture.captureAll();
+    await componentCapture.captureAll(time);
     renderFrame(time);
   },
 };
@@ -1001,6 +1017,30 @@ function addLayer(type: LayerType, overrides: Record<string, unknown> = {}) {
   }
 
   layers.value.unshift({ id, type, enabled: true, values });
+
+  if (type === "pointer") {
+    // Default cursor graphic (built-in arrow, hotspot at its center), parented
+    // so it follows the pointer; swap or delete it freely.
+    const cursorId = createUniqueLayerId("image", layers.value, layerCounter);
+    layers.value.unshift({
+      id: cursorId,
+      type: "image",
+      name: "Cursor",
+      enabled: true,
+      parent: id,
+      // SVGs fit the comp; scale so the 96 px cursor art shows at 96 comp px.
+      values: {
+        ...buildLayerValues("image"),
+        src: "/cursors/arrow.svg",
+        layerScale: Math.round((100 * 96 * 100) / Math.min(settings.value.width, settings.value.height)) / 100,
+      },
+    });
+    // Components without a pointer follow this one right away.
+    for (const l of layers.value) {
+      if (l.type === "component" && !l.values.pointer) l.values.pointer = id;
+    }
+  }
+
   selectedLayerId.value = id;
   selectedLayerIds.value = new Set([id]);
   selectionAnchorId.value = id;

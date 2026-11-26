@@ -1,3 +1,4 @@
+import { nextTick } from "vue";
 import type { ComponentSourceInput, LayerInstance } from "@shader-lab/core";
 import { componentCaptureScaleFromValues, componentNameFromValues } from "@shader-lab/core";
 import { DomCaptureSession } from "~/utils/dom-capture";
@@ -17,6 +18,8 @@ const CAPTURE_MIN_INTERVAL_MS = 33;
 
 type ComponentCaptureOptions = {
   layers: Ref<LayerInstance[]>;
+  /** Apply pointer hover/press to the staged DOM for a time (live: now). */
+  samplePointer?: (time?: number) => void;
   /** Laid-out stage element per layer (null while mounting). */
   getElement: (layerId: string) => HTMLElement | null;
   setComponentSource: (layerId: string, source: ComponentSourceInput | null) => void;
@@ -99,6 +102,7 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
   function tick(): void {
     rafId = requestAnimationFrame(tick);
     if (paused) return;
+    options.samplePointer?.();
     const now = performance.now();
     for (const layer of componentLayers()) {
       if (options.isActive && !options.isActive(layer.id)) continue;
@@ -117,6 +121,10 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
   async function captureAll(time?: number): Promise<void> {
     const layers = componentLayers().filter((l) => !options.isActive || options.isActive(l.id, time));
     await Promise.all(layers.map((layer) => pending.get(layer.id) ?? Promise.resolve(false)));
+    if (options.samplePointer) {
+      options.samplePointer(time);
+      await nextTick(); // let JS-driven (stagepointerstate) visuals re-render
+    }
     await Promise.all(layers.map((layer) => captureLayer(layer)));
   }
 
