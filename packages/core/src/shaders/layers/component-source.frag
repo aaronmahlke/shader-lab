@@ -34,11 +34,15 @@ void main() {
   vec2 aa = u_window.zw / u_contentSize;
   vec2 inside = smoothstep(vec2(0.0), aa, uv) * smoothstep(vec2(0.0), aa, 1.0 - uv);
   float coverage = inside.x * inside.y;
+
+  // Sample BEFORE any early-out: mip level selection uses screen-space
+  // derivatives across 2x2 pixel quads, which are undefined in divergent
+  // control flow. Sampling inside the branch picked garbage LODs along the
+  // rect edge — a faint 1 px line (the whole texture's average) at its border.
+  vec4 content = texture2D(u_layerTexture, clamp(vec2(uv.x, 1.0 - uv.y), 0.0, 1.0));
   if (coverage <= 0.0) {
     gl_FragColor = vec4(0.0);
     return;
   }
-
-  vec4 content = texture2D(u_layerTexture, vec2(uv.x, 1.0 - uv.y));
   gl_FragColor = vec4(content.rgb, content.a * coverage);
 }

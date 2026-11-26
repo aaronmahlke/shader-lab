@@ -46,11 +46,6 @@ void main() {
   vec2 aa = u_window.zw / displayedSize;
   vec2 inside = smoothstep(vec2(0.0), aa, uv) * smoothstep(vec2(0.0), aa, 1.0 - uv);
   float coverage = inside.x * inside.y;
-  if (coverage <= 0.0) {
-    gl_FragColor = vec4(0.0);
-    return;
-  }
-
   // Remap into the kept texture window [cropLeft .. 1-cropRight] ×
   // [cropTop .. 1-cropBottom]. The texture is stored top-down (v = 0 is the
   // media's top row) while uv.y is y-up, so v runs from 1-cropBottom at the
@@ -58,6 +53,12 @@ void main() {
   float u = mix(cropLeft, 1.0 - cropRight, uv.x);
   float v = mix(1.0 - cropBottom, cropTop, uv.y);
 
-  vec4 content = texture2D(u_layerTexture, vec2(u, v));
+  // Sampled in uniform control flow (see component-source.frag): an early-out
+  // before the fetch broke mip selection along the rect edge (1 px line).
+  vec4 content = texture2D(u_layerTexture, clamp(vec2(u, v), 0.0, 1.0));
+  if (coverage <= 0.0) {
+    gl_FragColor = vec4(0.0);
+    return;
+  }
   gl_FragColor = vec4(content.rgb, content.a * coverage);
 }
