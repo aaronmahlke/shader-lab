@@ -32,6 +32,8 @@ export type CompositionSettings = {
   shutterAngle?: number;
   /** Sub-frame renders per frame (cost multiplier). */
   motionBlurSamples?: number;
+  /** Master bus level in dB (mixer). */
+  masterVolume?: number;
   /** Named moments on the timeline ("drop", "payoff"); read by the events API. */
   markers?: { time: number; name: string }[];
   /** Comp props: settings of inner layers that precomp layers can set per instance. */

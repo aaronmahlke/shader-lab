@@ -85,11 +85,21 @@ export function audioLayersOf(layers: readonly LayerInstance[]): LayerInstance[]
   return layers.filter((l) => l.type === "audio" && l.enabled && typeof l.values.src === "string" && l.values.src);
 }
 
+/** A precomp a sound sits in (its group bus), outermost first. */
+export type AudioHost = {
+  key: string;
+  layer: LayerInstance;
+  /** The comp the host layer lives in: its tracks + where that comp's 0 is. */
+  tracks: readonly PropertyTrack[];
+  offset: number;
+};
+
 /**
  * One sound to play: an audio layer of the open comp or of a nested comp.
  * `offset` = comp time where its comp's 0 is (sum of host in points);
  * [from, to) = when it's audible in comp time (its own in/out, cut to every
- * host precomp's window). Volume keys are read on the sound's own comp clock.
+ * host precomp's window). Volume / pan keys are read on the sound's own comp
+ * clock; `hosts` are its group buses (precomps).
  */
 export type AudioEntry = {
   key: string;
@@ -98,6 +108,7 @@ export type AudioEntry = {
   offset: number;
   from: number;
   to: number;
+  hosts: AudioHost[];
 };
 
 type Resolve = ((compId: string) => CompositionConfig | null | undefined) | undefined;
@@ -111,6 +122,7 @@ export function collectAudio(
   win: [number, number] = [-Infinity, Infinity],
   visited: ReadonlySet<string> = new Set(),
   depth = 0,
+  hosts: AudioHost[] = [],
 ): AudioEntry[] {
   const out: AudioEntry[] = [];
   for (const layer of layers) {
@@ -120,7 +132,7 @@ export function collectAudio(
     const from = Math.max(win[0], layer.timing?.in != null ? a : -Infinity);
     const to = Math.min(win[1], b);
     if (layer.type === "audio" && typeof layer.values.src === "string" && layer.values.src) {
-      if (to > from) out.push({ key: `${prefix}${layer.id}`, layer, tracks, offset, from: Math.max(from, a), to });
+      if (to > from) out.push({ key: `${prefix}${layer.id}`, layer, tracks, offset, from: Math.max(from, a), to, hosts });
       continue;
     }
     if (layer.type !== "composition" || depth >= 4 || !resolve) continue;
@@ -129,22 +141,70 @@ export function collectAudio(
     const nested = resolve(compId);
     if (!nested) continue;
     const cfg = applyCompProps(nested, layer);
+    const host: AudioHost = { key: `${prefix}${layer.id}`, layer, tracks, offset };
     out.push(
-      ...collectAudio(cfg.layers, cfg.tracks ?? [], resolve, `${prefix}${layer.id}::`, a, [from, to], new Set([...visited, compId]), depth + 1),
+      ...collectAudio(cfg.layers, cfg.tracks ?? [], resolve, `${prefix}${layer.id}::`, a, [from, to], new Set([...visited, compId]), depth + 1, [...hosts, host]),
     );
   }
   return out;
 }
 
-/** Linear gain at time `t` on the layer's own comp clock (Volume is in dB, keyframeable). */
-function gainAt(layer: LayerInstance, tracks: readonly PropertyTrack[], t: number): number {
-  const base = typeof layer.values.volume === "number" ? layer.values.volume : 0;
-  const track = tracks.find((tr) => tr.layerId === layer.id && tr.paramName === "volume");
-  const db = track?.enabled ? evaluatePropertyTrack(track, t, base) : base;
-  return db <= -48 ? 0 : Math.pow(10, db / 20);
+/** A param at time `t` on the layer's own comp clock (keys or static value). */
+function paramAt(layer: LayerInstance, tracks: readonly PropertyTrack[], name: string, t: number, fallback: number): number {
+  const base = typeof layer.values[name] === "number" ? (layer.values[name] as number) : fallback;
+  const track = tracks.find((tr) => tr.layerId === layer.id && tr.paramName === name);
+  return track?.enabled ? evaluatePropertyTrack(track, t, base) : base;
+}
+const dbToGain = (db: number) => (db <= -48 ? 0 : Math.pow(10, db / 20));
+const hasKeys = (layer: LayerInstance, tracks: readonly PropertyTrack[], name: string) =>
+  tracks.some((tr) => tr.layerId === layer.id && tr.paramName === name && tr.enabled && tr.keys.length > 0);
+
+/** Mute / solo (Ableton rules): solo anywhere → only soloed sounds or groups play. */
+function audible(e: AudioEntry, anySolo: boolean): boolean {
+  if (e.layer.audioMuted || e.hosts.some((h) => h.layer.audioMuted)) return false;
+  if (!anySolo) return true;
+  return !!e.layer.audioSolo || e.hosts.some((h) => h.layer.audioSolo);
+}
+const anySoloIn = (entries: readonly AudioEntry[]) => entries.some((e) => e.layer.audioSolo || e.hosts.some((h) => h.layer.audioSolo));
+
+type Strip = { gain: GainNode; pan: StereoPannerNode; meter: AnalyserNode };
+
+/**
+ * The mix graph: sound → pan → fader → its precomp buses (pan, fader) →
+ * master → out. Same graph for live playback and the offline export mix.
+ */
+function buildGraph(ctx: BaseAudioContext, entries: readonly AudioEntry[], masterDb: number) {
+  const master = ctx.createGain();
+  master.gain.value = dbToGain(masterDb);
+  const masterMeter = ctx.createAnalyser();
+  masterMeter.fftSize = 1024;
+  master.connect(masterMeter);
+  masterMeter.connect(ctx.destination);
+  const strips = new Map<string, Strip>();
+  const strip = (key: string, to: AudioNode): Strip => {
+    let st = strips.get(key);
+    if (!st) {
+      const pan = ctx.createStereoPanner();
+      const gain = ctx.createGain();
+      const meter = ctx.createAnalyser();
+      meter.fftSize = 1024;
+      pan.connect(gain).connect(meter).connect(to);
+      st = { gain, pan, meter };
+      strips.set(key, st);
+    }
+    return st;
+  };
+  /** Input node for a sound: its strip, routed through its group buses. */
+  const inputFor = (e: AudioEntry): Strip => {
+    // Outer → inner: each group's input feeds the level above it.
+    let parent: AudioNode = master;
+    for (const h of e.hosts) parent = strip(h.key, parent).pan;
+    return strip(e.key, parent);
+  };
+  return { master, masterMeter, strips, inputFor };
 }
 
-type Voice = { source: AudioBufferSourceNode; gain: GainNode; entry: AudioEntry };
+type Voice = { source: AudioBufferSourceNode; entry: AudioEntry };
 
 export function useAudioPlayback(opts: {
   layers: Ref<LayerInstance[]>;
@@ -152,8 +212,11 @@ export function useAudioPlayback(opts: {
   resolveComposition?: (compId: string) => CompositionConfig | null | undefined;
   /** Bumps when nested comps load/change (re-collects sounds). */
   registryVersion?: Ref<number>;
+  /** Master level in dB (comp settings). */
+  masterVolume?: () => number;
 }) {
   let voices: Voice[] = [];
+  let graph: ReturnType<typeof buildGraph> | null = null;
   /** Comp time ↔ context time anchor of the running voices. */
   let anchorT = 0;
   let anchorCtx = 0;
@@ -163,6 +226,28 @@ export function useAudioPlayback(opts: {
     void opts.registryVersion?.value;
     return collectAudio(opts.layers.value, opts.tracks.value, opts.resolveComposition);
   });
+
+  /** Peak level per strip key (+ "master") in dB while playing; -Infinity when silent. */
+  const meters = shallowRef<Record<string, number>>({});
+  let meterRaf: number | null = null;
+  const scratch = new Float32Array(1024);
+  const peakDb = (a: AnalyserNode) => {
+    a.getFloatTimeDomainData(scratch);
+    let m = 0;
+    for (let i = 0; i < scratch.length; i++) m = Math.max(m, Math.abs(scratch[i]!));
+    return m > 0 ? 20 * Math.log10(m) : -Infinity;
+  };
+  function meterLoop() {
+    meterRaf = null;
+    if (!graph) {
+      meters.value = {};
+      return;
+    }
+    const next: Record<string, number> = { master: peakDb(graph.masterMeter) };
+    for (const [k, st] of graph.strips) next[k] = peakDb(st.meter);
+    meters.value = next;
+    meterRaf = requestAnimationFrame(meterLoop);
+  }
 
   // Decode ahead so pressing play is instant.
   watch(
@@ -177,9 +262,44 @@ export function useAudioPlayback(opts: {
         v.source.stop();
       } catch {}
       v.source.disconnect();
-      v.gain.disconnect();
     }
     voices = [];
+    if (graph) {
+      graph.master.disconnect();
+      graph.masterMeter.disconnect();
+      for (const st of graph.strips.values()) {
+        st.pan.disconnect();
+        st.gain.disconnect();
+        st.meter.disconnect();
+      }
+    }
+    graph = null;
+    meters.value = {};
+  }
+
+  /** Set every fader / pan for comp time `t` (smoothly while playing). */
+  function applyLevels(t: number, smooth: boolean) {
+    if (!graph) return;
+    const ctx = audioContext();
+    const set = (p: AudioParam, v: number) => (smooth ? p.setTargetAtTime(v, ctx.currentTime, 0.015) : (p.value = v));
+    set(graph.master.gain, dbToGain(opts.masterVolume?.() ?? 0));
+    const solo = anySoloIn(entries.value);
+    const seenHosts = new Set<string>();
+    for (const e of entries.value) {
+      const st = graph.strips.get(e.key);
+      if (st) {
+        set(st.gain, audible(e, solo) ? dbToGain(paramAt(e.layer, e.tracks, "volume", t - e.offset, 0)) : 0);
+        set(st.pan.pan, paramAt(e.layer, e.tracks, "pan", t - e.offset, 0));
+      }
+      for (const h of e.hosts) {
+        if (seenHosts.has(h.key)) continue;
+        seenHosts.add(h.key);
+        const hs = graph.strips.get(h.key);
+        if (!hs) continue;
+        set(hs.gain, dbToGain(paramAt(h.layer, h.tracks, "audioVolume", t - h.offset, 0)));
+        set(hs.pan.pan, paramAt(h.layer, h.tracks, "audioPan", t - h.offset, 0));
+      }
+    }
   }
 
   function start(t: number) {
@@ -189,12 +309,14 @@ export function useAudioPlayback(opts: {
     anchorT = t;
     anchorCtx = now;
     missing = false;
+    graph = buildGraph(ctx, entries.value, opts.masterVolume?.() ?? 0);
     for (const entry of entries.value) {
       const buffer = bufferNow(entry.layer.values.src as string);
       if (!buffer) {
         missing = true;
         continue;
       }
+      const input = graph.inputFor(entry);
       if (t >= entry.to) continue;
       const begin = Math.max(t, entry.from);
       // Source time: the sound starts at its layer's in point.
@@ -203,19 +325,19 @@ export function useAudioPlayback(opts: {
       const when = now + (begin - t);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
-      const gain = ctx.createGain();
-      gain.gain.value = gainAt(entry.layer, entry.tracks, begin - entry.offset);
-      source.connect(gain).connect(ctx.destination);
+      source.connect(input.pan);
       source.start(when, Math.max(0, srcAt));
       if (Number.isFinite(entry.to)) source.stop(when + (entry.to - begin));
-      voices.push({ source, gain, entry });
+      voices.push({ source, entry });
     }
+    applyLevels(t, false);
+    if (meterRaf === null) meterRaf = requestAnimationFrame(meterLoop);
   }
 
   /**
    * Call every playback tick. `realtime`: frames are coming at real speed
-   * (cached). Restarts on drift (seek, loop wrap, stepping) and keeps gains
-   * following the Volume keys.
+   * (cached). Restarts on drift (seek, loop wrap, stepping) and keeps faders
+   * and pans following their keys.
    */
   function tick(t: number, realtime: boolean) {
     if (!realtime) {
@@ -225,30 +347,32 @@ export function useAudioPlayback(opts: {
     const ctx = audioContext();
     const expected = anchorT + (ctx.currentTime - anchorCtx);
     const drift = Math.abs(expected - t);
-    if (voices.length === 0 || drift > 0.12 || (missing && entries.value.every((e) => bufferNow(e.layer.values.src as string)))) {
+    if (!graph || drift > 0.12 || (missing && entries.value.every((e) => bufferNow(e.layer.values.src as string)))) {
       stop();
       start(t);
       return;
     }
-    for (const v of voices) {
-      v.gain.gain.setTargetAtTime(gainAt(v.entry.layer, v.entry.tracks, t - v.entry.offset), ctx.currentTime, 0.015);
-    }
+    applyLevels(t, true);
   }
 
-  // Sound edits while playing (mute, new src, timing, nested changes): rebuild the voices.
+  // Sound edits while playing (src, timing, nested changes): rebuild the voices.
   watch(
     () => entries.value.map((e) => `${e.key}:${e.layer.values.src}:${e.from}:${e.to}`).join("|"),
     () => {
-      if (voices.length) stop();
+      if (graph) stop();
     },
   );
 
-  onBeforeUnmount(stop);
-  return { tick, stop };
+  onBeforeUnmount(() => {
+    stop();
+    if (meterRaf !== null) cancelAnimationFrame(meterRaf);
+  });
+  return { tick, stop, meters, entries };
 }
 
 /**
- * Offline mix of every sound (open comp + nested comps) for export (stereo,
+ * Offline mix of every sound (open comp + nested comps) through the same
+ * graph (faders, pans, buses, mute/solo, master) for export (stereo,
  * 48 kHz), or null when the comp has no sound.
  */
 export async function renderAudioMix(
@@ -256,12 +380,21 @@ export async function renderAudioMix(
   tracks: readonly PropertyTrack[],
   duration: number,
   resolveComposition?: (compId: string) => CompositionConfig | null | undefined,
+  masterVolume = 0,
   sampleRate = 48000,
 ): Promise<AudioBuffer | null> {
   const list = collectAudio(layers, tracks, resolveComposition);
   if (!list.length || duration <= 0) return null;
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
+  const graph = buildGraph(ctx, list, masterVolume);
+  const solo = anySoloIn(list);
+  /** Static value, or automation sampled at 100 Hz over [from, to]. */
+  const automate = (p: AudioParam, f: (t: number) => number, keyed: boolean, from: number, to: number) => {
+    p.setValueAtTime(f(from), 0);
+    if (keyed) for (let t = from; t <= to; t += 0.01) p.linearRampToValueAtTime(f(t), t);
+  };
   let any = false;
+  const doneHosts = new Set<string>();
   for (const e of list) {
     const buffer = await decodeAudio(e.layer.values.src as string);
     if (!buffer) continue;
@@ -270,16 +403,20 @@ export async function renderAudioMix(
     if (to <= from) continue;
     const srcAt = from - (e.offset + (e.layer.timing?.in ?? 0));
     if (srcAt >= buffer.duration) continue;
+    const st = graph.inputFor(e);
+    const on = audible(e, solo);
+    automate(st.gain.gain, (t) => (on ? dbToGain(paramAt(e.layer, e.tracks, "volume", t - e.offset, 0)) : 0), hasKeys(e.layer, e.tracks, "volume"), from, to);
+    automate(st.pan.pan, (t) => paramAt(e.layer, e.tracks, "pan", t - e.offset, 0), hasKeys(e.layer, e.tracks, "pan"), from, to);
+    for (const h of e.hosts) {
+      if (doneHosts.has(h.key)) continue;
+      doneHosts.add(h.key);
+      const hs = graph.strips.get(h.key)!;
+      automate(hs.gain.gain, (t) => dbToGain(paramAt(h.layer, h.tracks, "audioVolume", t - h.offset, 0)), hasKeys(h.layer, h.tracks, "audioVolume"), 0, duration);
+      automate(hs.pan.pan, (t) => paramAt(h.layer, h.tracks, "audioPan", t - h.offset, 0), hasKeys(h.layer, h.tracks, "audioPan"), 0, duration);
+    }
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    const gain = ctx.createGain();
-    // Volume automation sampled at 100 Hz (exact for static levels).
-    const hasKeys = e.tracks.some((tr) => tr.layerId === e.layer.id && tr.paramName === "volume" && tr.enabled);
-    gain.gain.setValueAtTime(gainAt(e.layer, e.tracks, from - e.offset), from);
-    if (hasKeys) {
-      for (let t = from; t <= to; t += 0.01) gain.gain.linearRampToValueAtTime(gainAt(e.layer, e.tracks, t - e.offset), t);
-    }
-    source.connect(gain).connect(ctx.destination);
+    source.connect(st.pan);
     source.start(from, Math.max(0, srcAt));
     source.stop(to);
     any = true;

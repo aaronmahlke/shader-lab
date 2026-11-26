@@ -74,6 +74,10 @@ export type LayerInstance = {
   parentPoint?: string;
   /** Set on virtual cloner copies only (never persisted). */
   clone?: CloneInfo;
+  /** Mixer: silence this layer's sound (audio layers, precomp buses) without hiding it. */
+  audioMuted?: boolean;
+  /** Mixer: solo — when any layer is soloed, only soloed sounds (and their groups) play. */
+  audioSolo?: boolean;
   /** Motion blur for this layer (comp switch on): unset = on, false = off. */
   motionBlur?: boolean;
   /** Timeline track height in px (UI only; taller rows show waveforms bigger). */

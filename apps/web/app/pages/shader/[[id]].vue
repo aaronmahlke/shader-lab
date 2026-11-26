@@ -515,8 +515,28 @@ const { registry, registryVersion, resolveComposition } = useCompRegistry({
   projectId,
   layers,
 });
+/** Mixer panel above the timeline (remembered). */
+const MIXER_KEY = "shaderlab.mixerOpen";
+const mixerOpen = ref(false);
+onMounted(() => {
+  try {
+    mixerOpen.value = localStorage.getItem(MIXER_KEY) === "1";
+  } catch {}
+});
+function toggleMixer() {
+  mixerOpen.value = !mixerOpen.value;
+  try {
+    localStorage.setItem(MIXER_KEY, mixerOpen.value ? "1" : "0");
+  } catch {}
+}
 /** Audio layers (incl. nested comps): in sync while playback is real time, quiet while it steps. */
-const audioPlayback = useAudioPlayback({ layers, tracks, resolveComposition: (id) => resolveComposition(id), registryVersion });
+const audioPlayback = useAudioPlayback({
+  layers,
+  tracks,
+  resolveComposition: (id) => resolveComposition(id),
+  registryVersion,
+  masterVolume: () => settings.value.masterVolume ?? 0,
+});
 
 // Project comp list, shared with the project panel, the comp tab strip and
 // the inspector's Composition select (useProjectCompositions). One refresh on
@@ -780,7 +800,7 @@ const shaderExport = {
     componentCapture.resume();
     mediaSources.resume();
   },
-  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration, resolveComposition),
+  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0),
   getCanvas,
   configureRenderer,
   restoreRenderer,
@@ -886,7 +906,7 @@ async function renderComp(opts: { scale?: number; fps?: number; format?: "auto" 
   const fps = opts.fps ?? settings.value.fps;
   const duration = settings.value.duration;
   if (opts.audioOnly) {
-    const mix = await renderAudioMix(layers.value, tracks.value, duration, resolveComposition);
+    const mix = await renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0);
     if (!mix) return { ok: false, error: "This comp has no audio layers" };
     const meta = {
       app: "shader-lab", kind: "audio", projectId: projectId.value, compId: shaderId.value, compName: shaderName.value,
@@ -2540,6 +2560,15 @@ registerKeyboard({
               class="absolute inset-x-0 bottom-0 flex h-[20px] items-center justify-end gap-[2px] border-t-2 border-[var(--s-frame)] bg-[var(--s-tile)] px-[2px]"
             >
               <span v-if="playing && frameCache.buffering.value" class="mr-auto pl-[4px] text-[var(--s-dim)]">Rendering…</span>
+              <StudioButton
+                variant="ghost"
+                :active="mixerOpen"
+                class="!h-[16px]"
+                title="Mixer (channel strips, meters)"
+                @click="toggleMixer"
+              >
+                <StudioIcon name="audio" /> Mixer
+              </StudioButton>
               <div class="grid w-[78px]" title="Preview resolution">
                 <StudioSelect v-model="previewResolution" :options="PREVIEW_RES_OPTIONS" />
               </div>
@@ -2616,6 +2645,16 @@ registerKeyboard({
           <div
             class="absolute inset-x-0 -top-1.5 -bottom-1.5 z-10 cursor-ns-resize touch-none select-none"
             @pointerdown="onTimelineResizePointerDown"
+          />
+        </div>
+        <div v-if="mixerOpen" class="mb-[var(--s-gap)] h-[176px] shrink-0 overflow-hidden rounded-[var(--s-r)]">
+          <EditorAudioMixer
+            :layers="layers"
+            :tracks="tracks"
+            :settings="settings"
+            :entries="audioPlayback.entries.value"
+            :meters="audioPlayback.meters.value"
+            @update-settings="(patch) => { settings = { ...settings, ...patch }; history.record(); }"
           />
         </div>
         <div class="flex shrink-0 flex-col overflow-hidden rounded-[var(--s-r)] bg-[var(--s-tile)]" :style="{ height: `${timelineHeight}px` }">

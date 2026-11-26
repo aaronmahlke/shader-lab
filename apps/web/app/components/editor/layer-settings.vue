@@ -686,7 +686,22 @@ const currentCaMode = computed(() => (layer.values.mode as number) ?? 0);
 const CLONER_GRID_PARAMS = new Set(["countX", "countY", "countZ", "spacingX", "spacingY", "spacingZ"]);
 const CLONER_RING_PARAMS = new Set(["radialCount", "radialRadius", "radialPlane"]);
 
+const resolveNested = inject<((id: string) => { layers: LayerInstance[] } | null) | null>("editorResolveComposition", null);
+/** Precomps show their audio bus controls only when they hold sound. */
+const compHasAudio = computed(() => {
+  if (layer.type !== "composition") return false;
+  const seen = new Set<string>();
+  const walk = (id: unknown, depth: number): boolean => {
+    if (typeof id !== "string" || !id || seen.has(id) || depth > 4) return false;
+    seen.add(id);
+    const cfg = resolveNested?.(id);
+    return !!cfg?.layers.some((l) => (l.type === "audio" && l.enabled) || (l.type === "composition" && walk(l.values.compRefId, depth + 1)));
+  };
+  return walk(layer.values.compRefId, 0);
+});
+
 function isUniformVisible(def: LayerUniformDef): boolean {
+  if (def.name === "audioVolume" || def.name === "audioPan") return compHasAudio.value;
   if (layer.type === "cloner") {
     const ring = Number(layer.values.layout ?? 0) === 1;
     if (CLONER_GRID_PARAMS.has(def.name)) return !ring;

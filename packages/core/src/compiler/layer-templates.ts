@@ -368,6 +368,8 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
       { name: "src", type: "text", label: "Source", default: "", keyframeable: false },
       // AE-style audio level in dB (0 = as recorded); keyframe it for fades.
       { name: "volume", type: "float", label: "Volume (dB)", default: 0, min: -48, max: 12, step: 0.1 },
+      // −1 left … 1 right (keyframeable).
+      { name: "pan", type: "float", label: "Pan", default: 0, min: -1, max: 1, step: 0.01 },
     ],
   },
 
@@ -771,6 +773,9 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
     uniforms: [
       // Populated by the editor with the project's compositions.
       { name: "compRefId", type: "select", label: "Composition", default: "", options: [], keyframeable: false },
+      // Group bus for the sounds inside (mixer): level in dB and pan, keyframeable.
+      { name: "audioVolume", type: "float", label: "Audio volume (dB)", default: 0, min: -48, max: 12, step: 0.1 },
+      { name: "audioPan", type: "float", label: "Audio pan", default: 0, min: -1, max: 1, step: 0.01 },
     ],
   },
 
