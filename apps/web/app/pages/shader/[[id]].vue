@@ -362,8 +362,6 @@ let lastPlaybackMs = 0;
 let renderStepping = false;
 let playbackClock = 0;
 const audioLayerIds = computed(() => new Set(layers.value.filter((l) => l.type === "audio").map((l) => l.id)));
-/** Audio layers: in sync while playback is real time, quiet while it steps. */
-const audioPlayback = useAudioPlayback({ layers, tracks });
 
 function playbackTick(now: number) {
   if (!playing.value) return;
@@ -517,6 +515,8 @@ const { registry, registryVersion, resolveComposition } = useCompRegistry({
   projectId,
   layers,
 });
+/** Audio layers (incl. nested comps): in sync while playback is real time, quiet while it steps. */
+const audioPlayback = useAudioPlayback({ layers, tracks, resolveComposition: (id) => resolveComposition(id), registryVersion });
 
 // Project comp list, shared with the project panel, the comp tab strip and
 // the inspector's Composition select (useProjectCompositions). One refresh on
@@ -780,7 +780,7 @@ const shaderExport = {
     componentCapture.resume();
     mediaSources.resume();
   },
-  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration),
+  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration, resolveComposition),
   getCanvas,
   configureRenderer,
   restoreRenderer,
@@ -886,7 +886,7 @@ async function renderComp(opts: { scale?: number; fps?: number; format?: "auto" 
   const fps = opts.fps ?? settings.value.fps;
   const duration = settings.value.duration;
   if (opts.audioOnly) {
-    const mix = await renderAudioMix(layers.value, tracks.value, duration);
+    const mix = await renderAudioMix(layers.value, tracks.value, duration, resolveComposition);
     if (!mix) return { ok: false, error: "This comp has no audio layers" };
     const meta = {
       app: "shader-lab", kind: "audio", projectId: projectId.value, compId: shaderId.value, compName: shaderName.value,
