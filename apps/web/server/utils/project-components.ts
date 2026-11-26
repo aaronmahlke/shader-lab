@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import * as nodeModule from "node:module";
 import type * as SfcCompiler from "@vue/compiler-sfc";
@@ -12,7 +12,7 @@ function loadSfc(): Promise<typeof SfcCompiler> {
   sfcPromise ??= import(/* @vite-ignore */ SFC_SPEC) as Promise<typeof SfcCompiler>;
   return sfcPromise;
 }
-import { join } from "node:path";
+import { join, posix } from "node:path";
 
 /**
  * Project-level stage components: `<project>/components/*.vue`, compiled at
@@ -46,45 +46,70 @@ export function componentsDir(projectFolder: string): string {
   return join(projectFolder, "components");
 }
 
-export async function listProjectComponents(projectFolder: string): Promise<ProjectComponentInfo[]> {
-  const dir = componentsDir(projectFolder);
-  let names: string[];
-  try {
-    names = await readdir(dir);
-  } catch {
-    return [];
-  }
-  const out: ProjectComponentInfo[] = [];
-  for (const file of names) {
-    if (!file.endsWith(".vue")) continue;
-    const name = file.slice(0, -4);
-    if (!NAME_RE.test(name)) continue;
-    const s = await stat(join(dir, file)).catch(() => null);
-    if (!s?.isFile()) continue;
-    out.push({ name, version: `${Math.round(s.mtimeMs)}-${s.size}` });
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+async function componentRoot(folder: string) {
+  const dir = componentsDir(await realpath(folder));
+  return (await realpath(dir).catch(() => null)) === dir ? dir : null;
 }
 
-const cache = new Map<string, CompiledProjectComponent>();
+export async function listProjectComponents(projectFolder: string): Promise<ProjectComponentInfo[]> {
+  const root = await componentRoot(projectFolder);
+  if (!root) return [];
+  const names: string[] = [];
+  // Helpers aren't picker entries, but saving one must invalidate its parents.
+  const revisions: string[] = [];
+  async function scan(dir: string) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const file = join(dir, entry.name);
+      if (entry.isDirectory()) await scan(file);
+      if (!entry.isFile() || !entry.name.endsWith(".vue")) continue;
+      const s = await stat(file).catch(() => null);
+      if (!s) continue;
+      revisions.push(JSON.stringify([file, s.mtimeMs, s.size]));
+      const name = entry.name.slice(0, -4);
+      if (dir === root && NAME_RE.test(name)) names.push(name);
+    }
+  }
+  await scan(root);
+  const version = createHash("sha1").update(JSON.stringify(revisions.sort())).digest("hex");
+  return names.sort((a, b) => a.localeCompare(b)).map(name => ({ name, version }));
+}
 
-export async function compileProjectComponent(
-  projectFolder: string,
-  name: string,
-): Promise<CompiledProjectComponent | null> {
+type LocalModule = CompiledProjectComponent & { local: Record<string, string> };
+
+export async function compileProjectComponent(projectFolder: string, name: string) {
   if (!NAME_RE.test(name)) return null;
-  const file = join(componentsDir(projectFolder), `${name}.vue`);
-  const s = await stat(file).catch(() => null);
-  if (!s?.isFile()) return null;
-  const version = `${Math.round(s.mtimeMs)}-${s.size}`;
-  const key = `${file}|${version}`;
-  const hit = cache.get(key);
-  if (hit) return hit;
-
-  const source = await readFile(file, "utf8");
-  const result = compileSfc(await loadSfc(), name, source, version);
-  cache.set(key, result);
-  return result;
+  const root = await componentRoot(projectFolder);
+  if (!root) return null;
+  const modules = new Map<string, LocalModule>();
+  const visiting = new Set<string>();
+  async function visit(id: string): Promise<boolean> {
+    if (modules.has(id)) return true;
+    if (visiting.has(id)) throw new Error("Circular component import: " + [...visiting, id].join(" -> "));
+    const file = join(root!, id);
+    const actual = await realpath(file).catch(() => null);
+    if (!actual) return false;
+    if (actual !== file) throw new Error("Symlinked component not supported: " + id);
+    if (!(await stat(actual)).isFile()) return false;
+    visiting.add(id);
+    const source = await readFile(actual, "utf8");
+    const version = createHash("sha1").update(source).digest("hex");
+    const compiled = compileSfc(await loadSfc(), id.slice(0, -4), source, version);
+    const local: Record<string, string> = {};
+    for (const spec of compiled.imports) {
+      if (!spec.startsWith("./") && !spec.startsWith("../")) continue;
+      const child = posix.join(posix.dirname(id), spec);
+      if (!spec.endsWith(".vue") || /[^\w./ -]/.test(spec) || child.startsWith("../")) {
+        throw new Error(id + ": invalid local component import " + spec);
+      }
+      if (!(await visit(child))) throw new Error(id + ": cannot find " + spec);
+      local[spec] = child;
+    }
+    visiting.delete(id);
+    modules.set(id, { ...compiled, local });
+    return true;
+  }
+  const entry = name + ".vue";
+  return await visit(entry) ? { entry, modules: [...modules.values()] } : null;
 }
 
 function compileSfc(

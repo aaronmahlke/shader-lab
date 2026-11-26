@@ -37,6 +37,14 @@ jobs:
         working-directory: apps/web
         run: bun test
 
+      # The stage runtime integration uses Node's module resolution hooks.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Project component integration tests (Node)
+        run: node --test apps/web/tests/project-components.node.mjs
+
   headless-render:
     name: Headless WebGL2 render (Node)
     runs-on: ubuntu-latest
