@@ -86,6 +86,7 @@ import { buildLayerValues, offsetDuplicatedWave, applyCompProps, createNestedRes
 import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
+import { audioBufferToWav, useVideoExport } from "~/composables/use-video-export";
 import { seekTimelinePointers } from "~/utils/timeline-pointer";
 import { BUILT_IN_CURSORS, cursorAnchor } from "#shared/editor/cursors";
 import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
@@ -806,6 +807,119 @@ const shaderExport = {
     renderFrame(time);
   },
 };
+
+// --- Renders: metadata, video reuse, CLI hook ---
+
+/** Everything that affects the PICTURE (not the audio): same value = same video. */
+const visualFingerprint = computed(() => {
+  const json = JSON.stringify([
+    layers.value.filter((l) => l.type !== "audio"),
+    lfos.value,
+    assignments.value,
+    settings.value,
+    tracks.value.filter((t) => !audioLayerIds.value.has(t.layerId)),
+    Object.keys(registry.value).sort().map((k) => [k, registry.value[k]]),
+    projectComponents.value,
+    RENDER_ENGINE_VERSION,
+  ]);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < json.length; i++) {
+    h ^= json.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${(h >>> 0).toString(36)}-${json.length.toString(36)}`;
+});
+
+type StoredRender = { fingerprint?: string; width?: number; height?: number; fps?: number; duration?: number; url: string };
+
+/** Metadata for a render, plus the stored video when only the audio changed since. */
+async function prepareVideoExport(s: { width: number; height: number; fps: number; duration: number }) {
+  const meta: Record<string, unknown> = {
+    app: "shader-lab",
+    projectId: projectId.value,
+    compId: shaderId.value,
+    compName: shaderName.value,
+    fingerprint: visualFingerprint.value,
+    engine: RENDER_ENGINE_VERSION,
+  };
+  let reuseVideo: { url: string } | null = null;
+  if (projectId.value && shaderId.value) {
+    const stored = await $fetch<StoredRender | null>(`/api/local/renders/${projectId.value}/${shaderId.value}`).catch(() => null);
+    if (
+      stored &&
+      stored.fingerprint === meta.fingerprint &&
+      stored.width === s.width &&
+      stored.height === s.height &&
+      stored.fps === s.fps &&
+      Math.abs((stored.duration ?? 0) - s.duration) < 1e-6
+    ) {
+      reuseVideo = { url: stored.url };
+    }
+  }
+  return { meta, reuseVideo };
+}
+
+/** Keep the finished render in the project (`.shaderlab/renders/`, local mode). */
+async function storeRender(result: { blob: Blob; meta: Record<string, unknown> }) {
+  if (!projectId.value || !shaderId.value) return null;
+  const body = new FormData();
+  body.append("projectId", projectId.value);
+  body.append("compId", shaderId.value);
+  body.append("meta", JSON.stringify(result.meta));
+  body.append("file", result.blob);
+  return await $fetch<Record<string, unknown>>("/api/local/renders", { method: "POST", body }).catch((err) => {
+    console.warn("[render] couldn't store the render", err);
+    return null;
+  });
+}
+
+/**
+ * One render of this comp, for the export dialog's sibling: the CLI
+ * (`shaderlab render`) calls `window.__shaderlab.render(...)` in a hidden
+ * browser and gets back where the file was stored + what it is.
+ */
+async function renderComp(opts: { scale?: number; fps?: number; format?: "auto" | "mp4" | "webm"; audioOnly?: boolean; fresh?: boolean } = {}) {
+  const scale = opts.scale ?? 1;
+  const width = Math.round(settings.value.width * scale);
+  const height = Math.round(settings.value.height * scale);
+  const fps = opts.fps ?? settings.value.fps;
+  const duration = settings.value.duration;
+  if (opts.audioOnly) {
+    const mix = await renderAudioMix(layers.value, tracks.value, duration);
+    if (!mix) return { ok: false, error: "This comp has no audio layers" };
+    const meta = {
+      app: "shader-lab", kind: "audio", projectId: projectId.value, compId: shaderId.value, compName: shaderName.value,
+      duration, sampleRate: mix.sampleRate, channels: mix.numberOfChannels, renderedAt: new Date().toISOString(),
+    };
+    const stored = await storeRender({ blob: audioBufferToWav(mix), meta });
+    return { ok: !!stored, meta, stored };
+  }
+  await componentCapture.captureAll();
+  const { meta, reuseVideo } = await prepareVideoExport({ width, height, fps, duration });
+  const exporter = useVideoExport();
+  (window as unknown as { __shaderlabProgress?: unknown }).__shaderlabProgress = exporter.state;
+  frameCache.suspend(true);
+  let result;
+  try {
+    result = await exporter.exportVideo(shaderExport, {
+      width, height, fps, duration, experimentId: shaderId.value ?? "shader", format: opts.format ?? "auto",
+      meta, reuseVideo: opts.fresh ? null : reuseVideo, deliver: "return",
+    });
+  } finally {
+    frameCache.suspend(false);
+  }
+  if (!result) return { ok: false, error: exporter.state.error ?? "Render failed" };
+  const stored = await storeRender(result);
+  return { ok: !!stored, meta: result.meta, stored, frozen: result.frozen, reusedVideo: result.reusedVideo };
+}
+
+if (import.meta.client) {
+  (window as unknown as { __shaderlab?: unknown }).__shaderlab = {
+    render: renderComp,
+    /** True once nested comps, components and media are loaded enough to render. */
+    ready: () => !!shaderId.value,
+  };
+}
 
 // --- RAM preview (frame cache) ---
 
@@ -2552,5 +2666,7 @@ registerKeyboard({
     :shader="shaderExport"
     :composition-duration="settings.duration"
     :design-canvas="{ width: settings.width, height: settings.height }"
+    :prepare-video-export="prepareVideoExport"
+    :on-exported="storeRender"
   />
 </template>

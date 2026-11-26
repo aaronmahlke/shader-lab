@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ExportResult } from "~/composables/use-video-export";
 import { negotiateCanvasEncoding, type ExportFormatPreference } from "#shared/editor/video-encoding";
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle } from "reka-ui";
 import {
@@ -32,9 +33,16 @@ type Props = {
   canvasVideoDuration?: number;
   compositionDuration?: number;
   beforeExport?: () => void | Promise<void>;
+  /** Render metadata + a reusable stored video for these settings (local projects). */
+  prepareVideoExport?: (s: { width: number; height: number; fps: number; duration: number }) => Promise<{
+    meta: Record<string, unknown>;
+    reuseVideo: { url: string } | null;
+  }>;
+  /** Called with the finished render (store it for reuse). */
+  onExported?: (result: ExportResult) => void | Promise<void>;
 };
 
-const { experimentId, shader, designCanvas, canvasVideoDuration = 0, compositionDuration = 0, beforeExport } = defineProps<Props>();
+const { experimentId, shader, designCanvas, canvasVideoDuration = 0, compositionDuration = 0, beforeExport, prepareVideoExport, onExported } = defineProps<Props>();
 
 const open = defineModel<boolean>("open", { default: false });
 
@@ -162,14 +170,20 @@ async function handleVideoExport() {
   const dur = durationOptions.value[selectedDuration.value]!;
   const fps = fpsOptions[selectedFps.value]!;
 
-  await exportVideo(shader, {
+  const extra = prepareVideoExport
+    ? await prepareVideoExport({ width, height, fps: fps.value, duration: dur.value })
+    : { meta: {}, reuseVideo: null };
+  const result = await exportVideo(shader, {
     width,
     height,
     fps: fps.value,
     duration: dur.value,
     experimentId,
     format: selectedFormat.value,
+    meta: extra.meta,
+    reuseVideo: extra.reuseVideo,
   });
+  if (result) await onExported?.(result);
 
   if (!videoState.exporting && !videoState.error) {
     open.value = false;

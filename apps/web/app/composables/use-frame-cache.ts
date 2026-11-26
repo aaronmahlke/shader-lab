@@ -73,6 +73,7 @@ export function useFrameCache(opts: FrameCacheOptions) {
 
   let generation = 0;
   let working = false;
+  let suspended = false;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   let lastEditAt = performance.now();
 
@@ -298,6 +299,8 @@ export function useFrameCache(opts: FrameCacheOptions) {
         // Playing: playback renders the frames it needs itself (ensure); a background
         // render would block the main thread and starve the playback clock.
         if (opts.playing.value) break;
+        // An export / CLI render owns the renderer: stay out of its way.
+        if (suspended) break;
         // Background tab: don't spin the fans for frames nobody is looking at.
         if (typeof document !== "undefined" && document.hidden) break;
         const f = nextTarget();
@@ -393,5 +396,11 @@ export function useFrameCache(opts: FrameCacheOptions) {
     return out;
   }
 
-  return { has, get, ensure, frameOf, frameCount, showing, buffering, version, ranges, clear, kick: () => void work() };
+  /** Pause background caching (exports / CLI renders); resume picks up where it stopped. */
+  function suspend(on: boolean) {
+    suspended = on;
+    if (!on) scheduleIdle();
+  }
+
+  return { has, get, ensure, frameOf, frameCount, showing, buffering, version, ranges, clear, suspend, kick: () => void work() };
 }

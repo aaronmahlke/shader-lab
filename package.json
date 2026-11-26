@@ -20,9 +20,11 @@
     "db:studio": "bun run --cwd apps/web db:studio",
     "desktop": "bun run --cwd apps/desktop start",
     "desktop:dev": "bun run --cwd apps/desktop dev",
-    "dev:local": "bun run --cwd apps/web dev:local"
+    "dev:local": "bun run --cwd apps/web dev:local",
+    "shaderlab": "bun tools/shaderlab.ts"
   },
   "devDependencies": {
+    "puppeteer-core": "^25.19.0",
     "typescript": "^5.9.3"
   },
   "trustedDependencies": [
