@@ -90,6 +90,7 @@ import {
   seekStageSequences,
   endExportClock,
   setTimelineDrive,
+  isExportClockActive,
   createDomAnimationStepper,
 } from "~/utils/export-clock";
 import {
@@ -515,7 +516,8 @@ const {
   compositionTime: currentTime,
   modFnAt,
   // Cheaper while playing; full samples on still frames and export.
-  motionBlurTimes: (time) => motionBlurSampleTimes(time, settings.value, playing.value ? 3 : Infinity),
+  // Editor renders stay light (2 sub-frames); exports render every motion-blur sample.
+  motionBlurTimes: (time) => motionBlurSampleTimes(time, settings.value, isExportClockActive() ? Infinity : 2),
 });
 
 // --- Component layers: off-screen stage + DOM capture ---

@@ -170,6 +170,18 @@ export function useFrameCache(opts: FrameCacheOptions) {
     },
   );
 
+  // Any input pauses idle pre-rendering (it runs on the main thread) until the
+  // user has been still for a moment — editing always wins over caching.
+  const onInput = () => {
+    if (opts.playing.value) return;
+    lastEditAt = performance.now();
+    scheduleIdle();
+  };
+  const INPUT_EVENTS = ["pointerdown", "pointermove", "wheel", "keydown"] as const;
+  if (typeof window !== "undefined") {
+    for (const ev of INPUT_EVENTS) window.addEventListener(ev, onInput, { passive: true, capture: true });
+  }
+
   const onVisibility = () => {
     if (!document.hidden) scheduleIdle();
   };
@@ -178,6 +190,9 @@ export function useFrameCache(opts: FrameCacheOptions) {
   onBeforeUnmount(() => {
     if (idleTimer) clearTimeout(idleTimer);
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibility);
+    if (typeof window !== "undefined") {
+      for (const ev of INPUT_EVENTS) window.removeEventListener(ev, onInput, { capture: true });
+    }
     clear();
   });
 
