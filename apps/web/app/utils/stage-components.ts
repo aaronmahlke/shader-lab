@@ -1,4 +1,5 @@
 import { defineAsyncComponent, type Component } from "vue";
+import { loadProjectComponent, projectComponentInfo, projectComponents } from "~/utils/project-components";
 
 /**
  * The catalogue of stageable components for component layers.
@@ -17,6 +18,8 @@ export type StageComponentEntry = {
   /** Spaced-out name for the picker. */
   label: string;
   load: () => Promise<{ default: Component }>;
+  /** Lives in the project's `components/` folder (vs. built into the app). */
+  project?: boolean;
 };
 
 /** `StageCard` → `Card`: drop the directory prefix, then space out the camel case. */
@@ -27,7 +30,7 @@ function humanize(name: string): string {
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
 }
 
-export const STAGE_COMPONENT_ENTRIES: StageComponentEntry[] = Object.entries(STAGE_MODULES)
+const BUILT_IN_ENTRIES: StageComponentEntry[] = Object.entries(STAGE_MODULES)
   .map(([path, load]) => {
     const name = path.split("/").pop()?.replace(/\.vue$/, "") ?? "";
     return { name, label: humanize(name), load };
@@ -35,17 +38,41 @@ export const STAGE_COMPONENT_ENTRIES: StageComponentEntry[] = Object.entries(STA
   .filter((entry) => entry.name)
   .sort((a, b) => a.name.localeCompare(b.name));
 
+/**
+ * Every stageable component: the open project's own (`components/*.vue`)
+ * first, then the built-in ones. A project component shadows a built-in one
+ * of the same name. Reactive (reads `projectComponents`).
+ */
+export function stageComponentEntries(): StageComponentEntry[] {
+  const own = projectComponents.value.map((c) => ({
+    name: c.name,
+    label: humanize(c.name),
+    load: () => loadProjectComponent(c.name),
+    project: true,
+  }));
+  const taken = new Set(own.map((e) => e.name));
+  return [...own, ...BUILT_IN_ENTRIES.filter((e) => !taken.has(e.name))];
+}
+
 const componentCache = new Map<string, Component>();
 
 /** Resolve a stored component name to a mountable component, or null when it no longer exists. */
 export function resolveStageComponent(name: string): Component | null {
-  const entry = STAGE_COMPONENT_ENTRIES.find((candidate) => candidate.name === name);
-  if (!entry) return null;
-  let component = componentCache.get(name);
-  if (!component) {
-    component = defineAsyncComponent(entry.load);
-    componentCache.set(name, component);
-  }
+  const own = projectComponentInfo(name);
+  // Project components are keyed by file version: saving the .vue swaps in the new one.
+  const key = own ? `project:${name}:${own.version}` : `builtin:${name}`;
+  let component = componentCache.get(key);
+  if (component) return component;
+  const entry = own ? null : BUILT_IN_ENTRIES.find((candidate) => candidate.name === name);
+  if (!own && !entry) return null;
+  component = defineAsyncComponent({
+    loader: own ? () => loadProjectComponent(name).then((m) => m.default) : entry!.load,
+    onError(err, _retry, fail) {
+      console.error(`[stage component] ${name}:`, err);
+      fail();
+    },
+  });
+  componentCache.set(key, component);
   return component;
 }
 
@@ -55,10 +82,10 @@ export function resolveStageComponent(name: string): Component | null {
  * first component anyway.
  */
 export function stageComponentOptions(): { label: string; value: string }[] {
-  return STAGE_COMPONENT_ENTRIES.map((entry) => ({ label: entry.label, value: entry.name }));
+  return stageComponentEntries().map((entry) => ({ label: entry.label, value: entry.name }));
 }
 
 /** Default for freshly added component layers: the first staged component, if any. */
 export function defaultStageComponentName(): string {
-  return STAGE_COMPONENT_ENTRIES[0]?.name ?? "";
+  return stageComponentEntries()[0]?.name ?? "";
 }

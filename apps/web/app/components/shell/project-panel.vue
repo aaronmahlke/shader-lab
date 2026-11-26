@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CompositionMeta } from "#shared/types/project";
 import { COMP_DRAG_TYPE, type CompDragPayload } from "#shared/editor/comp-drag";
-import { STAGE_COMPONENT_ENTRIES } from "~/utils/stage-components";
+import { stageComponentEntries } from "~/utils/stage-components";
 
 /**
  * Everything in the project as one list: comps and components are both
@@ -87,7 +87,7 @@ function onMenuCloseAutoFocus(id: string, e: Event) {
 
       <div class="px-[6px] pt-[10px] pb-[3px] text-[var(--s-dim)]">Components</div>
       <div
-        v-for="entry in STAGE_COMPONENT_ENTRIES"
+        v-for="entry in stageComponentEntries()"
         :key="entry.name"
         :title="`${entry.label}: double-click to add`"
         @dblclick="emit('add-component', entry.name)"
@@ -95,7 +95,7 @@ function onMenuCloseAutoFocus(id: string, e: Event) {
         <StudioListRow>
           <template #icon><StudioIcon name="component" /></template>
           {{ entry.label }}
-          <template #meta>vue</template>
+          <template #meta>{{ entry.project ? "project" : "app" }}</template>
         </StudioListRow>
       </div>
     </div>

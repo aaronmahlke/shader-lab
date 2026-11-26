@@ -91,7 +91,7 @@ export async function registerProjectFolder(id: string, path: string) {
   await writeRegistry(reg);
 }
 
-async function projectPath(id: string): Promise<string | null> {
+export async function projectPath(id: string): Promise<string | null> {
   const reg = await readRegistry();
   return reg.projects.find((p) => p.id === id)?.path ?? null;
 }

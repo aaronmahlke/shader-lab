@@ -79,7 +79,7 @@ function toggleLayerEnabled() {
 }
 
 /** Options for the component layer's picker (static per session: glob-derived). */
-const componentPickerOptions = stageComponentOptions();
+const componentPickerOptions = computed(() => stageComponentOptions());
 
 /**
  * Options for the composition layer's `compRefId` select: the project's other

@@ -35,7 +35,7 @@ import {
   NESTED_SEP,
   type WorldTransform,
 } from "@shader-lab/core";
-import { refDebounced } from "@vueuse/core";
+import { refDebounced, useEventListener } from "@vueuse/core";
 import type { CompositionMeta, ProjectWithCompositions, ShaderDoc } from "#shared/types/project";
 import { getKeyframeClipboard, setKeyframeClipboard } from "#shared/editor/keyframe-clipboard";
 import type { KeyframeSelection } from "#shared/editor/keyframe-selection";
@@ -84,6 +84,7 @@ import {
 } from "#shared/editor/shader-presets";
 import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
+import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
 import {
   beginExportClock,
@@ -336,6 +337,13 @@ provide("lfoValues", lfoValues);
 provide("editorTracks", tracks);
 provide("editorLayers", layers);
 provide("editorProjectId", projectId);
+
+// Project-level components (`<project>/components/*.vue`): load with the
+// project, re-check when the window regains focus (you edited a file).
+watch(projectId, (id) => void loadProjectComponents(id), { immediate: true });
+useEventListener(typeof window !== "undefined" ? window : null, "focus", () => {
+  void loadProjectComponents(projectId.value);
+});
 provide("editorTime", currentTime);
 
 // --- Playback ---
@@ -752,6 +760,8 @@ const frameCache = useFrameCache({
     // Sorted: nested comps load in any order; the hash must not depend on it.
     Object.keys(registry.value).sort().map((k) => [k, registry.value[k]]),
     previewResolution.value, textEditingLayerId.value,
+    // Editing a component file re-renders the frames that use it.
+    projectComponents.value,
   ],
   cacheKey: () => shaderId.value ?? "",
   getCanvas,

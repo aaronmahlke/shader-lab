@@ -8,7 +8,7 @@ my-video/
   shaderlab.json      project manifest (name, compositions)
   comps/<name>.json   one composition each (readable, diffable, agent-editable)
   assets/             imported images / video
-  components/         your own stage components (coming next)
+  components/         your own stage components (*.vue, compiled at runtime)
   .shaderlab/         caches (thumbnails), gitignored
 ```
 

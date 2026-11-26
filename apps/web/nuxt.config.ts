@@ -1,6 +1,8 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import glsl from "vite-plugin-glsl";
+import { twSourcesPlugin } from "./build/tw-sources-plugin";
 
 const coreSrc = resolve(dirname(fileURLToPath(import.meta.url)), "../../packages/core/src");
 
@@ -8,6 +10,7 @@ const coreSrc = resolve(dirname(fileURLToPath(import.meta.url)), "../../packages
 // Linked to the local checkout while we design; switch to the pinned git
 // dependency later: "@dokedu/ui": "github:dokedu/ui#<tag>" + extends: ["@dokedu/ui"].
 const dokeduUi = process.env.DOKEDU_UI ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../../../dokedu/ui");
+const appDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineNuxtConfig({
   extends: [dokeduUi],
@@ -37,7 +40,14 @@ export default defineNuxtConfig({
     transpile: ["@shader-lab/core"],
   },
   vite: {
-    plugins: [glsl()],
+    plugins: [
+      glsl(),
+      // Tailwind sources for project components (compiled in the browser).
+      twSourcesPlugin({
+        entry: resolve(appDir, "app/assets/css/app.css"),
+        aliases: { "#dokedu-ui-css": resolve(appDir, ".nuxt/dokedu-ui.css") },
+      }),
+    ],
     resolve: {
       alias: {
         "@shader-lab/core/server": resolve(coreSrc, "server.ts"),
@@ -55,6 +65,8 @@ export default defineNuxtConfig({
   nitro: {
     externals: {
       external: ["gl", "@napi-rs/canvas"],
+      // Project components compile at runtime (server/utils/project-components.ts).
+      traceInclude: [createRequire(import.meta.url).resolve("@vue/compiler-sfc")],
     },
     rollupConfig: {
       plugins: [glsl()],
