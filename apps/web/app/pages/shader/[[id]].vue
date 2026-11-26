@@ -892,12 +892,13 @@ async function prepareVideoExport(s: { width: number; height: number; fps: numbe
 /** Keep the finished render in the project (`.shaderlab/renders/`, local mode). */
 async function storeRender(result: { blob: Blob; meta: Record<string, unknown> }) {
   if (!projectId.value || !shaderId.value) return null;
-  const body = new FormData();
-  body.append("projectId", projectId.value);
-  body.append("compId", shaderId.value);
-  body.append("meta", JSON.stringify(result.meta));
-  body.append("file", result.blob);
-  return await $fetch<Record<string, unknown>>("/api/local/renders", { method: "POST", body }).catch((err) => {
+  // Raw body, streamed to disk server-side (renders can be hundreds of MB).
+  const qs = new URLSearchParams({ projectId: projectId.value, compId: shaderId.value });
+  return await $fetch<Record<string, unknown>>(`/api/local/renders?${qs}`, {
+    method: "POST",
+    body: result.blob,
+    headers: { "content-type": "application/octet-stream", "x-render-meta": encodeURIComponent(JSON.stringify(result.meta)) },
+  }).catch((err) => {
     console.warn("[render] couldn't store the render", err);
     return null;
   });
