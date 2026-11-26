@@ -19,6 +19,12 @@ export const CLONE_SEP = "~";
 export const CLONER_LAYOUT_GRID = 0;
 export const CLONER_LAYOUT_RADIAL = 1;
 
+export const STAGGER_IN_ORDER = 0;
+export const STAGGER_REVERSE = 1;
+export const STAGGER_FROM_CENTER = 2;
+export const STAGGER_FROM_EDGES = 3;
+export const STAGGER_RANDOM = 4;
+
 /** Upper bound on copies per cloner (each is a composite pass). */
 export const MAX_CLONES = 400;
 
@@ -93,6 +99,38 @@ function layoutSlots(cloner: LayerInstance): Omit<CloneInfo, "clonerId" | "sourc
   return slots;
 }
 
+/**
+ * Stagger rank per copy (0 plays first; copy n plays the keys rank × stagger
+ * seconds later). Center/edge distances are in layout cells (ring: steps
+ * from the first copy), so neighbours stay one stagger step apart.
+ */
+function staggerRanks(slots: Omit<CloneInfo, "clonerId" | "sourceId" | "index">[], order: number, seed: number): number[] {
+  const n = slots.length;
+  const dist = (i: number) => {
+    const s = slots[i]!;
+    if (s.angle !== null) return Math.min(i, n - i);
+    return Math.hypot(s.grid[0], s.grid[1], s.grid[2]);
+  };
+  switch (order) {
+    case STAGGER_REVERSE:
+      return slots.map((_, i) => n - 1 - i);
+    case STAGGER_FROM_CENTER: {
+      const d = slots.map((_, i) => dist(i));
+      const min = Math.min(...d);
+      return d.map((v) => v - min);
+    }
+    case STAGGER_FROM_EDGES: {
+      const d = slots.map((_, i) => dist(i));
+      const max = Math.max(...d);
+      return d.map((v) => max - v);
+    }
+    case STAGGER_RANDOM:
+      return slots.map((_, i) => hash01(i, seed + 7919) * (n - 1));
+    default:
+      return slots.map((_, i) => i);
+  }
+}
+
 export type ClonerExpansion = {
   /** Stack to render: cloners replaced by their copies, used sources removed. */
   renderLayers: LayerInstance[];
@@ -106,7 +144,7 @@ function structureKey(layers: readonly LayerInstance[]): string {
     key += `${l.id}:${l.type}:${l.enabled ? 1 : 0}|`;
     if (l.type === "cloner") {
       const v = l.values;
-      key += `[${JSON.stringify(v.sources ?? [])},${v.layout},${v.countX},${v.countY},${v.countZ},${v.radialCount},${v.order},${v.seed},${l.timing?.in},${l.timing?.out}]`;
+      key += `[${JSON.stringify(v.sources ?? [])},${v.layout},${v.countX},${v.countY},${v.countZ},${v.radialCount},${v.order},${v.seed},${v.staggerOrder},${l.timing?.in},${l.timing?.out}]`;
     }
   }
   return key;
@@ -150,7 +188,9 @@ export function expandCloners(layers: readonly LayerInstance[]): ClonerExpansion
     if (sources.length === 0) continue;
     const random = num(layer.values, "order", 0) === 1;
     const seed = Math.round(num(layer.values, "seed", 1));
-    layoutSlots(layer).forEach((slot, index) => {
+    const slots = layoutSlots(layer);
+    const ranks = staggerRanks(slots, Math.round(num(layer.values, "staggerOrder", STAGGER_IN_ORDER)), seed);
+    slots.forEach((slot, index) => {
       const pick = random ? Math.floor(hash01(index, seed) * sources.length) : index % sources.length;
       const source = byId.get(sources[pick]!)!;
       const copy: LayerInstance = {
@@ -161,7 +201,7 @@ export function expandCloners(layers: readonly LayerInstance[]): ClonerExpansion
         is3D: true,
         values: source.values,
         timing: layer.timing,
-        clone: { clonerId: layer.id, sourceId: source.id, index, ...slot },
+        clone: { clonerId: layer.id, sourceId: source.id, index, ...slot, staggerRank: ranks[index] },
       };
       renderLayers.push(copy);
       byId.set(copy.id, copy);

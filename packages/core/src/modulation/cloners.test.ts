@@ -95,6 +95,30 @@ describe("copy transforms", () => {
     expect(fn(cloneId("c", 2), "layerPositionZ", 0)).toBeCloseTo(0.3, 9);
   });
 
+  it("stagger: copy n plays the cloner's and source's keys rank × stagger later", () => {
+    const tracks: PropertyTrack[] = [
+      { layerId: "c", paramName: "layerRotationY", enabled: true, keys: [{ time: 0, value: 0 }, { time: 1, value: 180 }] },
+      { layerId: "src", paramName: "layerOpacity", enabled: true, keys: [{ time: 0, value: 0 }, { time: 1, value: 100 }] },
+    ];
+    const layers = [cloner("c", { countX: 4, countY: 1, stagger: 0.25 }), shape("src")];
+    const fn = setup(layers, 0.5, tracks);
+    // linear keys: copy 0 at t=0.5 → 90°, copy 1 at 0.25 → 45°, copy 2 at 0 → 0°
+    expect(fn(cloneId("c", 0), "layerRotationY", 0)).toBeCloseTo(90, 6);
+    expect(fn(cloneId("c", 1), "layerRotationY", 0)).toBeCloseTo(45, 6);
+    expect(fn(cloneId("c", 2), "layerRotationY", 0)).toBeCloseTo(0, 6);
+    // Opacity is a clone transform param (from the cloner), so source opacity keys don't apply;
+    // a source content param would follow the same delayed time.
+    const reverse = [cloner("c", { countX: 4, countY: 1, stagger: 0.25, staggerOrder: 1 }), shape("src")];
+    expect(setup(reverse, 0.75, tracks)(cloneId("c", 3), "layerRotationY", 0)).toBeCloseTo(135, 6);
+    expect(setup(reverse, 0.75, tracks)(cloneId("c", 0), "layerRotationY", 0)).toBeCloseTo(0, 6);
+    // From center (3 wide): middle first, edges one step later
+    const center = [cloner("c", { countX: 3, countY: 1, stagger: 0.5, staggerOrder: 2 }), shape("src")];
+    const fc = setup(center, 0.5, tracks);
+    expect(fc(cloneId("c", 1), "layerRotationY", 0)).toBeCloseTo(90, 6);
+    expect(fc(cloneId("c", 0), "layerRotationY", 0)).toBeCloseTo(0, 6);
+    expect(fc(cloneId("c", 2), "layerRotationY", 0)).toBeCloseTo(0, 6);
+  });
+
   it("use the comp aspect so grid spacing is square on screen", () => {
     const engine = new ModulationEngine();
     const layers = [cloner("c"), shape("src")];

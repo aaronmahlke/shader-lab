@@ -664,6 +664,22 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         ],
         keyframeable: false,
       },
+      // Stagger: copy n plays the cloner's and its source's keyframes rank × stagger s later.
+      { name: "stagger", type: "float", label: "Stagger", default: 0, min: 0, max: 2, step: 0.001, keyframeable: false },
+      {
+        name: "staggerOrder",
+        type: "select",
+        label: "Stagger order",
+        default: 0,
+        options: [
+          { label: "In order", value: 0 },
+          { label: "Reverse", value: 1 },
+          { label: "From center", value: 2 },
+          { label: "From edges", value: 3 },
+          { label: "Random", value: 4 },
+        ],
+        keyframeable: false,
+      },
       { name: "seed", type: "int", label: "Seed", default: 1, min: 0, max: 999, step: 1, keyframeable: false },
       // Added to every copy's rotation (e.g. Rotate X 90 lays tiles flat as a floor).
       { name: "cloneRotateX", type: "float", label: "Copy rotate X", default: 0, min: -360, max: 360, step: 0.1 },

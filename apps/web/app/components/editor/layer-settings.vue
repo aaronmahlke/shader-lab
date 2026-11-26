@@ -639,7 +639,8 @@ function isUniformVisible(def: LayerUniformDef): boolean {
     const ring = Number(layer.values.layout ?? 0) === 1;
     if (CLONER_GRID_PARAMS.has(def.name)) return !ring;
     if (CLONER_RING_PARAMS.has(def.name)) return ring;
-    if (def.name === "seed") return Number(layer.values.order ?? 0) === 1;
+    if (def.name === "seed") return Number(layer.values.order ?? 0) === 1 || Number(layer.values.staggerOrder ?? 0) === 4;
+    if (def.name === "staggerOrder") return Number(layer.values.stagger ?? 0) > 0;
     return true;
   }
   if (isDistortion.value) {

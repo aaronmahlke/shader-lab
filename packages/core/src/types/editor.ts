@@ -83,6 +83,8 @@ export type CloneInfo = {
   grid: [number, number, number];
   /** Radial layout: angle on the ring (radians), else null. */
   angle: number | null;
+  /** Position in the cloner's stagger order (copy plays its keys rank × stagger later). */
+  staggerRank?: number;
 };
 
 /** Synthetic pass kinds the camera layer compiles into (plus the shared blit/resolve/composite ones). */

@@ -29,36 +29,71 @@ export function createAnimatedModulationFn(
     if (!index.has(k)) index.set(k, t);
   }
 
-  const direct: ModulationFn = (layerId, paramName, baseValue) => {
-    const track = index.get(`${layerId}\u0000${paramName}`);
-    const base = track?.enabled ? evaluatePropertyTrack(track, time, baseValue) : baseValue;
-    return engine.getModulatedValue(layerId, paramName, base);
-  };
-
   // Per layer: local value (cloner copies route transform → cloner + layout,
   // content → source), then the parent chain for transform params.
   const needsRouting = engine.hasCloners() || engine.hasParenting();
 
-  const local = (layer: LayerInstance, paramName: string, baseValue: number): number => {
-    const clone = layer.clone;
-    if (!clone) return direct(layer.id, paramName, baseValue);
-    if (!CLONE_TRANSFORM_PARAMS.has(paramName)) return direct(clone.sourceId, paramName, baseValue);
-    const cloner = engine.getLayer(clone.clonerId);
-    if (!cloner) return baseValue;
-    const readCloner = (name: string) =>
-      CLONE_TRANSFORM_PARAMS.has(name)
-        ? world(cloner, name, staticParamValue(cloner, name))
-        : direct(cloner.id, name, staticParamValue(cloner, name));
-    return cloneTransformValue(paramName, clone, readCloner, engine.getAspect());
+  type Evaluator = {
+    direct: ModulationFn;
+    world: (layer: LayerInstance, paramName: string, baseValue: number) => number;
   };
 
-  const readLocal = (layer: LayerInstance, paramName: string) =>
-    local(layer, paramName, staticParamValue(layer, paramName));
+  /** Keyframe evaluation at time `t` (staggered cloner copies read at an earlier t). */
+  function evaluatorAt(t: number): Evaluator {
+    const direct: ModulationFn = (layerId, paramName, baseValue) => {
+      const track = index.get(`${layerId}\u0000${paramName}`);
+      const base = track?.enabled ? evaluatePropertyTrack(track, t, baseValue) : baseValue;
+      return engine.getModulatedValue(layerId, paramName, base);
+    };
 
-  function world(layer: LayerInstance, paramName: string, baseValue: number): number {
-    if (!layer.parent || !PARENT_PARAMS.has(paramName)) return local(layer, paramName, baseValue);
-    return worldParam(engine.worldTransform(layer, readLocal), paramName, engine.getAspect());
+    const local = (layer: LayerInstance, paramName: string, baseValue: number): number => {
+      const clone = layer.clone;
+      if (!clone) return direct(layer.id, paramName, baseValue);
+      // Stagger: the copy plays its keys (source content + cloner transform) later.
+      const delay = t === time ? cloneDelay(clone) : 0;
+      if (delay !== 0) return at(time - delay).world(layer, paramName, baseValue);
+      if (!CLONE_TRANSFORM_PARAMS.has(paramName)) return direct(clone.sourceId, paramName, baseValue);
+      const cloner = engine.getLayer(clone.clonerId);
+      if (!cloner) return baseValue;
+      const readCloner = (name: string) =>
+        CLONE_TRANSFORM_PARAMS.has(name)
+          ? world(cloner, name, staticParamValue(cloner, name))
+          : direct(cloner.id, name, staticParamValue(cloner, name));
+      return cloneTransformValue(paramName, clone, readCloner, engine.getAspect());
+    };
+
+    const readLocal = (layer: LayerInstance, paramName: string) =>
+      local(layer, paramName, staticParamValue(layer, paramName));
+
+    function world(layer: LayerInstance, paramName: string, baseValue: number): number {
+      if (!layer.parent || !PARENT_PARAMS.has(paramName)) return local(layer, paramName, baseValue);
+      return worldParam(engine.worldTransform(layer, readLocal), paramName, engine.getAspect());
+    }
+
+    return { direct, world };
   }
+
+  const evaluators = new Map<number, Evaluator>();
+  function at(t: number): Evaluator {
+    let e = evaluators.get(t);
+    if (!e) {
+      e = evaluatorAt(t);
+      evaluators.set(t, e);
+    }
+    return e;
+  }
+
+  function cloneDelay(clone: NonNullable<LayerInstance["clone"]>): number {
+    const rank = clone.staggerRank ?? 0;
+    if (rank === 0) return 0;
+    const cloner = engine.getLayer(clone.clonerId);
+    const stagger = cloner ? Number(cloner.values.stagger ?? 0) : 0;
+    return Number.isFinite(stagger) && stagger > 0 ? rank * stagger : 0;
+  }
+
+  const now = at(time);
+  const direct = now.direct;
+  const world = now.world;
 
   const timed: ModulationFn = !needsRouting
     ? direct
