@@ -634,7 +634,8 @@ const stagedComponentLayers = computed(() => stagedComponents.value.map((c) => c
  */
 function samplePointers(time = currentTime.value) {
   const comps = stagedComponents.value;
-  if (!comps.some((c) => typeof c.layer.values.pointer === "string" && c.layer.values.pointer)) return;
+  const hasLegacyCursor = renderLayers.value.some((l) => l.type === "image" && Number(l.values.timelineCursor) === 1);
+  if (!hasLegacyCursor && !comps.some((c) => typeof c.layer.values.pointer === "string" && c.layer.values.pointer)) return;
   const root = time === currentTime.value ? getModulatedValue : modFnAt(time);
   const nested = createNestedResolvers({ layers: renderLayers.value, parentModFn: root, resolveComposition, time });
   seekTimelinePointers({

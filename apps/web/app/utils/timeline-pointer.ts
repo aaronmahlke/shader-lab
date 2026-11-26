@@ -55,9 +55,49 @@ export function seekTimelinePointers(opts: {
   let styled = false;
   const seen = new Set<string>();
 
+  /**
+   * Older projects (PR #55 format): an image tagged `timelineCursor` with
+   * `cursorPress` keys and no Pointer layer. The topmost visible one in a
+   * component's comp drives it when the component has no pointer set.
+   */
+  const legacyCursor = (prefix: string): LayerInstance | undefined => {
+    const c = layersOf(prefix).find(
+      (l) => l.type === "image" && Number(l.values.timelineCursor) === 1 && live(l),
+    );
+    if (!c) return undefined;
+    const withId = prefix ? { ...c, id: `${prefix}${c.id}` } : c;
+    return read(withId, "layerOpacity") > 0 ? withId : undefined;
+  };
+
   for (const { layer, hosts } of components) {
     const ref = typeof layer.values.pointer === "string" ? layer.values.pointer : "";
-    if (!ref) continue;
+    if (!ref) {
+      const cursor = legacyCursor(prefixOf(layer.id));
+      if (!cursor) {
+        pointers.get(layer.id)?.update(null, null, false);
+        continue;
+      }
+      seen.add(layer.id);
+      let state = pointers.get(layer.id);
+      if (!state) pointers.set(layer.id, (state = new StagePointer()));
+      const root = getRoot(layer.id);
+      if (!root || !live(layer) || isLayer3D(layer)) {
+        state.update(null, null, false);
+        continue;
+      }
+      if (!styled) {
+        prepareStageStyles();
+        styled = true;
+      }
+      const uv = compToLayerUv(transformCenter(transform(cursor)), transform(layer), aspect);
+      let hit: Element | null = null;
+      if (uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1) {
+        const rect = root.getBoundingClientRect();
+        hit = stageHit(root, rect.width / 2 + (uv.x - 0.5) * frame.width, rect.height / 2 + (0.5 - uv.y) * frame.height);
+      }
+      state.update(root, hit, !!hit && read(cursor, "cursorPress") >= 0.5);
+      continue;
+    }
     seen.add(layer.id);
     let state = pointers.get(layer.id);
     if (!state) pointers.set(layer.id, (state = new StagePointer()));
