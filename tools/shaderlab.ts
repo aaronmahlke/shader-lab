@@ -10,6 +10,7 @@
  *       [--audio-only] [--fresh] [--url http://localhost:3000]
  *
  * --fresh renders the picture even when the stored render can be reused.
+ * --mix <name|id> renders / meters a saved mix version (the project is not changed).
  *
  * Uses the running local Shader Lab server (or starts the built one), opens
  * the comp in a hidden Chrome on the GPU with background throttling off, and
@@ -145,7 +146,8 @@ async function openComp(args: Args, label: string, run: (o: Opened) => Promise<n
         log(`page ${m.type()}: ${text.slice(0, 300)}`);
       }
     });
-    await page.goto(`${url}/shader/${comp.id}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+    // nosave: a CLI tab never writes the comp back (e.g. after --mix).
+    await page.goto(`${url}/shader/${comp.id}?nosave`, { waitUntil: "domcontentloaded", timeout: 120_000 });
     await page.waitForFunction(() => (window as any).__shaderlab?.ready?.(), { timeout: 120_000 });
     const gpu = await page.evaluate(() => {
       const gl = document.createElement("canvas").getContext("webgl2");
@@ -157,6 +159,12 @@ async function openComp(args: Args, label: string, run: (o: Opened) => Promise<n
     // Let nested comps, components, fonts and media settle.
     await page.evaluate(() => document.fonts.ready);
     await new Promise((r) => setTimeout(r, 3000));
+    if (args.mix) {
+      const r = await page.evaluate((m) => (window as any).__shaderlab.mix(m), String(args.mix));
+      if (!r.ok) throw new Error(`No mix version "${args.mix}" (have: ${r.versions.join(", ") || "none"})`);
+      log(`mix: ${args.mix}`);
+      await new Promise((res) => setTimeout(res, 500));
+    }
     return await run({ url, project, comp, page });
   } finally {
     await browser?.close().catch(() => {});
@@ -239,7 +247,7 @@ if (cmd === "render" || cmd === "events" || cmd === "meter") {
     });
 } else {
   console.error(
-    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]\n  bun tools/shaderlab.ts meter <project folder> [comp] [--out meter.json]",
+    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh] [--mix <name>]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]\n  bun tools/shaderlab.ts meter <project folder> [comp] [--out meter.json]",
   );
   process.exit(cmd ? 1 : 0);
 }

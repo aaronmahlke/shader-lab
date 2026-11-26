@@ -7,6 +7,9 @@ const props = defineProps<{ settings: CompositionSettings; compName: string }>()
 const emit = defineEmits<{
   "set-size": [width: number, height: number];
   update: [patch: Partial<CompositionSettings>];
+  "mix-save": [name: string];
+  "mix-apply": [id: string];
+  "mix-delete": [id: string];
 }>();
 
 const PRESETS = [
@@ -136,6 +139,22 @@ const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
           @update:model-value="emit('update', { masterVolume: $event })"
         />
       </StudioField>
+      <div v-if="settings.mixVersions?.length" class="flex flex-col gap-[2px]">
+        <div
+          v-for="m in settings.mixVersions"
+          :key="m.id"
+          class="flex h-[var(--s-ctl)] items-center gap-[4px] bg-[var(--s-inset)] pl-[6px] shadow-[inset_0_0_0_1px_var(--s-edge)]"
+        >
+          <span class="flex-1 truncate" :class="m.id === settings.activeMix ? 'text-[var(--s-accent)]' : ''">{{ m.name }}</span>
+          <StudioButton variant="ghost" :active="m.id === settings.activeMix" title="Use this mix" @click="emit('mix-apply', m.id)">Use</StudioButton>
+          <StudioButton variant="ghost" square title="Delete mix version" aria-label="Delete mix version" @click="emit('mix-delete', m.id)">
+            <StudioIcon name="close" />
+          </StudioButton>
+        </div>
+      </div>
+      <StudioButton title="Snapshot the current sound (audio layers, buses, master) as a mix version" @click="emit('mix-save', `Mix ${String.fromCharCode(65 + (settings.mixVersions?.length ?? 0) % 26)}`)">
+        Save mix version
+      </StudioButton>
       <EditorAudioEffectsField
         :model-value="settings.masterEffects as AudioEffect[] | undefined"
         :layers="editorLayers?.value ?? []"

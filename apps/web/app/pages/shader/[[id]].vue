@@ -89,6 +89,7 @@ import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playba
 import { audioBufferToWav, useVideoExport } from "~/composables/use-video-export";
 import { collectCompEvents } from "~/utils/comp-events";
 import { measureLoudness } from "~/utils/audio-meter";
+import { applyMix, snapshotMix, type MixVersion } from "#shared/editor/mix-versions";
 import { soundAnchors, triggerHits } from "~/utils/audio-triggers";
 import { decodeAudio } from "~/composables/use-audio-playback";
 import type { AudioEffect } from "#shared/editor/audio-effects";
@@ -948,6 +949,9 @@ if (import.meta.client) {
     /** True once nested comps, components and media are loaded enough to render. */
     ready: () => !!shaderId.value,
     /** Loudness: master (integrated / short-term LUFS, true peak), each strip solo, trigger sync. */
+    /** Switch to a mix version by id or name (render / meter it next). */
+    saveMix: (name: string) => (saveMixVersion(name), { ok: true, activeMix: settings.value.activeMix }),
+    mix: (idOrName: string) => ({ ok: useMixVersion(idOrName), versions: (settings.value.mixVersions ?? []).map((m) => m.name) }),
     meter: async () => {
       const duration = settings.value.duration;
       const mixOf = (ls: LayerInstance[]) =>
@@ -1078,6 +1082,35 @@ const shaderData = computed(() => ({
 }));
 
 useAutoSave(shaderId, shaderName, shaderData, { getCanvas, projectId });
+
+// --- Mix versions (A/B the sound on the same picture) ---
+
+/** Keep the active version in sync with edits, then snapshot a new one. */
+function saveMixVersion(name: string) {
+  const list = syncActiveMix();
+  const v = snapshotMix(name, layers.value, tracks.value, settings.value);
+  settings.value = { ...settings.value, mixVersions: [...list, v as unknown as NonNullable<CompositionSettings["mixVersions"]>[number]], activeMix: v.id };
+  history.record();
+}
+/** The stored versions with the active one refreshed from the current sound. */
+function syncActiveMix() {
+  const list = settings.value.mixVersions ?? [];
+  const active = list.find((m) => m.id === settings.value.activeMix);
+  if (!active) return list;
+  const fresh = { ...snapshotMix(active.name, layers.value, tracks.value, settings.value), id: active.id, createdAt: active.createdAt };
+  return list.map((m) => (m.id === active.id ? (fresh as unknown as typeof m) : m));
+}
+function useMixVersion(idOrName: string): boolean {
+  const list = syncActiveMix();
+  const v = list.find((m) => m.id === idOrName || m.name === idOrName);
+  if (!v) return false;
+  const next = applyMix(v as unknown as MixVersion, layers.value, tracks.value, settings.value);
+  layers.value = next.layers;
+  tracks.value = next.tracks;
+  settings.value = { ...next.settings, mixVersions: list };
+  history.record();
+  return true;
+}
 
 // --- Auto-reload: comps changed on disk (agents, git) show up without a refresh ---
 
@@ -2706,6 +2739,9 @@ registerKeyboard({
             :comp-name="shaderName"
             @set-size="setCompositionSize"
             @update="(patch) => { settings = { ...settings, ...patch }; history.record(); }"
+            @mix-save="saveMixVersion"
+            @mix-apply="useMixVersion"
+            @mix-delete="(id) => { settings = { ...settings, mixVersions: (settings.mixVersions ?? []).filter((m) => m.id !== id), activeMix: settings.activeMix === id ? undefined : settings.activeMix }; history.record(); }"
           />
 
           <EditorLfoRack

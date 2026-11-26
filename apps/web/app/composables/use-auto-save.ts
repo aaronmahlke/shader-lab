@@ -19,6 +19,8 @@ export function useAutoSave(
   let thumbnailInFlight = false;
 
   async function save() {
+    // Read-only tabs (CLI renders with ?nosave) never write.
+    if (import.meta.client && new URLSearchParams(location.search).has("nosave")) return;
     try {
       if (!documentId.value) {
         const result = await $fetch(apiBase, {

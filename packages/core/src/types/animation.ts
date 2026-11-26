@@ -38,6 +38,9 @@ export type CompositionSettings = {
   beatsPerBar?: number;
   /** Master bus level in dB (mixer). */
   masterVolume?: number;
+  /** A/B mix versions (sound snapshots, see the editor's mix-versions) and the one in use. */
+  mixVersions?: { id: string; name: string; createdAt: string; [key: string]: unknown }[];
+  activeMix?: string;
   /** Master bus effect chain (automate via `fx:<id>:<param>` tracks on layer id "master"). */
   masterEffects?: { id: string; type: string; enabled?: boolean; params: Record<string, number>; source?: string }[];
   /** Named moments on the timeline ("drop", "payoff"); read by the events API. */
