@@ -10,6 +10,7 @@ import {
 } from "./text-raster";
 import type { ComponentSource, MediaSource } from "./component-source";
 import { stbnFrameIndex } from "../modulation/stbn";
+import { NESTED_SEP } from "../compiler/compile-passes";
 import { computeContentWindow, FULL_WINDOW, WINDOWED_SOURCE_TYPES, type ContentWindow } from "./content-window";
 import {
   FRAG_SHADERS,
@@ -868,7 +869,47 @@ export function renderPasses(
   }
   ctx = { ...ctx, contentWindows: windows };
 
-  for (const pass of execPasses) {
+  // Skip layers outside their in/out window instead of rendering them at zero
+  // opacity (a long comp of sequenced precomps used to run EVERY scene's passes
+  // every frame). A skipped pass forwards its input; later reads resolve aliases.
+  const alias = new Map<string, string | null>();
+  const resolveId = (id: string | null | undefined): string | null => {
+    let cur: string | null = id ?? null;
+    for (let guard = 0; cur !== null && alias.has(cur) && guard < 4096; guard++) cur = alias.get(cur)!;
+    return cur;
+  };
+  const activeCache = new Map<string, boolean>();
+  const layerActive = (id: string): boolean => {
+    const cached = activeCache.get(id);
+    if (cached !== undefined) return cached;
+    const layer = getLayerById(ctx, id);
+    const active = !layer || layerTimingFactor(layer, ctx.time) > 0;
+    activeCache.set(id, active);
+    return active;
+  };
+  const passActive = (pass: RenderPass): boolean => {
+    const id = pass.sourceLayerId ?? pass.layerId;
+    // Nested ids (`host::…::layer`): every host composition must be active too.
+    const parts = id.split(NESTED_SEP);
+    for (let i = 1; i <= parts.length; i++) {
+      if (!layerActive(parts.slice(0, i).join(NESTED_SEP))) return false;
+    }
+    return true;
+  };
+
+  for (const original of execPasses) {
+    if (!original.isOutput && !passActive(original)) {
+      alias.set(original.layerId, resolveId(original.inputLayerId));
+      continue;
+    }
+    const pass: RenderPass = alias.size
+      ? {
+          ...original,
+          inputLayerId: resolveId(original.inputLayerId),
+          colorSourceLayerId: original.colorSourceLayerId ? resolveId(original.colorSourceLayerId) : original.colorSourceLayerId,
+          auxSourceLayerId: original.auxSourceLayerId ? resolveId(original.auxSourceLayerId) : original.auxSourceLayerId,
+        }
+      : original;
     const program = programs.get(pass.layerType);
     if (!program) continue;
 
