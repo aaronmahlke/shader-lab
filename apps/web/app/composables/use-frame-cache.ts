@@ -220,9 +220,22 @@ export function useFrameCache(opts: FrameCacheOptions) {
   function nextTarget(): number | null {
     const n = frameCount();
     const start = frameOf(opts.currentTime.value);
-    for (let i = 0; i < n; i++) {
+    const pick = (f: number) => (wouldThrash(f) ? null : f);
+    // 1. A short run ahead, so pressing play works right away.
+    const ahead = Math.min(n, Math.ceil(2 * opts.fps()));
+    for (let i = 0; i < ahead; i++) {
       const f = (start + i) % n;
-      if (!frames.has(f)) return wouldThrash(f) ? null : f;
+      if (!frames.has(f)) return pick(f);
+    }
+    // 2. Close the gap behind the playhead (nearest first) — no holes between
+    //    what's cached and where you clicked.
+    for (let f = start - 1; f >= 0; f--) {
+      if (!frames.has(f)) return pick(f);
+    }
+    // 3. The rest ahead.
+    for (let i = ahead; i < n; i++) {
+      const f = (start + i) % n;
+      if (!frames.has(f)) return pick(f);
     }
     return null;
   }
