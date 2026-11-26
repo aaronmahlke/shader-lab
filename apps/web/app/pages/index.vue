@@ -53,13 +53,77 @@ async function openFromDesktop(action: "openProject" | "newProject") {
   const compId = await desktop.value?.[action]();
   if (compId) await navigateTo(`/shader/${compId}`);
 }
+
+// Local mode (browser or desktop): import a zipped project — button or drop.
+const { data: localInfo } = await useFetch<{ local: boolean }>("/api/local/info");
+const isLocal = computed(() => !!localInfo.value?.local);
+const zipInput = ref<HTMLInputElement | null>(null);
+const importing = ref(false);
+const importError = ref("");
+const zipDragging = ref(false);
+
+async function importZip(file: File | undefined) {
+  if (!file || importing.value) return;
+  if (!/\.zip$/i.test(file.name)) {
+    importError.value = "Pick a .zip file.";
+    return;
+  }
+  importing.value = true;
+  importError.value = "";
+  try {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await $fetch<{ firstCompositionId: string | null }>("/api/local/import", { method: "POST", body });
+    await refreshProjects();
+    if (res.firstCompositionId) await navigateTo(`/shader/${res.firstCompositionId}`);
+  } catch (err) {
+    importError.value = (err as { data?: { statusMessage?: string } }).data?.statusMessage ?? "Import failed.";
+  } finally {
+    importing.value = false;
+  }
+}
+
+function hasFiles(e: DragEvent) {
+  return !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+}
+function onDragOver(e: DragEvent) {
+  if (!isLocal.value || !hasFiles(e)) return;
+  e.preventDefault();
+  zipDragging.value = true;
+}
+function onDrop(e: DragEvent) {
+  if (!isLocal.value || !hasFiles(e)) return;
+  e.preventDefault();
+  zipDragging.value = false;
+  void importZip([...(e.dataTransfer?.files ?? [])].find((f) => /\.zip$/i.test(f.name)) ?? e.dataTransfer?.files[0]);
+}
 </script>
 
 <template>
-  <div class="min-h-dvh bg-base-0">
+  <div
+    class="relative min-h-dvh bg-base-0"
+    @dragover="onDragOver"
+    @dragleave.self="zipDragging = false"
+    @drop="onDrop"
+  >
+    <div
+      v-if="zipDragging || importing"
+      class="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/60 text-copy-sm text-primary"
+    >
+      {{ importing ? "Importing project…" : "Drop a project .zip to import it" }}
+    </div>
+    <input
+      ref="zipInput"
+      type="file"
+      accept=".zip,application/zip"
+      class="hidden"
+      @change="importZip(($event.target as HTMLInputElement).files?.[0]); ($event.target as HTMLInputElement).value = ''"
+    />
     <header class="sticky top-0 z-10 flex items-center justify-between border-b border-edge bg-base-0/80 px-6 py-4 backdrop-blur-xl">
       <h1 class="text-copy-sm text-primary select-none">Shader Lab</h1>
       <div class="flex items-center gap-3">
+        <span v-if="importError" class="text-copy-sm text-danger">{{ importError }}</span>
+        <UiButton v-if="isLocal" variant="ghost" :disabled="importing" @click="zipInput?.click()">Import zip…</UiButton>
         <template v-if="desktop">
           <UiButton variant="ghost" @click="openFromDesktop('openProject')">Open…</UiButton>
           <UiButton variant="action" :icon-left="PlusIcon" @click="openFromDesktop('newProject')">
