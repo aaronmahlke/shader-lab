@@ -2624,6 +2624,13 @@ function selectAllLayers() {
           @pointerdown="onRulerPointerDown"
         >
           <div class="relative h-full" :style="{ width: `${timelineWidth}px` }">
+            <!-- RAM preview: rendered frames (AE's green bar), in the ruler so it never scrolls away. -->
+            <div
+              v-for="([a, b], i) in cachedRanges"
+              :key="`cache-${i}`"
+              class="pointer-events-none absolute bottom-0 z-[6] h-[2px] bg-[#5bd16b]"
+              :style="{ left: `${timeToX(a)}px`, width: `${Math.max(1, timeToX(b) - timeToX(a))}px` }"
+            />
             <template v-for="mark in rulerMarks" :key="`${mark.kind}-${mark.time}`">
               <div
                 class="absolute top-0 flex h-full flex-col justify-end pb-0.5"
@@ -3293,13 +3300,6 @@ function selectAllLayers() {
               }"
             />
 
-            <!-- RAM preview: rendered frames (AE's green bar). -->
-            <div
-              v-for="([a, b], i) in cachedRanges"
-              :key="`cache-${i}`"
-              class="pointer-events-none absolute top-0 z-[6] h-[2px] bg-[#5bd16b]"
-              :style="{ left: `${timeToX(a)}px`, width: `${Math.max(1, timeToX(b) - timeToX(a))}px` }"
-            />
             <!-- Drilled into a nested comp: dim what the parent does NOT show (Live-style). -->
             <template v-if="usedRange">
               <div
