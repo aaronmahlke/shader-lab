@@ -1,4 +1,4 @@
-// node --test apps/web/tests/project-components.test.mjs (Node 22.15+)
+// node --test apps/web/tests/project-components.node.mjs (Node 22.15+)
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { registerHooks } from "node:module";
