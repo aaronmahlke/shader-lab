@@ -18,8 +18,10 @@ import { onBeforeUnmount, shallowRef, watch, type Ref } from "vue";
 type FrameCacheOptions = {
   fps: () => number;
   duration: () => number;
-  /** Deep-watched; any change invalidates every cached frame. */
+  /** Everything that affects rendering (hashed); a new state gets its own cache entry. */
   signature: () => unknown;
+  /** Which comp this is (entries are per comp). */
+  cacheKey: () => string;
   /** The renderer's canvas (frames are captured from it). */
   getCanvas: () => HTMLCanvasElement | null;
   /** Render exactly `time` into the canvas (components captured, motion blur…). */
@@ -35,8 +37,31 @@ type FrameCacheOptions = {
 const IDLE_DELAY_MS = 400;
 
 
+/**
+ * Cache entries survive editor remounts (HMR, comp switches) in a document-wide
+ * store keyed by comp + a content hash of everything that affects rendering:
+ * come back to the same state and the frames are still there.
+ */
+type CacheEntry = { frames: Map<number, ImageBitmap>; bytes: number; usedAt: number };
+const MAX_ENTRIES = 3;
+function store(): Map<string, CacheEntry> {
+  const w = globalThis as unknown as { __shaderlabFrameCache?: Map<string, CacheEntry> };
+  return (w.__shaderlabFrameCache ??= new Map());
+}
+
+/** FNV-1a over a string (fast, good enough to tell render states apart). */
+function hashString(str: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36) + ":" + str.length.toString(36);
+}
+
 export function useFrameCache(opts: FrameCacheOptions) {
-  const frames = new Map<number, ImageBitmap>();
+  let entry: CacheEntry = { frames: new Map(), bytes: 0, usedAt: Date.now() };
+  let frames = entry.frames;
   /** Bumped when the set of cached frames changes (timeline bar, overlay). */
   const version = shallowRef(0);
   /** True while the overlay shows cached frames instead of the live canvas. */
@@ -54,6 +79,9 @@ export function useFrameCache(opts: FrameCacheOptions) {
 
   /** Bytes held by cached bitmaps (frames can differ in size after zoom/resize). */
   let bytes = 0;
+  const syncBytes = () => {
+    entry.bytes = bytes;
+  };
   const sizeOf = (b: ImageBitmap) => b.width * b.height * 4;
   const budget = () => opts.budgetBytes ?? 3e9;
 
@@ -68,7 +96,32 @@ export function useFrameCache(opts: FrameCacheOptions) {
     for (const bmp of frames.values()) bmp.close();
     frames.clear();
     bytes = 0;
+    syncBytes();
     showing.value = false;
+    version.value++;
+  }
+
+  /** Switch to the entry for this render state (reusing it when it exists). */
+  function useEntry(key: string) {
+    generation++;
+    const all = store();
+    let next = all.get(key);
+    if (!next) {
+      next = { frames: new Map(), bytes: 0, usedAt: Date.now() };
+      all.set(key, next);
+      // Keep only the most recently used states (bitmaps are big).
+      const old = [...all.entries()].sort((a, b) => b[1].usedAt - a[1].usedAt).slice(MAX_ENTRIES);
+      for (const [k, e] of old) {
+        if (e === next) continue;
+        for (const bmp of e.frames.values()) bmp.close();
+        all.delete(k);
+      }
+    }
+    next.usedAt = Date.now();
+    entry = next;
+    frames = entry.frames;
+    bytes = entry.bytes;
+    showing.value = frames.has(frameOf(opts.currentTime.value));
     version.value++;
   }
 
@@ -148,6 +201,7 @@ export function useFrameCache(opts: FrameCacheOptions) {
       frames.set(f, bmp);
       bytes += sizeOf(bmp);
       evict();
+      syncBytes();
       if (frames.has(frameOf(opts.currentTime.value))) showing.value = true;
       version.value++;
       return true;
@@ -195,14 +249,14 @@ export function useFrameCache(opts: FrameCacheOptions) {
   }
 
   watch(
-    opts.signature,
-    () => {
-      lastEditAt = performance.now();
-      clear();
-      opts.restoreLive();
+    () => opts.cacheKey() + "|" + hashString(JSON.stringify(opts.signature())),
+    (key, prev) => {
+      if (prev !== undefined) lastEditAt = performance.now();
+      useEntry(key);
+      if (!showing.value) opts.restoreLive();
       scheduleIdle();
     },
-    { deep: true },
+    { immediate: true },
   );
 
   // Playing: keep rendering ahead. Paused: top up after a short idle.
@@ -244,7 +298,8 @@ export function useFrameCache(opts: FrameCacheOptions) {
     if (typeof window !== "undefined") {
       for (const ev of INPUT_EVENTS) window.removeEventListener(ev, onInput, { capture: true });
     }
-    clear();
+    // Keep the frames (store): a remount (HMR) with the same state picks them up again.
+    generation++;
   });
 
   /** Cached spans as [startSec, endSec] pairs (timeline bar). */

@@ -489,7 +489,7 @@ const renderLayers = computed<LayerInstance[]>(() => {
 
 // Nested compositions: fetch referenced comps (and their refs) into a
 // registry the compiler and renderer resolve against.
-const { registryVersion, resolveComposition } = useCompRegistry({
+const { registry, registryVersion, resolveComposition } = useCompRegistry({
   projectId,
   layers,
 });
@@ -745,11 +745,13 @@ const cacheCanvasRef = ref<HTMLCanvasElement | null>(null);
 const frameCache = useFrameCache({
   fps: () => settings.value.fps,
   duration: () => settings.value.duration,
+  // Content, not counters: nested comps by their data (a remount re-loads them,
+  // the hash comes back the same and the cached frames are reused).
   signature: () => [
     layers.value, lfos.value, assignments.value, settings.value, tracks.value,
-    // Not the viewport size/zoom: cached frames just scale (resizing must not clear).
-    registryVersion.value, previewResolution.value, textEditingLayerId.value,
+    registry.value, previewResolution.value, textEditingLayerId.value,
   ],
+  cacheKey: () => shaderId.value ?? "",
   getCanvas,
   renderAt: async (time: number) => {
     seekStageToCompTime(time);
