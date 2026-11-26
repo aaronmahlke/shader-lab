@@ -41,5 +41,4 @@ export const DEFAULT_COMPOSITION_SETTINGS: CompositionSettings = {
   fps: 60,
   width: 1920,
   height: 1080,
-  motionBlur: true,
 };

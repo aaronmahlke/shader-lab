@@ -7,8 +7,8 @@ describe("motionBlurSampleTimes", () => {
     expect(motionBlurSampleTimes(1, { fps: 60, motionBlur: false })).toEqual([1]);
   });
 
-  it("is on by default (AE-style)", () => {
-    expect(motionBlurSampleTimes(1, { fps: 60 }).length).toBe(8);
+  it("is off when unset (older comps keep their look)", () => {
+    expect(motionBlurSampleTimes(1, { fps: 60 })).toEqual([1]);
   });
 
   it("spreads samples evenly across a centered shutter window", () => {

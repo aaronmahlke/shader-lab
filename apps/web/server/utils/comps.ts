@@ -22,5 +22,12 @@ export function toShaderShape(pair: CompWithProject) {
 
 /** Minimal valid CompositionConfig for a brand-new composition. */
 export function emptyCompositionData() {
-  return { version: 1, layers: [], lfos: [], assignments: [] };
+  // New comps start with motion blur on; comps saved without the setting stay off.
+  return {
+    version: 1,
+    layers: [],
+    lfos: [],
+    assignments: [],
+    settings: { duration: 5, fps: 60, width: 1920, height: 1080, motionBlur: true },
+  };
 }

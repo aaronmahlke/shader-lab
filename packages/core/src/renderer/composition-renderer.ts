@@ -215,8 +215,11 @@ export class CompositionRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     const weight = 1 / times.length;
+    // Samples are centered on the frame: their mean is the frame time, which
+    // decides layer in/out for every sample (no blur across cuts).
+    const gateTime = times.reduce((a, b) => a + b, 0) / times.length;
     for (const t of times) {
-      renderPasses(passes, this.passContext(t, prepare(t)), {
+      renderPasses(passes, { ...this.passContext(t, prepare(t)), gateTime }, {
         readPixels: false,
         pipelineCache: this.pipelineCache,
         outputTarget: accum,

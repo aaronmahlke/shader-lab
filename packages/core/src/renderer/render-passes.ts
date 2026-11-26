@@ -56,6 +56,12 @@ export type RenderPassContext = {
   width: number;
   height: number;
   time: number;
+  /**
+   * Time that decides which layers exist (in/out points). Motion blur renders
+   * sub-frame `time`s but gates at the frame time, like AE: cuts stay cuts
+   * instead of smearing two layers across the shutter.
+   */
+  gateTime?: number;
   scaleUniform: number;
   gradientTextures: Map<string, WebGLTexture>;
   stbnTexture: WebGLTexture | null;
@@ -139,7 +145,7 @@ function resolvePassUniformValues(
     merged.u_window = ctx.contentWindows?.get(pass.layerId) ?? FULL_WINDOW;
   }
 
-  applyTimingGate(merged, layer, pass, ctx.time);
+  applyTimingGate(merged, layer, pass, ctx.gateTime ?? ctx.time);
   return merged;
 }
 
@@ -201,7 +207,7 @@ function mergeSceneUniforms(
   for (const lightId of pass.threeDGroup?.lightIds ?? []) {
     if (count >= MAX_SCENE_LIGHTS) break;
     const light = getLayerById(ctx, lightId);
-    if (!light || layerTimingFactor(light, ctx.time) === 0) continue;
+    if (!light || layerTimingFactor(light, ctx.gateTime ?? ctx.time) === 0) continue;
 
     const opacity = readLayerParam(ctx, light, "layerOpacity", 100) / 100;
     const intensity = readLayerParam(ctx, light, "intensity", 1) * opacity;
@@ -883,7 +889,7 @@ export function renderPasses(
     const cached = activeCache.get(id);
     if (cached !== undefined) return cached;
     const layer = getLayerById(ctx, id);
-    const active = !layer || layerTimingFactor(layer, ctx.time) > 0;
+    const active = !layer || layerTimingFactor(layer, ctx.gateTime ?? ctx.time) > 0;
     activeCache.set(id, active);
     return active;
   };

@@ -6,9 +6,9 @@ import type { CompositionSettings } from "../types/animation";
  * a frame interval). Returns just [time] when motion blur is off.
  * `maxSamples` caps the count (e.g. a cheaper preview while playing).
  */
-/** On unless a comp explicitly turned it off (AE-style default on). */
+/** On when the comp turned it on (new comps start with it on; older comps keep their look). */
 export function motionBlurEnabled(settings: Pick<CompositionSettings, "motionBlur">): boolean {
-  return settings.motionBlur !== false;
+  return settings.motionBlur === true;
 }
 
 export function motionBlurSampleTimes(

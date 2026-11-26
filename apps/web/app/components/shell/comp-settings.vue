@@ -82,12 +82,12 @@ const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
     <EditorInspectorSection title="Render">
       <StudioField label="Motion blur" inline>
         <StudioSegmented
-          :model-value="settings.motionBlur !== false"
+          :model-value="settings.motionBlur === true"
           :options="[{ value: true, label: 'On' }, { value: false, label: 'Off' }]"
           @update:model-value="emit('update', { motionBlur: $event })"
         />
       </StudioField>
-      <template v-if="settings.motionBlur !== false">
+      <template v-if="settings.motionBlur === true">
         <StudioField label="Shutter" inline>
           <StudioValue
             :model-value="settings.shutterAngle ?? 180"
