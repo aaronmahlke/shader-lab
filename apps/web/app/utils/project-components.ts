@@ -1,6 +1,7 @@
 import * as Vue from "vue";
 import { shallowRef, type Component } from "vue";
 import { useStageTime } from "~/composables/use-stage-time";
+import { useStageCues } from "~/composables/use-stage-cues";
 
 /**
  * Browser side of project-level components (`<project>/components/*.vue`).
@@ -30,7 +31,7 @@ const MODULES: Record<string, () => Promise<unknown>> = {
   "@heroicons/vue/24/solid": () => import("@heroicons/vue/24/solid"),
   "@heroicons/vue/24/outline": () => import("@heroicons/vue/24/outline"),
   "@vueuse/core": () => import("@vueuse/core"),
-  "#shaderlab": async () => ({ useStageTime }),
+  "#shaderlab": async () => ({ useStageTime, useStageCues }),
 };
 
 /** Components of the open project; reactive so pickers and panels update. */
@@ -64,6 +65,7 @@ const AUTO_IMPORTS: Record<string, unknown> = (() => {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(Vue)) if (/^[A-Za-z_$][\w$]*$/.test(k)) out[k] = v;
   out.useStageTime = useStageTime;
+  out.useStageCues = useStageCues;
   return out;
 })();
 

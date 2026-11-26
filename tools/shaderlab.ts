@@ -2,6 +2,9 @@
 /**
  * shaderlab — render comps without a visible editor tab.
  *
+ *   bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]
+ *       motion peaks, presses, in/out, component cues, markers (comp time)
+ *
  *   bun tools/shaderlab.ts render <project folder> [comp name|id]
  *       [--out file.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm]
  *       [--audio-only] [--fresh] [--url http://localhost:3000]
@@ -89,10 +92,17 @@ async function api<T>(url: string, path: string, init?: RequestInit): Promise<T>
   return (await r.json()) as T;
 }
 
-async function render(args: Args) {
+type Opened = {
+  url: string;
+  project: { id: string; name: string };
+  comp: { id: string; name: string };
+  page: Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.launch>>["newPage"]>>;
+};
+
+/** Server + project + comp opened in a hidden GPU Chrome, settled. */
+async function openComp(args: Args, label: string, run: (o: Opened) => Promise<number>): Promise<number> {
   const folder = resolve(String(args._[1] ?? "."));
   const compArg = args._[2] ? String(args._[2]) : null;
-  const audioOnly = args["audio-only"] === true;
   const { url, child } = await ensureServer(String(args.url ?? process.env.SHADERLAB_URL ?? "http://localhost:3000"));
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
   try {
@@ -106,7 +116,7 @@ async function render(args: Args) {
       (compArg && full.compositions.find((c) => c.id === compArg || c.name === compArg || c.name.toLowerCase().includes(compArg.toLowerCase()))) ||
       (!compArg ? full.compositions[0] : null);
     if (!comp) throw new Error(`No comp "${compArg}" in ${project.name}: ${full.compositions.map((c) => c.name).join(", ")}`);
-    log(`${project.name} → ${comp.name}${audioOnly ? " (audio only)" : ""}`);
+    log(`${project.name} → ${comp.name}${label}`);
 
     browser = await puppeteer.launch({
       executablePath: CHROME,
@@ -141,7 +151,28 @@ async function render(args: Args) {
     // Let nested comps, components, fonts and media settle.
     await page.evaluate(() => document.fonts.ready);
     await new Promise((r) => setTimeout(r, 3000));
+    return await run({ url, project, comp, page });
+  } finally {
+    await browser?.close().catch(() => {});
+    child?.kill();
+  }
+}
 
+async function events(args: Args) {
+  return openComp(args, " (events)", async ({ project, comp, page }) => {
+    const list = await page.evaluate(() => (window as any).__shaderlab.events());
+    const json = JSON.stringify({ project: project.name, comp: comp.name, compId: comp.id, events: list }, null, 2);
+    if (args.out) {
+      writeFileSync(resolve(String(args.out)), json);
+      log(`${(list as unknown[]).length} events → ${resolve(String(args.out))}`);
+    } else process.stdout.write(json + "\n");
+    return 0;
+  });
+}
+
+async function render(args: Args) {
+  const audioOnly = args["audio-only"] === true;
+  return openComp(args, audioOnly ? " (audio only)" : "", async ({ project, comp, page }) => {
     const started = Date.now();
     const progress = setInterval(async () => {
       const p = await page.evaluate(() => {
@@ -176,22 +207,21 @@ async function render(args: Args) {
       log(`still stretches (≥ 1 s, check they're intended): ${r.frozen.map(([a, b]) => `${a.toFixed(2)}–${b.toFixed(2)}s`).join(", ")}`);
     }
     return 0;
-  } finally {
-    await browser?.close().catch(() => {});
-    child?.kill();
-  }
+  });
 }
 
 const args = parseArgs(process.argv.slice(2));
 const cmd = args._[0];
-if (cmd === "render") {
-  render(args)
+if (cmd === "render" || cmd === "events") {
+  (cmd === "render" ? render(args) : events(args))
     .then((code) => process.exit(code))
     .catch((err) => {
       log("error:", err instanceof Error ? err.message : err);
       process.exit(1);
     });
 } else {
-  console.error("usage: bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh]");
+  console.error(
+    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]",
+  );
   process.exit(cmd ? 1 : 0);
 }

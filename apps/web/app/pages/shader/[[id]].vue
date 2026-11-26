@@ -87,6 +87,7 @@ import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
 import { audioBufferToWav, useVideoExport } from "~/composables/use-video-export";
+import { collectCompEvents } from "~/utils/comp-events";
 import { seekTimelinePointers } from "~/utils/timeline-pointer";
 import { BUILT_IN_CURSORS, cursorAnchor } from "#shared/editor/cursors";
 import { compUrl, parseTrail, type TrailStep } from "~/utils/comp-trail";
@@ -918,6 +919,12 @@ if (import.meta.client) {
     render: renderComp,
     /** True once nested comps, components and media are loaded enough to render. */
     ready: () => !!shaderId.value,
+    /** Sync points in comp time: motion peaks, presses, in/out, component cues, markers. */
+    events: () =>
+      collectCompEvents(
+        { version: 1, layers: layers.value, lfos: lfos.value, assignments: assignments.value, settings: settings.value, tracks: tracks.value },
+        { resolveComposition, frame: settings.value },
+      ),
   };
 }
 

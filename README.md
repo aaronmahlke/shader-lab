@@ -42,3 +42,15 @@ fingerprint, still stretches). The render is also kept in
 `<project>/.shaderlab/renders/`; when only the audio changed since, the video
 is copied as is (seconds instead of minutes). `--audio-only` writes the mix as
 WAV.
+
+### Sync points (events)
+
+```bash
+bun run shaderlab events "<project folder>" ["comp name"] [--out events.json]
+```
+
+Every moment sound can sync to, in comp time: motion segments (start, speed
+peak, end; position as one move per layer), pointer press / release, layer
+in / out, component cues and comp markers (`settings.markers`). Nested comps
+are included with their times shifted. Components declare cues with
+`useStageCues(() => [{ time, name, data }])` (layer time), e.g. one per keystroke.
