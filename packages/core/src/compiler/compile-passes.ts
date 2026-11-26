@@ -1,3 +1,4 @@
+import { applyCompProps } from "./comp-props";
 import type { CompositionConfig } from "../types/composition";
 import type { LayerInstance, RenderPass } from "../types/editor";
 import LAYER_TEMPLATES from "./layer-templates";
@@ -184,8 +185,10 @@ function emitNestedComposition(
   const stack = opts._stack ?? new Set<string>(opts.rootCompositionId ? [opts.rootCompositionId] : []);
   if (stack.has(compId) || stack.size >= MAX_NESTING_DEPTH) return false;
 
-  const config = opts.resolveComposition(compId);
-  if (!config) return false;
+  const resolved = opts.resolveComposition(compId);
+  if (!resolved) return false;
+  // This instance's prop values (image, text, numbers…) replace the bound layers'.
+  const config = applyCompProps(resolved, layer);
 
   const nested = compileStack(config.layers, modFn, {
     ...opts,

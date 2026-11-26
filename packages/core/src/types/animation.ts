@@ -32,6 +32,8 @@ export type CompositionSettings = {
   shutterAngle?: number;
   /** Sub-frame renders per frame (cost multiplier). */
   motionBlurSamples?: number;
+  /** Comp props: settings of inner layers that precomp layers can set per instance. */
+  props?: import("../compiler/comp-props").CompProp[];
 };
 
 export const DEFAULT_COMPOSITION_SETTINGS: CompositionSettings = {

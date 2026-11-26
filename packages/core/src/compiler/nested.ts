@@ -5,6 +5,7 @@ import { NESTED_SEP } from "./compile-passes";
 import { ModulationEngine } from "../modulation/engine";
 import { createAnimatedModulationFn } from "../animation/create-modulation-fn";
 import { expandCloners } from "../modulation/cloners";
+import { applyCompProps } from "./comp-props";
 
 /**
  * Per-frame resolvers that make nested composition passes work through the
@@ -62,7 +63,7 @@ export function createNestedResolvers(opts: NestedResolverOptions): {
         return null;
       }
       timeShift += host.timing?.in ?? 0;
-      config = resolved;
+      config = applyCompProps(resolved, host);
       layersById = expandCloners(config.layers).byId;
     }
 

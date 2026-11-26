@@ -111,6 +111,10 @@ const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
         </div>
       </template>
     </section>
+    <ShellCompPropsPanel
+      :model-value="settings.props ?? []"
+      @update:model-value="emit('update', { props: $event })"
+    />
   </div>
 </template>
 

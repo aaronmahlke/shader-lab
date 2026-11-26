@@ -1,3 +1,4 @@
+import { applyCompProps } from "@shader-lab/core";
 import type { CompositionConfig, LayerInstance, MediaSource } from "@shader-lab/core";
 import { mediaDisplayFit } from "#shared/editor/layer-content-extent";
 import { TRANSFORM_PARAM_NAMES } from "#shared/editor/layer-transform";
@@ -177,8 +178,9 @@ export function useMediaSources(options: MediaSourcesOptions) {
       if (layer.type !== "composition" || depth >= MAX_MEDIA_NESTING_DEPTH) continue;
       const compId = layer.values.compRefId;
       if (typeof compId !== "string" || !compId || visited.has(compId)) continue;
-      const config = options.resolveComposition?.(compId);
-      if (!config) continue;
+      const resolved = options.resolveComposition?.(compId);
+      if (!resolved) continue;
+      const config = applyCompProps(resolved, layer); // per-instance image props
       collectInstances(
         config.layers,
         `${prefix}${layer.id}${NESTED_SEP}`,

@@ -52,6 +52,8 @@ type Emits = {
   "toggle-stopwatch": [paramName: string];
   "toggle-keyframe": [paramName: string];
   "set-animated-value": [paramName: string, value: number];
+  /** Make this setting a comp prop (settable per precomp instance). */
+  "expose-prop": [paramName: string, label: string];
 };
 
 // Reactive props destructure (must happen directly on defineProps: pulling
@@ -838,6 +840,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               </div>
               <template #menu>
                 <UiContextMenuItem @click="resetUniform(field.def)">Reset to default</UiContextMenuItem>
+                <UiContextMenuItem @click="emit('expose-prop', field.def.name, field.label || field.def.label)">Expose as prop</UiContextMenuItem>
                 <template v-if="getAssignment(field.def.name)">
                   <UiContextMenuSeparator />
                   <UiContextMenuItem @click="emit('remove-assignment', getAssignment(field.def.name)!.sourceId, field.def.name)">
@@ -898,6 +901,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               </div>
               <template #menu>
                 <UiContextMenuItem @click="resetUniform(field.def)">Reset to default</UiContextMenuItem>
+                <UiContextMenuItem @click="emit('expose-prop', field.def.name, field.label || field.def.label)">Expose as prop</UiContextMenuItem>
                 <template v-if="getAssignment(field.def.name)">
                   <UiContextMenuSeparator />
                   <UiContextMenuItem @click="emit('remove-assignment', getAssignment(field.def.name)!.sourceId, field.def.name)">
@@ -910,6 +914,8 @@ function isUniformVisible(def: LayerUniformDef): boolean {
         </div>
       </template>
     </EditorInspectorSection>
+
+    <EditorCompPropsFields v-if="layer.type === 'composition'" :layer="layer" />
 
     <EditorInspectorSection :title="template.label">
       <template v-for="def in template.uniforms" :key="def.name">
@@ -1052,6 +1058,7 @@ function isUniformVisible(def: LayerUniformDef): boolean {
             </div>
             <template #menu>
               <UiContextMenuItem @click="resetUniform(def)">Reset to default</UiContextMenuItem>
+              <UiContextMenuItem @click="emit('expose-prop', def.name, def.label)">Expose as prop</UiContextMenuItem>
               <template v-if="getAssignment(def.name)">
                 <UiContextMenuSeparator />
                 <UiContextMenuItem @click="emit('remove-assignment', getAssignment(def.name)!.sourceId, def.name)">

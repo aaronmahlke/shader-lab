@@ -82,7 +82,7 @@ import {
   getShaderPreset,
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
-import { buildLayerValues, offsetDuplicatedWave } from "@shader-lab/core";
+import { buildLayerValues, offsetDuplicatedWave, applyCompProps, createNestedResolvers } from "@shader-lab/core";
 import { defaultStageComponentName } from "~/utils/stage-components";
 import { loadProjectComponents, projectComponents } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
@@ -340,6 +340,8 @@ provide("lfoValues", lfoValues);
 provide("editorTracks", tracks);
 provide("editorLayers", layers);
 provide("editorSettings", settings);
+// Precomp layers read their nested comp (props panel).
+provide("editorResolveComposition", (id: string) => resolveComposition(id));
 provide("editorProjectId", projectId);
 
 // Project-level components (`<project>/components/*.vue`): load with the
@@ -593,12 +595,13 @@ const stagedComponents = computed(() => {
   void registryVersion.value;
   // windows: root-time [in, out] of the layer and of every host comp around it.
   type Win = [number, number];
-  const out: { layer: LayerInstance; inOffset: number; windows: Win[] }[] = [];
+  // hosts: prefixed ids of the precomp layers around it (root → innermost).
+  const out: { layer: LayerInstance; inOffset: number; windows: Win[]; hosts: string[] }[] = [];
   const winOf = (l: LayerInstance, inOffset: number): Win => [
     inOffset + (l.timing?.in ?? -Infinity),
     inOffset + (l.timing?.out ?? Infinity),
   ];
-  const walk = (list: LayerInstance[], prefix: string, inOffset: number, visited: Set<string>, depth: number, hostWins: Win[] = []) => {
+  const walk = (list: LayerInstance[], prefix: string, inOffset: number, visited: Set<string>, depth: number, hostWins: Win[] = [], hosts: string[] = []) => {
     for (const layer of list) {
       if (!layer.enabled) continue;
       if (layer.type === "component") {
@@ -606,15 +609,17 @@ const stagedComponents = computed(() => {
           layer: prefix ? { ...layer, id: `${prefix}${layer.id}` } : layer,
           inOffset,
           windows: [...hostWins, winOf(layer, inOffset)],
+          hosts,
         });
         continue;
       }
       if (layer.type !== "composition" || depth >= 4) continue;
       const compId = layer.values.compRefId;
       if (typeof compId !== "string" || !compId || visited.has(compId)) continue;
-      const config = resolveComposition(compId);
-      if (!config) continue;
-      walk(config.layers, `${prefix}${layer.id}${NESTED_SEP}`, inOffset + (layer.timing?.in ?? 0), new Set([...visited, compId]), depth + 1, [...hostWins, winOf(layer, inOffset)]);
+      const resolved = resolveComposition(compId);
+      if (!resolved) continue;
+      const config = applyCompProps(resolved, layer); // per-instance props (component, pointer…)
+      walk(config.layers, `${prefix}${layer.id}${NESTED_SEP}`, inOffset + (layer.timing?.in ?? 0), new Set([...visited, compId]), depth + 1, [...hostWins, winOf(layer, inOffset)], [...hosts, `${prefix}${layer.id}`]);
     }
   };
   walk(renderLayers.value, "", 0, new Set(), 0);
@@ -622,16 +627,37 @@ const stagedComponents = computed(() => {
 });
 const stagedComponentLayers = computed(() => stagedComponents.value.map((c) => c.layer));
 
-/** Pointer layers drive hover / pressed in the components that follow them (this comp). */
+/**
+ * Pointer layers drive hover / pressed in the components that follow them:
+ * in this comp, and inside precomps (a Pointer prop hands Main's pointer in;
+ * its position is mapped through each precomp layer's transform).
+ */
 function samplePointers(time = currentTime.value) {
-  if (!layers.value.some((l) => l.type === "pointer")) return;
-  seekTimelinePointers(
-    layers.value,
+  const comps = stagedComponents.value;
+  if (!comps.some((c) => typeof c.layer.values.pointer === "string" && c.layer.values.pointer)) return;
+  const root = time === currentTime.value ? getModulatedValue : modFnAt(time);
+  const nested = createNestedResolvers({ layers: renderLayers.value, parentModFn: root, resolveComposition, time });
+  seekTimelinePointers({
+    components: comps.map((c) => ({ layer: c.layer, hosts: c.hosts })),
+    layersOf: compLayersOf,
     time,
-    settings.value,
-    (id) => stageHostRef.value?.getElement(id) ?? null,
-    time === currentTime.value ? getModulatedValue : modFnAt(time),
-  );
+    frame: settings.value,
+    getRoot: (id) => stageHostRef.value?.getElement(id) ?? null,
+    sample: nested.modFn,
+  });
+}
+
+/** A comp's layers by id prefix ("" = this comp, "h1::h2::" = nested), props applied. */
+function compLayersOf(prefix: string): LayerInstance[] {
+  let list: LayerInstance[] = renderLayers.value;
+  for (const hostId of prefix.split(NESTED_SEP).filter(Boolean)) {
+    const host = list.find((l) => l.id === hostId);
+    const compId = host?.values.compRefId;
+    const resolved = typeof compId === "string" ? resolveComposition(compId) : null;
+    if (!host || !resolved) return [];
+    list = applyCompProps(resolved, host).layers;
+  }
+  return list;
 }
 
 const componentCapture = useComponentCapture({
@@ -1063,6 +1089,16 @@ function addLayer(type: LayerType, overrides: Record<string, unknown> = {}) {
   selectedLayerId.value = id;
   selectedLayerIds.value = new Set([id]);
   selectionAnchorId.value = id;
+  history.record();
+}
+
+/** Inspector → "Expose as prop": add a comp prop bound to this layer setting. */
+function exposeProp(layerId: string, param: string, label: string) {
+  const list = settings.value.props ?? [];
+  if (list.some((p) => p.layerId === layerId && p.param === param)) return;
+  const layer = layers.value.find((l) => l.id === layerId);
+  const name = `${layer?.name ?? "Layer"} ${label}`.trim();
+  settings.value = { ...settings.value, props: [...list, { id: crypto.randomUUID().slice(0, 8), name, layerId, param }] };
   history.record();
 }
 
@@ -2428,6 +2464,7 @@ registerKeyboard({
           @toggle-keyframe="toggleKeyframeAtPlayhead(selectedLayer.id, $event)"
           @set-animated-value="(param, value) => setAnimatedValue(selectedLayer!.id, param, value)"
           @set-parent="(parentId, point) => setLayerParent(selectedLayer!.id, parentId, point)"
+          @expose-prop="(param, label) => exposeProp(selectedLayer!.id, param, label)"
           />
           <ShellCompSettings
             v-else

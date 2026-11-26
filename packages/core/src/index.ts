@@ -275,6 +275,7 @@ export { ATTACH_POINTS, attachPointsFor, attachPointOffset, estimateTextWidth } 
 export type { AttachPoint, TextMeasure } from "./modulation/attach-points";
 export { layoutTextSpec, textFont } from "./renderer/text-raster";
 export { motionBlurSampleTimes, motionBlurEnabled } from "./renderer/motion-blur";
+export { applyCompProps, compPropsOf, hostPropValues, type CompProp } from "./compiler/comp-props";
 export type { TextLayout, TextGlyph } from "./renderer/text-raster";
 export {
   applyEffectorInfluence,

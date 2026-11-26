@@ -2,7 +2,7 @@ import { compilePasses, type CompositionConfig, type LFOSource, type LayerInstan
 
 function layerStructureKey(layers: LayerInstance[]): string {
   return layers
-    .map((l) => `${l.id}:${l.type}:${l.enabled ? 1 : 0}:${l.is3D ? 1 : 0}:${l.values.drive3d === true ? 1 : 0}:${typeof l.values.compRefId === "string" ? l.values.compRefId : ""}`)
+    .map((l) => `${l.id}:${l.type}:${l.enabled ? 1 : 0}:${l.is3D ? 1 : 0}:${l.values.drive3d === true ? 1 : 0}:${typeof l.values.compRefId === "string" ? l.values.compRefId : ""}:${l.type === "composition" && l.values.props ? JSON.stringify(l.values.props) : ""}`)
     .join("|");
 }
 
