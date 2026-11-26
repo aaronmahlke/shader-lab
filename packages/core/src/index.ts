@@ -274,7 +274,7 @@ export type { WorldTransform } from "./modulation/parenting";
 export { ATTACH_POINTS, attachPointsFor, attachPointOffset, estimateTextWidth } from "./modulation/attach-points";
 export type { AttachPoint, TextMeasure } from "./modulation/attach-points";
 export { layoutTextSpec, textFont } from "./renderer/text-raster";
-export { motionBlurSampleTimes } from "./renderer/motion-blur";
+export { motionBlurSampleTimes, motionBlurEnabled } from "./renderer/motion-blur";
 export type { TextLayout, TextGlyph } from "./renderer/text-raster";
 export {
   applyEffectorInfluence,

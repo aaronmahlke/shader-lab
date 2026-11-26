@@ -84,9 +84,9 @@ const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
       <h3 class="mb-1 text-xs font-medium text-neutral-subtle">Render</h3>
       <div class="shell-row">
         <span>Motion blur</span>
-        <d-switch size="sm" :model-value="!!settings.motionBlur" @update:model-value="emit('update', { motionBlur: $event })" />
+        <d-switch size="sm" :model-value="settings.motionBlur !== false" @update:model-value="emit('update', { motionBlur: $event })" />
       </div>
-      <template v-if="settings.motionBlur">
+      <template v-if="settings.motionBlur !== false">
         <div class="shell-row">
           <span>Shutter</span>
           <d-number-field

@@ -3,8 +3,12 @@ import { motionBlurSampleTimes } from "./motion-blur";
 import { normalizeComposition } from "../compiler/normalize-composite-layers";
 
 describe("motionBlurSampleTimes", () => {
-  it("is just the frame time when off", () => {
-    expect(motionBlurSampleTimes(1, { fps: 60 })).toEqual([1]);
+  it("is just the frame time when turned off", () => {
+    expect(motionBlurSampleTimes(1, { fps: 60, motionBlur: false })).toEqual([1]);
+  });
+
+  it("is on by default (AE-style)", () => {
+    expect(motionBlurSampleTimes(1, { fps: 60 }).length).toBe(8);
   });
 
   it("spreads samples evenly across a centered shutter window", () => {

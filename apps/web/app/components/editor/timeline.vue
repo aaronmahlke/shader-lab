@@ -102,7 +102,7 @@ const MagnetIcon = () => h(UIcon, { name: "i-lucide-magnet" });
 const MotionBlurIcon = () => h(UIcon, { name: "i-lucide-wind" });
 
 function toggleMotionBlur() {
-  settings.motionBlur = !settings.motionBlur;
+  settings.motionBlur = settings.motionBlur === false;
   history?.record();
 }
 

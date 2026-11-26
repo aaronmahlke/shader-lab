@@ -571,11 +571,16 @@ const {
   modFnAt,
   // Cheaper while playing; full samples on still frames and export.
   // Editor renders stay light (2 sub-frames); exports render every motion-blur sample.
-  motionBlurTimes: (time) => motionBlurSampleTimes(time, settings.value, isExportClockActive() ? Infinity : 2),
+  // Export and RAM-preview renders get every sample; only live interaction
+  // (dragging, stepping through uncached frames) uses a cheap 2-sample blur.
+  motionBlurTimes: (time) =>
+    motionBlurSampleTimes(time, settings.value, isExportClockActive() || fullQualityRender ? Infinity : 2),
 });
 
 // --- Component layers: off-screen stage + DOM capture ---
 
+/** Set while the RAM preview renders a frame it keeps (full motion-blur samples). */
+let fullQualityRender = false;
 const stageHostRef = ref<{ getElement: (layerId: string) => HTMLElement | null } | null>(null);
 
 /**
@@ -801,7 +806,13 @@ const frameCache = useFrameCache({
     await nextTick();
     if (layers.value.some((l) => l.type === "video")) await mediaSources.syncForExport(time);
     await componentCapture.captureAll(time);
-    renderFrame(time);
+    // Cached frames are kept: render them at export quality (all blur samples).
+    fullQualityRender = true;
+    try {
+      renderFrame(time);
+    } finally {
+      fullQualityRender = false;
+    }
   },
   restoreLive: () => {
     seekStageToCompTime(currentTime.value);
