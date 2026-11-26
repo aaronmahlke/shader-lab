@@ -52,6 +52,7 @@ defineExpose({
 
 <template>
   <div
+    inert
     aria-hidden="true"
     class="pointer-events-none fixed top-0 left-[-100000px] select-none"
   >

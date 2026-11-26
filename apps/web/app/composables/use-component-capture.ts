@@ -1,6 +1,7 @@
+import { nextTick, onBeforeUnmount, onMounted, reactive, watch, type Ref } from "vue";
 import type { ComponentSourceInput, LayerInstance } from "@shader-lab/core";
 import { componentCaptureScaleFromValues, componentNameFromValues } from "@shader-lab/core";
-import { DomCaptureSession } from "~/utils/dom-capture";
+import { DomCaptureSession } from "../utils/dom-capture";
 
 /**
  * Drives DOM capture for component layers.
@@ -17,6 +18,7 @@ const CAPTURE_MIN_INTERVAL_MS = 33;
 
 type ComponentCaptureOptions = {
   layers: Ref<LayerInstance[]>;
+  samplePointer: (time?: number) => void;
   /** Laid-out stage element per layer (null while mounting). */
   getElement: (layerId: string) => HTMLElement | null;
   setComponentSource: (layerId: string, source: ComponentSourceInput | null) => void;
@@ -44,6 +46,7 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
   let rafId: number | null = null;
   let paused = false;
   let disposed = false;
+  let explicitCaptures = 0;
 
   function componentLayers(): LayerInstance[] {
     return options.layers.value.filter(
@@ -98,7 +101,8 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
 
   function tick(): void {
     rafId = requestAnimationFrame(tick);
-    if (paused) return;
+    if (paused || explicitCaptures) return;
+    options.samplePointer();
     const now = performance.now();
     for (const layer of componentLayers()) {
       if (options.isActive && !options.isActive(layer.id)) continue;
@@ -114,10 +118,18 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
    * Fresh capture of every staged layer, awaited. Waits out in-flight captures
    * first so an export frame never races the live loop.
    */
-  async function captureAll(time?: number): Promise<void> {
-    const layers = componentLayers().filter((l) => !options.isActive || options.isActive(l.id, time));
-    await Promise.all(layers.map((layer) => pending.get(layer.id) ?? Promise.resolve(false)));
-    await Promise.all(layers.map((layer) => captureLayer(layer)));
+  async function captureAll(time?: number, beforeCapture?: () => void): Promise<void> {
+    explicitCaptures++;
+    try {
+      const layers = componentLayers().filter((l) => !options.isActive || options.isActive(l.id, time));
+      await Promise.all(layers.map((layer) => pending.get(layer.id) ?? Promise.resolve(false)));
+      options.samplePointer(time);
+      await nextTick();
+      beforeCapture?.();
+      await Promise.all(layers.map((layer) => captureLayer(layer)));
+    } finally {
+      explicitCaptures--;
+    }
   }
 
   /** Stop the live loop (exports drive capture explicitly per frame). */

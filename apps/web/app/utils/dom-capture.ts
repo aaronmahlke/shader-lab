@@ -1,3 +1,5 @@
+import { prepareStageStyles } from "./stage-pointer";
+
 /**
  * Adapted from evlog's Render labs (apps/lab/app/utils/lab/dom-texture.ts),
  * MIT (c) Hugo Richard - https://github.com/HugoRCD/evlog
@@ -282,15 +284,18 @@ async function inlineNodes(
 let stylePromise: Promise<string> | null = null;
 let encodedStyle: string | null = null;
 let styleSheetCount = -1;
+let styleRevision = -1;
 const imageCache = new Map<string, string | null>();
 
 function styles(): Promise<string> {
-  if (stylePromise && document.styleSheets.length !== styleSheetCount) {
+  const revision = prepareStageStyles();
+  if (stylePromise && (styleRevision !== revision || document.styleSheets.length !== styleSheetCount)) {
     stylePromise = null;
     encodedStyle = null;
     imageCache.clear();
   }
   if (!stylePromise) {
+    styleRevision = revision;
     styleSheetCount = document.styleSheets.length;
     stylePromise = collectCss().then(inlineFonts);
   }
@@ -319,6 +324,7 @@ async function loadAndDecode(image: HTMLImageElement): Promise<void> {
 export class DomCaptureSession {
   private readonly scale: number;
   private lastMarkup = "";
+  private lastCss = "";
 
   constructor(options: DomCaptureOptions = {}) {
     this.scale = options.scale ?? DEFAULT_SCALE;
@@ -378,7 +384,8 @@ export class DomCaptureSession {
     // the decode (and the caller's upload) is most of the per-frame cost, and
     // it is pure waste on a frame that is identical to the last one.
     const signature = head + body;
-    if (signature === this.lastMarkup) return "unchanged";
+    if (css === this.lastCss && signature === this.lastMarkup) return "unchanged";
+    this.lastCss = css;
     this.lastMarkup = signature;
 
     // `encodeURIComponent` maps each character independently, so encoding the

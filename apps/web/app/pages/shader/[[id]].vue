@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { StagePointer } from "~/utils/stage-pointer";
+import { seekTimelinePointer } from "~/utils/timeline-pointer";
 import type {
   LayerInstance,
   LayerType,
@@ -614,8 +616,15 @@ const stagedComponents = computed(() => {
 });
 const stagedComponentLayers = computed(() => stagedComponents.value.map((c) => c.layer));
 
+const stagePointer = new StagePointer();
+function sampleStagePointer(time = currentTime.value) {
+  seekTimelinePointer(stagePointer, renderLayers.value, time, settings.value,
+    id => stageHostRef.value?.getElement(id) ?? null, time === currentTime.value ? getModulatedValue : modFnAt(time));
+}
+
 const componentCapture = useComponentCapture({
   layers: stagedComponentLayers,
+  samplePointer: sampleStagePointer,
   isActive: (layerId, time) => {
     const t = time ?? currentTime.value;
     const entry = stagedComponents.value.find((c) => c.layer.id === layerId);
@@ -740,19 +749,17 @@ const shaderExport = {
     seekStageToCompTime(time);
     // 2. Let Vue flush the resulting DOM changes so new CSS transitions exist.
     await nextTick();
-    // 3. Freeze + step all stage animations by exactly one frame. The first
-    //    frame instead cancels animations inherited from the live preview so
-    //    every run starts from the same clean state.
-    if (lastExportFrameTime === null) {
-      exportAnimationStepper.reset(componentStageRoots());
-    } else {
-      exportAnimationStepper.step(componentStageRoots(), (time - lastExportFrameTime) * 1000);
-    }
-    lastExportFrameTime = time;
-    // 4. Seek every video layer to the exact frame time (awaits `seeked`).
     await mediaSources.syncForExport(time);
-    // 5. Capture the DOM in that exact state and render.
-    await componentCapture.captureAll();
+    // Hit-test the new DOM and flush its event-driven state before stepping
+    // transitions. Capturing before the step would bake wall-clock progress.
+    await componentCapture.captureAll(time, () => {
+      if (lastExportFrameTime === null) {
+        exportAnimationStepper.reset(componentStageRoots());
+      } else {
+        exportAnimationStepper.step(componentStageRoots(), (time - lastExportFrameTime) * 1000);
+      }
+      lastExportFrameTime = time;
+    });
     renderFrame(time);
   },
 };

@@ -637,6 +637,7 @@ const CLONER_GRID_PARAMS = new Set(["countX", "countY", "countZ", "spacingX", "s
 const CLONER_RING_PARAMS = new Set(["radialCount", "radialRadius", "radialPlane"]);
 
 function isUniformVisible(def: LayerUniformDef): boolean {
+  if (def.name === "cursorPress") return Number(layer.values.timelineCursor) === 1;
   if (layer.type === "cloner") {
     const ring = Number(layer.values.layout ?? 0) === 1;
     if (CLONER_GRID_PARAMS.has(def.name)) return !ring;

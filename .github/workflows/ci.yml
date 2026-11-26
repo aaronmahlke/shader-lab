@@ -37,6 +37,12 @@ jobs:
         working-directory: apps/web
         run: bun test
 
+      - name: Timeline cursor browser checks
+        working-directory: apps/web
+        run: |
+          bun x playwright-core install --with-deps chromium
+          bun tests/timeline-pointer.browser.mjs
+
       # The stage runtime integration uses Node's module resolution hooks.
       - uses: actions/setup-node@v4
         with:

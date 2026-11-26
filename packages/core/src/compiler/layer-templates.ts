@@ -386,6 +386,12 @@ export const LAYER_TEMPLATES: Record<LayerType, LayerTemplate> = {
         keyframeable: false,
       },
       {
+        name: "timelineCursor", type: "select", label: "Pointer role", default: 0,
+        options: [{ label: "None", value: 0 }, { label: "Timeline cursor (anchor tip)", value: 1 }],
+        keyframeable: false,
+      },
+      { name: "cursorPress", type: "float", label: "Cursor press", default: 0, min: 0, max: 1, step: 1, keyframeable: true },
+      {
         name: "cropLeft",
         type: "float",
         label: "Crop left",
