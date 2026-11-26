@@ -749,7 +749,9 @@ const frameCache = useFrameCache({
   // the hash comes back the same and the cached frames are reused).
   signature: () => [
     layers.value, lfos.value, assignments.value, settings.value, tracks.value,
-    registry.value, previewResolution.value, textEditingLayerId.value,
+    // Sorted: nested comps load in any order; the hash must not depend on it.
+    Object.keys(registry.value).sort().map((k) => [k, registry.value[k]]),
+    previewResolution.value, textEditingLayerId.value,
   ],
   cacheKey: () => shaderId.value ?? "",
   getCanvas,

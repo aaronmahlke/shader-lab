@@ -1,4 +1,5 @@
 import { onBeforeUnmount, shallowRef, watch, type Ref } from "vue";
+import { loadFrames, pruneDisk, saveFrame } from "~/utils/frame-cache-disk";
 
 /**
  * RAM preview (AE-style): rendered frames are kept as ImageBitmaps so playback
@@ -61,6 +62,7 @@ function hashString(str: string): string {
 
 export function useFrameCache(opts: FrameCacheOptions) {
   let entry: CacheEntry = { frames: new Map(), bytes: 0, usedAt: Date.now() };
+  let entryKey = "";
   let frames = entry.frames;
   /** Bumped when the set of cached frames changes (timeline bar, overlay). */
   const version = shallowRef(0);
@@ -117,13 +119,60 @@ export function useFrameCache(opts: FrameCacheOptions) {
         all.delete(k);
       }
     }
+    const fresh = !all.has(key) || next.frames.size === 0;
     next.usedAt = Date.now();
     entry = next;
+    entryKey = key;
     frames = entry.frames;
     bytes = entry.bytes;
     showing.value = frames.has(frameOf(opts.currentTime.value));
     version.value++;
+    // Not in memory (full reload, long ago): restore this state's frames from disk.
+    if (fresh) void restoreFromDisk(key, next);
   }
+
+  async function restoreFromDisk(key: string, target: CacheEntry) {
+    const loaded = await loadFrames(key);
+    if (!loaded.size) return;
+    if (entry !== target) {
+      for (const bmp of loaded.values()) bmp.close();
+      return;
+    }
+    for (const [f, bmp] of loaded) {
+      if (frames.has(f)) {
+        bmp.close();
+        continue;
+      }
+      frames.set(f, bmp);
+      bytes += sizeOf(bmp);
+      onDisk.add(`${key}|${f}`);
+    }
+    evict();
+    syncBytes();
+    showing.value = frames.has(frameOf(opts.currentTime.value));
+    version.value++;
+  }
+
+  // --- Disk writes: newly rendered frames, in the background, never during playback.
+  const onDisk = new Set<string>();
+  const diskQueue: { key: string; frame: number; bmp: ImageBitmap }[] = [];
+  let diskBusy = false;
+  async function flushDisk() {
+    if (diskBusy) return;
+    diskBusy = true;
+    try {
+      while (diskQueue.length && !opts.playing.value) {
+        const job = diskQueue.shift()!;
+        // Evicted (closed) meanwhile: nothing to write.
+        if (!job.bmp.width) continue;
+        await saveFrame(job.key, job.frame, job.bmp);
+        onDisk.add(`${job.key}|${job.frame}`);
+      }
+    } finally {
+      diskBusy = false;
+    }
+  }
+  void pruneDisk();
 
   function has(frame: number) {
     return frames.has(frame);
@@ -202,6 +251,10 @@ export function useFrameCache(opts: FrameCacheOptions) {
       bytes += sizeOf(bmp);
       evict();
       syncBytes();
+      if (!onDisk.has(`${entryKey}|${f}`)) {
+        diskQueue.push({ key: entryKey, frame: f, bmp });
+        if (!opts.playing.value) void flushDisk();
+      }
       if (frames.has(frameOf(opts.currentTime.value))) showing.value = true;
       version.value++;
       return true;
@@ -261,6 +314,7 @@ export function useFrameCache(opts: FrameCacheOptions) {
 
   // Playing: keep rendering ahead. Paused: top up after a short idle.
   watch(opts.playing, (p) => {
+    if (!p) void flushDisk();
     if (p) void work();
     else scheduleIdle();
   });
