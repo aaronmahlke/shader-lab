@@ -385,7 +385,6 @@ export class DomCaptureSession {
     // it is pure waste on a frame that is identical to the last one.
     const signature = head + body;
     if (signature === this.lastMarkup) return "unchanged";
-    this.lastMarkup = signature;
 
     // `encodeURIComponent` maps each character independently, so encoding the
     // parts separately and joining them is identical to encoding the whole.
@@ -399,6 +398,9 @@ export class DomCaptureSession {
     image.height = pixelHeight;
     image.src = DATA_PREFIX + encodeURIComponent(head) + encodedStyle + encodeURIComponent(body);
     await loadAndDecode(image);
+    // Remember the markup only once it decoded: a failed capture must retry,
+    // not be skipped forever as "unchanged" (left exports frozen on old frames).
+    this.lastMarkup = signature;
 
     return { image, cssWidth, cssHeight };
   }

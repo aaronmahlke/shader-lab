@@ -139,6 +139,12 @@ async function openComp(args: Args, label: string, run: (o: Opened) => Promise<n
     });
     const page = await browser.newPage();
     page.on("pageerror", (e) => log("page error:", String(e).slice(0, 300)));
+    page.on("console", (m) => {
+      const text = m.text();
+      if ((m.type() === "error" || m.type() === "warn") && /^\[(component capture|export|render|audio|cues)\]/.test(text)) {
+        log(`page ${m.type()}: ${text.slice(0, 300)}`);
+      }
+    });
     await page.goto(`${url}/shader/${comp.id}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
     await page.waitForFunction(() => (window as any).__shaderlab?.ready?.(), { timeout: 120_000 });
     const gpu = await page.evaluate(() => {

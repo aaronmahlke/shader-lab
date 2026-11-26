@@ -54,6 +54,19 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     );
   }
 
+  /** Layers whose frame is currently held by the renderer (texture on the GPU). */
+  const pushed = new Set<string>();
+  /** Last capture error per layer (cleared on success). */
+  const failures = new Map<string, unknown>();
+
+  /** Free a layer's frame + GPU texture (it's off screen); re-captured when it returns. */
+  function release(layerId: string) {
+    if (!pushed.has(layerId)) return;
+    pushed.delete(layerId);
+    options.setComponentSource(layerId, null);
+    sessions.get(layerId)?.reset();
+  }
+
   /** Capture one layer; resolves true when a new frame was pushed to the renderer. */
   function captureLayer(layer: LayerInstance): Promise<boolean> {
     const inFlight = pending.get(layer.id);
@@ -74,7 +87,9 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     const run = session
       .capture(element)
       .then((result) => {
+        failures.delete(layer.id);
         if (disposed || !result || result === "unchanged") return false;
+        pushed.add(layer.id);
         options.setComponentSource(layer.id, {
           frame: result.image,
           cssWidth: result.cssWidth,
@@ -89,7 +104,11 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
         }
         return true;
       })
-      .catch(() => false)
+      .catch((err) => {
+        failures.set(layer.id, err);
+        console.warn(`[component capture] ${layer.name ?? layer.id} failed`, err);
+        return false;
+      })
       .finally(() => {
         pending.delete(layer.id);
         lastCaptureAt.set(layer.id, performance.now());
@@ -119,13 +138,31 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
    * first so an export frame never races the live loop.
    */
   async function captureAll(time?: number): Promise<void> {
-    const layers = componentLayers().filter((l) => !options.isActive || options.isActive(l.id, time));
+    const all = componentLayers();
+    const layers = all.filter((l) => !options.isActive || options.isActive(l.id, time));
+    // Off-screen layers give their frames back: a comp with many full-size
+    // components otherwise piles up GPU textures / decoded images until
+    // captures start failing (exports froze mid-way, at a random time).
+    const active = new Set(layers.map((l) => l.id));
+    for (const l of all) if (!active.has(l.id)) release(l.id);
     await Promise.all(layers.map((layer) => pending.get(layer.id) ?? Promise.resolve(false)));
     if (options.samplePointer) {
       options.samplePointer(time);
       await nextTick(); // let JS-driven (stagepointerstate) visuals re-render
     }
     await Promise.all(layers.map((layer) => captureLayer(layer)));
+    // Failed captures: retry once (memory pressure clears up), then fail loudly.
+    const failed = layers.filter((l) => failures.has(l.id));
+    if (failed.length) {
+      await new Promise((r) => setTimeout(r, 60));
+      for (const l of failed) sessions.get(l.id)?.reset();
+      await Promise.all(failed.map((layer) => captureLayer(layer)));
+      const still = failed.filter((l) => failures.has(l.id));
+      if (still.length) {
+        const names = still.map((l) => l.name ?? l.id).join(", ");
+        throw new Error(`Component capture failed${time != null ? ` at ${time.toFixed(3)}s` : ""}: ${names}`);
+      }
+    }
   }
 
   /** Stop the live loop (exports drive capture explicitly per frame). */
