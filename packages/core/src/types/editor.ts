@@ -73,6 +73,8 @@ export type LayerInstance = {
   parentPoint?: string;
   /** Set on virtual cloner copies only (never persisted). */
   clone?: CloneInfo;
+  /** Timeline track height in px (UI only; taller rows show waveforms bigger). */
+  rowHeight?: number;
 };
 
 /** Where a virtual cloner copy sits in its cloner's layout. */

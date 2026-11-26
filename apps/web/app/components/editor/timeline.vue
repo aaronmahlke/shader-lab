@@ -90,6 +90,7 @@ import {
   TIMELINE_SNAP_THRESHOLD_PX,
 } from "#shared/editor/timeline-snapping";
 import UIcon from "../UIcon.vue";
+import { PEAKS_PER_SECOND, peaksVersion, waveformPeaks } from "~/composables/use-audio-playback";
 import {
   isKeyframeInSelection,
   toggleKeyframeInSelection,
@@ -493,6 +494,59 @@ function onRulerScroll() {
 
 const LAYER_ROW_H = 28;
 const PROP_ROW_H = 24;
+const MAX_LAYER_ROW_H = 240;
+
+/** A layer's track height (drag its bottom edge; audio waveforms scale with it). */
+function rowHeight(layer: LayerInstance): number {
+  const h = layer.rowHeight;
+  return typeof h === "number" && h > LAYER_ROW_H ? Math.min(MAX_LAYER_ROW_H, h) : LAYER_ROW_H;
+}
+
+let rowResize: { layer: LayerInstance; startY: number; startH: number } | null = null;
+function onRowResizeDown(layer: LayerInstance, e: PointerEvent) {
+  rowResize = { layer, startY: e.clientY, startH: rowHeight(layer) };
+  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+}
+function onRowResizeMove(e: PointerEvent) {
+  if (!rowResize) return;
+  const h = Math.round(Math.max(LAYER_ROW_H, Math.min(MAX_LAYER_ROW_H, rowResize.startH + e.clientY - rowResize.startY)));
+  if (h === LAYER_ROW_H) delete rowResize.layer.rowHeight;
+  else rowResize.layer.rowHeight = h;
+}
+function onRowResizeUp() {
+  if (!rowResize) return;
+  if (rowHeight(rowResize.layer) !== rowResize.startH) history?.record();
+  rowResize = null;
+}
+function resetRowHeight(layer: LayerInstance) {
+  if (layer.rowHeight === undefined) return;
+  delete layer.rowHeight;
+  history?.record();
+}
+
+/**
+ * Waveform of an audio layer as a filled, mirrored SVG path in source
+ * seconds (x) × amplitude (y ∈ −1..1); the bar's viewBox maps it.
+ */
+function waveformPath(layer: LayerInstance): { d: string; seconds: number } | null {
+  if (layer.type !== "audio" || typeof layer.values.src !== "string" || !layer.values.src) return null;
+  void peaksVersion.value;
+  const p = waveformPeaks(layer.values.src);
+  if (!p) return null;
+  const seconds = Math.max(1e-3, layerOutPoint(layer) - layerInPoint(layer));
+  const n = Math.min(p.length, Math.ceil(seconds * PEAKS_PER_SECOND));
+  if (n < 2) return null;
+  const k = 1 / PEAKS_PER_SECOND;
+  let top = "";
+  let bottom = "";
+  for (let i = 0; i < n; i++) {
+    const x = (i * k).toFixed(3);
+    const v = Math.min(1, p[i]!).toFixed(3);
+    top += `${i ? "L" : "M"}${x} -${v}`;
+    bottom = `L${x} ${v}` + bottom;
+  }
+  return { d: `${top}${bottom}Z`, seconds };
+}
 const KEY_HIT_R = 8;
 /** Keep playhead this far from the viewport edge while scrubbing. */
 const SCRUB_SCROLL_MARGIN = 24;
@@ -536,7 +590,7 @@ function collectKeyframeHits(): KeyframeHit[] {
   };
 
   for (const layer of layers.value) {
-    y += LAYER_ROW_H;
+    y += rowHeight(layer);
     for (const row of rowsForLayer(layer)) {
       pushRowHits(row);
       y += PROP_ROW_H;
@@ -2648,13 +2702,26 @@ function selectAllLayers() {
               >
                 <div
                   data-drag-handle
-                  class="flex h-7 w-full cursor-default items-center gap-0.5 border-b border-[var(--s-frame)] px-1 select-none"
+                  class="relative flex w-full cursor-default items-start gap-0.5 border-b border-[var(--s-frame)] px-1 pt-[5px] select-none"
+                  :style="{ height: `${rowHeight(layer)}px` }"
                   :data-layer-id="layer.id"
                   :class="pickWhip && pickWhipTargetId === layer.id && 'ring-1 ring-inset ring-[var(--s-select)]'"
                   :title="layer.type === 'composition' ? 'Double-click to open the composition' : undefined"
                   @click="selectLayer(layer.id, $event)"
                   @dblclick.capture="onLayerRowDblClick(layer, $event)"
                 >
+                  <!-- Bottom edge: drag to make the track taller (waveforms), double-click resets. -->
+                  <div
+                    class="absolute inset-x-0 -bottom-[3px] z-10 h-[6px]"
+                    data-drag-exclude
+                    title="Drag to resize the track · double-click to reset"
+                    @pointerdown.stop.prevent="onRowResizeDown(layer, $event)"
+                    @pointermove="onRowResizeMove"
+                    @pointerup="onRowResizeUp"
+                    @pointercancel="onRowResizeUp"
+                    @click.stop
+                    @dblclick.stop="resetRowHeight(layer)"
+                  />
                   <!-- Same 60px block as the property rows' key navigator, so the
                        chevrons and names line up as a tree. -->
                   <div class="flex w-[60px] shrink-0 items-center">
@@ -3024,7 +3091,7 @@ function selectAllLayers() {
                 class="layer-group"
                 :class="!layer.enabled && 'opacity-50'"
               >
-                <div class="relative h-7 border-b border-[var(--s-frame)] bg-[var(--s-inset)]">
+                <div class="relative border-b border-[var(--s-frame)] bg-[var(--s-inset)]" :style="{ height: `${rowHeight(layer)}px` }">
                   <div
                     class="group/bar absolute inset-y-0 cursor-default rounded-none transition-colors"
                     :class="selectedLayerIds.has(layer.id)
@@ -3035,6 +3102,15 @@ function selectAllLayers() {
                     @pointerdown.stop.prevent="onLayerBarPointerDown(layer, 'move', $event)"
                     @dblclick.stop="resetLayerTiming(layer)"
                   >
+                    <svg
+                      v-if="waveformPath(layer)"
+                      class="pointer-events-none absolute inset-x-0 top-[3px] bottom-[3px] h-[calc(100%-6px)] w-full"
+                      :viewBox="`0 -1 ${waveformPath(layer)!.seconds} 2`"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                    >
+                      <path :d="waveformPath(layer)!.d" fill="rgb(255 255 255 / 0.45)" />
+                    </svg>
                     <div
                       v-if="layerModSources(layer).length"
                       class="pointer-events-none absolute top-1/2 left-3 flex -translate-y-1/2 gap-0.5"

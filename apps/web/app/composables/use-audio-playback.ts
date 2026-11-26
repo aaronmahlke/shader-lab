@@ -1,4 +1,4 @@
-import { onBeforeUnmount, watch, type Ref } from "vue";
+import { onBeforeUnmount, shallowRef, watch, type Ref } from "vue";
 import { evaluatePropertyTrack, type LayerInstance, type PropertyTrack } from "@shader-lab/core";
 
 /**
@@ -38,6 +38,46 @@ function bufferNow(src: string): AudioBuffer | null {
   const hit = ready.get(src);
   if (hit) return hit;
   void decodeAudio(src).then((b) => b && ready.set(src, b));
+  return null;
+}
+
+/**
+ * Waveform peaks for the timeline: per bucket the max |sample| over all
+ * channels, `PEAKS_PER_SECOND` buckets per second of source. Reactive via
+ * `peaksVersion` (bumped when a decode finishes).
+ */
+export const PEAKS_PER_SECOND = 200;
+export const peaksVersion = shallowRef(0);
+const peaks = new Map<string, Float32Array>();
+export function waveformPeaks(src: string): Float32Array | null {
+  const hit = peaks.get(src);
+  if (hit) return hit;
+  if (!peaks.has(src)) {
+    peaks.set(src, null as unknown as Float32Array); // pending marker
+    void decodeAudio(src).then((buffer) => {
+      if (!buffer) {
+        peaks.delete(src);
+        return;
+      }
+      const per = Math.max(1, Math.floor(buffer.sampleRate / PEAKS_PER_SECOND));
+      const n = Math.ceil(buffer.length / per);
+      const out = new Float32Array(n);
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const data = buffer.getChannelData(c);
+        for (let b = 0; b < n; b++) {
+          let m = out[b]!;
+          const end = Math.min(data.length, (b + 1) * per);
+          for (let i = b * per; i < end; i++) {
+            const v = data[i]! < 0 ? -data[i]! : data[i]!;
+            if (v > m) m = v;
+          }
+          out[b] = m;
+        }
+      }
+      peaks.set(src, out);
+      peaksVersion.value++;
+    });
+  }
   return null;
 }
 
