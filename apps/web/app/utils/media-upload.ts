@@ -60,6 +60,7 @@ export function svgFileFromText(text: string): File | null {
 
 /** Last path segment of a src URL (query stripped) for compact display. */
 export function mediaSrcFileName(src: string): string {
+  if (src.startsWith("synth:")) return "Synth patch";
   if (!src) return "";
   const withoutQuery = src.split(/[?#]/, 1)[0] ?? src;
   const tail = withoutQuery.split("/").filter(Boolean).pop();

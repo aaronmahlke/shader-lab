@@ -26,7 +26,7 @@ import {
   type LayerTransformValues,
 } from "#shared/editor/layer-transform";
 import { linkedParams } from "#shared/editor/position-group";
-import { ArrowRightCircleIcon, EyeIcon, EyeSlashIcon, XMarkIcon } from "@heroicons/vue/16/solid";
+import { ArrowRightCircleIcon, EyeIcon, EyeSlashIcon } from "@heroicons/vue/16/solid";
 import { stageComponentOptions } from "~/utils/stage-components";
 import { mediaSrcFileName, uploadMediaFile, type MediaUploadKind } from "~/utils/media-upload";
 
@@ -933,6 +933,8 @@ function isUniformVisible(def: LayerUniformDef): boolean {
 
     <EditorCompPropsFields v-if="layer.type === 'composition'" :layer="layer" />
 
+    <EditorAudioSynthField v-if="layer.type === 'audio'" :layer="layer" />
+
     <EditorAudioTriggerField v-if="layer.type === 'audio'" :layer="layer" :layers="editorLayers?.value ?? []" :project-id="editorProjectId?.value" />
 
     <EditorInspectorSection v-if="layer.type === 'audio' || (layer.type === 'composition' && compHasAudio)" title="Audio effects">
@@ -1028,25 +1030,12 @@ function isUniformVisible(def: LayerUniformDef): boolean {
               >
                 {{ mediaSrcFileName(getText(def, layer.values)) }}
               </span>
-              <UiButton
-                variant="secondary"
-                size="sm"
-                :loading="mediaUploading"
-                :disabled="mediaUploading"
-                class="shrink-0"
-                @click="openMediaPicker"
-              >
+              <StudioButton :disabled="mediaUploading" class="shrink-0" @click="openMediaPicker">
                 {{ mediaUploading ? "Uploading…" : "Replace" }}
-              </UiButton>
-              <UiButton
-                variant="ghost"
-                size="sm"
-                :disabled="mediaUploading"
-                :icon-left="XMarkIcon"
-                title="Remove"
-                class="shrink-0"
-                @click="clearMediaSrc(def)"
-              />
+              </StudioButton>
+              <StudioButton variant="ghost" square :disabled="mediaUploading" title="Remove" aria-label="Remove" class="shrink-0" @click="clearMediaSrc(def)">
+                <StudioIcon name="close" />
+              </StudioButton>
             </div>
             <button
               v-else

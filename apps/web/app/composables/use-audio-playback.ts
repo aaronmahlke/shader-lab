@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, shallowRef, watch, type Ref } from "vue";
 import type { AudioEffect } from "#shared/editor/audio-effects";
 import { buildFxChain, duckCurve, type DuckCurves, type FxAutomation } from "~/utils/audio-fx";
 import { triggerHits } from "~/utils/audio-triggers";
+import { isSynthSrc, renderSynth } from "~/utils/audio-synth";
 import { stageCuesVersion } from "~/composables/use-stage-cues";
 import { applyCompProps, evaluatePropertyTrack, type CompositionConfig, type LayerInstance, type PropertyTrack } from "@shader-lab/core";
 
@@ -25,9 +26,12 @@ const decoded = new Map<string, Promise<AudioBuffer | null>>();
 export function decodeAudio(src: string): Promise<AudioBuffer | null> {
   let p = decoded.get(src);
   if (!p) {
-    p = fetch(src)
-      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((data) => audioContext().decodeAudioData(data))
+    p = (isSynthSrc(src)
+      ? renderSynth(src)
+      : fetch(src)
+          .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`HTTP ${r.status}`))))
+          .then((data) => audioContext().decodeAudioData(data))
+    )
       .catch((err) => {
         console.warn("[audio] can't decode", src, err);
         decoded.delete(src);

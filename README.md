@@ -65,3 +65,21 @@ Master integrated LUFS (BS.1770 gating), short-term LUFS every 0.5 s, sample
 and true peak; each root audio layer / precomp group solo; and a sync report
 of every trigger hit (where its anchor lands vs. its picture event, in ms).
 Matches ffmpeg's `ebur128`.
+
+### Sound design as data (for agents)
+
+Everything lives in the comp JSON; the open editor reloads edits made on disk.
+
+- **Synth sounds:** `values.src = "synth:" + JSON` on an audio layer (or a trigger
+  alternate): `{ duration, gain?, voices: [{ wave: sine|square|saw|triangle|noise|pink,
+  freq, freqEnd?, sweep?, detune?, gain?, start?, length?, attack?, decay?, sustain?,
+  release?, curve?, filter?: { type, freq, freqEnd?, q? }, pan? }] }`.
+  See `apps/web/app/utils/audio-synth.ts` (presets included).
+- **Triggers:** `layer.trigger = { on: press|release|motionPeak|motionStart|motionEnd|in|out|cue|marker,
+  target?, name?, anchor?: onset|peak|end, offsetMs?, fit?, alternates?, pitchJitter?, gainJitter?, seed? }`.
+- **Clip tools:** `values.startOffset, fadeIn, fadeOut, pitch, reverse, loop, loopStart, loopEnd`.
+- **Effects:** `layer.audioEffects` / `settings.masterEffects`; automate with tracks
+  `fx:<effectId>:<param>` (master: layerId `"master"`).
+- **Tempo:** `settings.bpm, bpmOffset, beatsPerBar` (grid + snapping).
+- **Mix versions:** `settings.mixVersions`, `settings.activeMix`; render one with `--mix <name>`.
+- **Comments:** `settings.comments: [{ id, time, text, author, createdAt, resolved? }]`.
