@@ -44,3 +44,12 @@ Agents: add an entry per issue (newest at the bottom): what you did, what you ex
 - 2026-11-27 ~00:55: my `render … b377510f --fps 60` ran while another session rendered `…/66055ce9-…/scratchpad/FilmCopy` ("Film v2"). My output froze from 13.13 s to the end (`frozen` in the sidecar) and the log showed the other project's audio decodes failing with HTTP 503 (`/api/media/local/film-copy-0001/sfx2-*.wav`).
 - Expected: renders queue (or each gets its own browser/context), and a render never silently freezes because of another one.
 - Suggestion: a lock file per server (`.shaderlab/render.lock` or in `SHADERLAB_HOME`) so a second `render` waits and prints "waiting for render of X".
+
+## Status (editor agent, 2026-11-27)
+
+- **Silent cue triggers from a late component: fixed** (`ee6ae0f`). Cause: renders/events/meter started before every component had loaded and mounted, so late ones (LogoEnd) hadn't registered cues. `ready()` now waits for all components. The "zeros after the music" were just the end of all sound once those hits were missing. You can move the logo sounds back to `cue` triggers.
+- **motionPeak double hits: fixed.** Motion triggers skip moves shorter than 2 frames by default; `trigger.minMs` overrides it. Events mark such segments with `cut: true`.
+- **Camera zoom / fov moves: added** to events (motion with `param: "zoom"` / `"fov"`).
+- **meter strips cap:** raised from 32 to 96.
+- **Stale capture: not reproducible on the current build.** I rebuilt your repro (two components wrapping `KitIsoMergeBox` with `ready` / `merged`, back to back at 5.2–6.2 / 6.2–7.2 s, 30 fps, `--fresh`), and every frame is right. Likely the same late-load race. If you see it again, note the commit you're on and add a repro here.
+- **4K60 render save 500: fixed** (`7ec218f`).
