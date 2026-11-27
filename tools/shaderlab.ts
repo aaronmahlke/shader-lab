@@ -20,7 +20,8 @@
  * still-frame report). Exit codes: 0 ok, 1 failed.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
@@ -101,7 +102,67 @@ type Opened = {
 };
 
 /** Server + project + comp opened in a hidden GPU Chrome, settled. */
+/**
+ * One CLI job at a time per machine: two renders through the same dev server
+ * starve each other (media 503s, frozen frames). A second job waits.
+ */
+const LOCK = join(process.env.SHADERLAB_HOME ?? join(homedir(), ".shaderlab"), "render.lock");
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+async function withLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  mkdirSync(dirname(LOCK), { recursive: true });
+  let told = false;
+  for (;;) {
+    try {
+      writeFileSync(LOCK, JSON.stringify({ pid: process.pid, label, since: new Date().toISOString() }), { flag: "wx" });
+      break;
+    } catch {
+      let held: { pid?: number; label?: string } = {};
+      try {
+        held = JSON.parse(readFileSync(LOCK, "utf8"));
+      } catch {}
+      if (!held.pid || !alive(held.pid)) {
+        rmSync(LOCK, { force: true }); // stale (crashed job)
+        continue;
+      }
+      if (!told) log(`waiting for another job to finish: ${held.label ?? "?"} (pid ${held.pid})`);
+      told = true;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  const release = () => {
+    try {
+      if (JSON.parse(readFileSync(LOCK, "utf8")).pid === process.pid) rmSync(LOCK, { force: true });
+    } catch {}
+  };
+  process.once("exit", release);
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
+
+/** Uncommitted app changes: the dev server may hot-swap code mid-job. */
+function warnIfDirty() {
+  try {
+    const out = require("node:child_process").execSync("git status --porcelain -- apps/web packages/core", { cwd: dirname(import.meta.dir), encoding: "utf8" });
+    if (out.trim()) log("note: apps/web or packages/core has uncommitted edits; this job uses the code as it is now (no hot reload mid-job)");
+  } catch {}
+}
+
 async function openComp(args: Args, label: string, run: (o: Opened) => Promise<number>): Promise<number> {
+  return withLock(`${String(args._[0])} ${String(args._[1] ?? "")} ${String(args._[2] ?? "")}`.trim(), () => openCompUnlocked(args, label, run));
+}
+
+async function openCompUnlocked(args: Args, label: string, run: (o: Opened) => Promise<number>): Promise<number> {
+  warnIfDirty();
   const folder = resolve(String(args._[1] ?? "."));
   const compArg = args._[2] ? String(args._[2]) : null;
   const { url, child } = await ensureServer(String(args.url ?? process.env.SHADERLAB_URL ?? "http://localhost:3000"));
@@ -139,6 +200,22 @@ async function openComp(args: Args, label: string, run: (o: Opened) => Promise<n
       ],
     });
     const page = await browser.newPage();
+    // Freeze the code for the whole job: Vite's HMR socket never connects, so
+    // edits on disk (other agents) can't hot-swap modules under a render.
+    await page.evaluateOnNewDocument(() => {
+      const Native = window.WebSocket;
+      // @ts-ignore
+      window.WebSocket = function (url: string, protocols?: string | string[]) {
+        const list = Array.isArray(protocols) ? protocols : protocols ? [protocols] : [];
+        if (list.some((p) => String(p).startsWith("vite"))) {
+          const dummy = new EventTarget() as any;
+          Object.assign(dummy, { readyState: 0, send() {}, close() {}, url });
+          return dummy;
+        }
+        return new Native(url, protocols);
+      } as any;
+      Object.assign(window.WebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    });
     page.on("pageerror", (e) => log("page error:", String(e).slice(0, 300)));
     page.on("console", (m) => {
       const text = m.text();

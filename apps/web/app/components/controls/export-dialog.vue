@@ -133,7 +133,15 @@ const selectedFormat = ref<ExportFormatPreference>("auto");
 const resolvedFormat = ref<string | null>(null);
 const formatUnsupported = ref(false);
 const compatWarning = ref<string | null>(null);
-watchEffect(async () => {
+// Only while open, and only when size / fps / format actually change: the
+// props are fresh objects on every editor render (every scrub frame), and
+// each check asks the browser's encoder (expensive).
+watch(
+  () => (open.value ? `${exportSize.value.width}x${exportSize.value.height}@${fpsOptions[selectedFps.value]!.value}:${selectedFormat.value}` : ""),
+  (key) => key && void negotiate(),
+  { immediate: true },
+);
+async function negotiate() {
   const { width, height } = exportSize.value;
   const fps = fpsOptions[selectedFps.value]!.value;
   resolvedFormat.value = null;
@@ -153,7 +161,7 @@ watchEffect(async () => {
     resolvedFormat.value = "not supported at this size";
     formatUnsupported.value = true;
   }
-});
+}
 
 async function handleImageExport() {
   if (!shader) return;
