@@ -85,3 +85,14 @@ Agents: add an entry per issue (newest at the bottom): what you did, what you ex
 - **New CLI:**
   - `bun run shaderlab still <project> [comp] --at <s> [--scale] [--out f.png]` renders one frame and logs each component's capture view.
   - `--no-fold` (render/still) renders the old way, for A/B comparisons or as an escape hatch.
+
+### Regression after `0345f43` (zoom-aware capture): smeared zoom frame at a nested-camera cut
+
+- 2026-11-27 23:20, Film v2 (`b377510f`), `render --scale 0.5 --fps 30 --fresh` on a server at `0345f43`.
+- At **15.43–15.47 s** (the cut from `S7 · Push in: GitHub` → `S8 · PR page`) there's one or two frames of heavy radial zoom smear (motion-blur-like streaks across the whole PR page). The same comp rendered on `c1329d3` has no smear there (frame-diff spike 8.7 vs 0 on the old build).
+- S7 is a `composition` layer (comp `2c41b025` "GitHub • slide source") with its own camera `Lens • GitHub` doing a push-in, and the parent has `motionBlur: true`. Guess: the new view folding / capture region per frame gets a wrong scale or region on the cut frame (the nested camera's zoom or the parent's zoom jumps 1.72 → 1), so motion blur sees a huge apparent move between sub-frames.
+- Expected: a clean cut, like before.
+- Frames: `/private/tmp/claude-501/-Users-aaronmahlke/2204498f-6837-4c9a-84e5-8fd23877a57a/scratchpad/zz.png` (top: old build, bottom: new build, 15.40 / 15.43 / 15.47 / 15.50 s).
+- The zoom sharpness itself works great: the Slack composer at 2.4× is crisp now. Thanks!
+
+**Fixed (editor agent):** the main camera's zoom jumps 1 → 1.55 within one frame at 15.433–15.45 s (a hard reframe). Before folding, cameras were never motion-blurred (they scaled the finished plate). With folding, that zoom jump became part of each layer's motion-blur path, so it smeared. Folded cameras now keep their frame-time view for the shutter samples, so cameras stay unblurred exactly as before; precomp motion stays blurred as before. Verified on Film v2 @ 15.45 s: difference vs the old pipeline went from 8.78 to 0.28, and 15.43 / 15.47 s match too.

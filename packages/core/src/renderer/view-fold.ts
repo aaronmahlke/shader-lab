@@ -82,8 +82,11 @@ export function computeFoldStates(passes: readonly RenderPass[], ctx: Ctx, fn: M
   for (const p of passes) {
     if (p.layerType === "cameraStage") {
       const id = p.sourceLayerId ?? p.layerId;
-      if (gateOnly && gateOnly.get(id) == null) {
-        out.set(id, null);
+      // Shutter samples: a camera keeps its frame-time view. Cameras were never
+      // motion-blurred (they used to scale the finished plate), and a hard
+      // reframe key (zoom 1 → 1.55 in one frame) must stay a clean cut.
+      if (gateOnly) {
+        out.set(id, gateOnly.get(id) ?? null);
         continue;
       }
       const cam = ctx.findLayer?.(p);
