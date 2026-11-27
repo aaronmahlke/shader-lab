@@ -30,6 +30,8 @@ export type CompEvent = {
   start?: number;
   end?: number;
   peakSpeed?: number;
+  /** motion: a hard cut (keys ≤ 1.5 frames apart), not a real move. */
+  cut?: boolean;
   param?: string;
   data?: Record<string, unknown>;
 };
@@ -40,6 +42,9 @@ const MOTION_PARAMS = [
   "layerRotationX",
   "layerRotationY",
   "layerOpacity",
+  // Cameras: a push-in on zoom / field of view alone is a move too.
+  "zoom",
+  "fov",
 ] as const;
 const POSITION = ["layerPositionX", "layerPositionY", "layerPositionZ"] as const;
 
@@ -70,6 +75,9 @@ export function collectCompEvents(config: CompositionConfig, ctx: Ctx & { prefix
   // prefix: stage id prefix of this comp (nested comps' cue lookups); nested:
   // false = this comp's own events only (triggers read their own comp).
   walk(config, ctx.prefix ?? "", 0, "", new Set(), ctx.nested === false ? 99 : 0, ctx, out);
+  // Hard cuts (a key pair ≤ 1.5 frames apart): a jump, not a move. Kept, but flagged.
+  const fps = config.settings?.fps ?? 30;
+  for (const e of out) if (e.type === "motion" && e.start != null && e.end != null && e.end - e.start <= 1.5 / fps) e.cut = true;
   return out.sort((a, b) => a.time - b.time || a.type.localeCompare(b.type));
 }
 

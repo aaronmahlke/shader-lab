@@ -56,6 +56,16 @@ export function stageComponentEntries(): StageComponentEntry[] {
 
 const componentCache = new Map<string, Component>();
 
+/** Component loads in flight (renders wait until 0: cues register on mount). */
+let pendingLoads = 0;
+export const stageComponentLoadsPending = () => pendingLoads;
+function tracked<T>(load: () => Promise<T>): () => Promise<T> {
+  return () => {
+    pendingLoads++;
+    return load().finally(() => pendingLoads--);
+  };
+}
+
 /** Resolve a stored component name to a mountable component, or null when it no longer exists. */
 export function resolveStageComponent(name: string): Component | null {
   const own = projectComponentInfo(name);
@@ -66,7 +76,7 @@ export function resolveStageComponent(name: string): Component | null {
   const entry = own ? null : BUILT_IN_ENTRIES.find((candidate) => candidate.name === name);
   if (!own && !entry) return null;
   component = defineAsyncComponent({
-    loader: own ? () => loadProjectComponent(name).then((m) => m.default) : entry!.load,
+    loader: tracked(own ? () => loadProjectComponent(name).then((m) => m.default) : () => entry!.load().then((m) => m.default)),
     onError(err, _retry, fail) {
       console.error(`[stage component] ${name}:`, err);
       fail();

@@ -38,6 +38,9 @@ const MODULES: Record<string, () => Promise<unknown>> = {
 export const projectComponents = shallowRef<ProjectComponentInfo[]>([]);
 let currentProject: string | null = null;
 
+/** Project whose component list has been fetched (readiness for renders). */
+export let projectComponentsLoadedFor: string | null = null;
+
 export async function loadProjectComponents(projectId: string | null): Promise<void> {
   currentProject = projectId;
   if (!projectId) {
@@ -54,6 +57,8 @@ export async function loadProjectComponents(projectId: string | null): Promise<v
     if (!same) projectComponents.value = list;
   } catch {
     if (currentProject === projectId) projectComponents.value = [];
+  } finally {
+    if (currentProject === projectId) projectComponentsLoadedFor = projectId;
   }
 }
 

@@ -13,6 +13,7 @@ import { collectCompEvents, type CompEvent } from "~/utils/comp-events";
  *     anchor?: "onset" | "peak" | "end",   // which point of the sound lands on the event (default onset)
  *     offsetMs?: number,           // nudge
  *     fit?: boolean,               // motion events: fade the tail out by the move's end
+ *     minMs?: number,              // motion events: skip moves shorter than this (default 2 frames: cuts)
  *     alternates?: string[],       // round-robin sources (besides values.src)
  *     pitchJitter?: number,        // ± semitones per hit
  *     gainJitter?: number,         // ± dB per hit
@@ -27,6 +28,7 @@ export type AudioTrigger = {
   anchor?: "onset" | "peak" | "end";
   offsetMs?: number;
   fit?: boolean;
+  minMs?: number;
   alternates?: string[];
   pitchJitter?: number;
   gainJitter?: number;
@@ -117,6 +119,10 @@ export function triggerHits(
     if (e.type !== type || e.layerId === `${opts.prefix}${layer.id}`) return false;
     if (targetId && e.layerId !== targetId && !e.layerId?.startsWith(`${targetId}::`)) return false;
     if (trig.name && e.name !== trig.name) return false;
+    if (e.type === "motion" && e.start != null && e.end != null) {
+      const min = trig.minMs != null ? trig.minMs / 1000 : 2 / (comp.settings?.fps ?? 30);
+      if (e.end - e.start < min - 1e-6) return false;
+    }
     const at = trig.on === "motionStart" ? (e.start ?? e.time) : trig.on === "motionEnd" ? (e.end ?? e.time) : e.time;
     return inWin(at);
   });

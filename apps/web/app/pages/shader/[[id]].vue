@@ -76,15 +76,15 @@ import {
 } from "~/utils/media-upload";
 import { LFO_COLORS, nextLfoColor } from "#shared/editor/lfo-colors";
 import { clonePresetPoints } from "#shared/editor/lfo-presets";
-import { normalizeLfo } from "@shader-lab/core";
+import { componentNameFromValues, normalizeLfo } from "@shader-lab/core";
 import {
   cloneShaderPreset,
   getShaderPreset,
   DEFAULT_PRESET_ID,
 } from "#shared/editor/shader-presets";
 import { buildLayerValues, offsetDuplicatedWave, applyCompProps, createNestedResolvers, RENDER_ENGINE_VERSION } from "@shader-lab/core";
-import { defaultStageComponentName } from "~/utils/stage-components";
-import { loadProjectComponents, projectComponents } from "~/utils/project-components";
+import { defaultStageComponentName, resolveStageComponent, stageComponentLoadsPending } from "~/utils/stage-components";
+import { loadProjectComponents, projectComponents, projectComponentsLoadedFor } from "~/utils/project-components";
 import { renderAudioMix, useAudioPlayback } from "~/composables/use-audio-playback";
 import { audioBufferToWav, useVideoExport } from "~/composables/use-video-export";
 import { collectCompEvents } from "~/utils/comp-events";
@@ -948,7 +948,22 @@ if (import.meta.client) {
   (window as unknown as { __shaderlab?: unknown }).__shaderlab = {
     render: renderComp,
     /** True once nested comps, components and media are loaded enough to render. */
-    ready: () => !!shaderId.value,
+    /**
+     * Comp loaded AND every staged component loaded + mounted (their cues
+     * register on mount; renders that start earlier miss late components).
+     */
+    ready: () => {
+      if (!shaderId.value) return false;
+      const layers = stagedComponentLayers.value;
+      if (!layers.length) return true;
+      if (projectId.value && projectComponentsLoadedFor !== projectId.value) return false;
+      if (stageComponentLoadsPending() > 0) return false;
+      return layers.every((l) => {
+        const name = componentNameFromValues(l.values);
+        if (!name || !resolveStageComponent(name)) return true; // missing component: nothing to wait for
+        return !!stageHostRef.value?.getElement(l.id)?.firstElementChild;
+      });
+    },
     /** Loudness: master (integrated / short-term LUFS, true peak), each strip solo, trigger sync. */
     /** Switch to a mix version by id or name (render / meter it next). */
     saveMix: (name: string) => (saveMixVersion(name), { ok: true, activeMix: settings.value.activeMix }),
@@ -962,7 +977,7 @@ if (import.meta.client) {
       const master = await measureLoudness(full);
       const stripLayers = layers.value.filter((l) => l.type === "audio" || (l.type === "composition" && audioPlayback.entries.value.some((e) => e.hosts[0]?.key === l.id)));
       const strips = [];
-      for (const l of stripLayers.slice(0, 32)) {
+      for (const l of stripLayers.slice(0, 96)) {
         const solo = layers.value.map((x) => {
           const { audioSolo: _s, ...rest } = x;
           return x.id === l.id ? { ...rest, audioSolo: true } : rest;
