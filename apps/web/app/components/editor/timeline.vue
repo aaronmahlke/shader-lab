@@ -583,12 +583,22 @@ function resetRowHeight(layer: LayerInstance) {
  * Waveform of an audio layer as a filled, mirrored SVG path in source
  * seconds (x) × amplitude (y ∈ −1..1); the bar's viewBox maps it.
  */
+/** Built paths by src + length: the row list re-renders every scrub frame. */
+const waveformCache = new Map<string, { d: string; seconds: number } | null>();
 function waveformPath(layer: LayerInstance): { d: string; seconds: number } | null {
   if (layer.type !== "audio" || typeof layer.values.src !== "string" || !layer.values.src) return null;
-  void peaksVersion.value;
-  const p = waveformPeaks(layer.values.src);
-  if (!p) return null;
+  const version = peaksVersion.value;
   const seconds = Math.max(1e-3, layerOutPoint(layer) - layerInPoint(layer));
+  const key = `${version}|${seconds.toFixed(3)}|${layer.values.src}`;
+  if (waveformCache.has(key)) return waveformCache.get(key)!;
+  const built = buildWaveformPath(layer.values.src, seconds);
+  if (waveformCache.size > 400) waveformCache.clear();
+  waveformCache.set(key, built);
+  return built;
+}
+function buildWaveformPath(src: string, seconds: number): { d: string; seconds: number } | null {
+  const p = waveformPeaks(src);
+  if (!p) return null;
   const n = Math.min(p.length, Math.ceil(seconds * PEAKS_PER_SECOND));
   if (n < 2) return null;
   const k = 1 / PEAKS_PER_SECOND;
@@ -2074,6 +2084,13 @@ function toggleAnimatedOnly() {
 // --- Parent column ---
 
 /** Layers that can parent `layer`: not itself, not one of its descendants. */
+/** Parent dropdown options per layer, rebuilt only when the layer list changes (not per scrub frame). */
+const parentSelectOptions = computed(() => {
+  const map = new Map<string, { value: string; label: string }[]>();
+  for (const l of layers.value) map.set(l.id, parentOptionsFor(l).map((o) => ({ value: o.value || "none", label: o.label })));
+  return map;
+});
+
 function parentOptionsFor(layer: LayerInstance): { value: string; label: string }[] {
   const descendants = new Set<string>([layer.id]);
   let grew = true;
@@ -2894,7 +2911,7 @@ function selectAllLayers() {
                     <div class="grid min-w-0 flex-1" :class="!layer.parent && '[&_button]:text-[var(--s-dim)]'">
                       <StudioSelect
                         :model-value="layer.parent ?? 'none'"
-                        :options="parentOptionsFor(layer).map((o) => ({ value: o.value || 'none', label: o.label }))"
+                        :options="parentSelectOptions.get(layer.id) ?? []"
                         @update:model-value="emit('set-parent', layer.id, $event === 'none' ? null : String($event))"
                       />
                     </div>

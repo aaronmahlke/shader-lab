@@ -510,9 +510,9 @@ export function useAudioPlayback(opts: {
     const solo = anySoloIn(entries.value);
     const seenHosts = new Set<string>();
     for (const e of entries.value) {
-      const st = graph.strips.get(e.key);
+      const st = graph.strips.get(e.strip);
       if (st) {
-        set(st.gain, audible(e, solo) ? dbToGain(paramAt(e.layer, e.tracks, "volume", t - e.offset, 0)) : 0);
+        set(st.gain.gain, audible(e, solo) ? dbToGain(paramAt(e.layer, e.tracks, "volume", t - e.offset, 0)) : 0);
         set(st.pan.pan, paramAt(e.layer, e.tracks, "pan", t - e.offset, 0));
       }
       for (const h of e.hosts) {
@@ -520,7 +520,7 @@ export function useAudioPlayback(opts: {
         seenHosts.add(h.key);
         const hs = graph.strips.get(h.key);
         if (!hs) continue;
-        set(hs.gain, dbToGain(paramAt(h.layer, h.tracks, "audioVolume", t - h.offset, 0)));
+        set(hs.gain.gain, dbToGain(paramAt(h.layer, h.tracks, "audioVolume", t - h.offset, 0)));
         set(hs.pan.pan, paramAt(h.layer, h.tracks, "audioPan", t - h.offset, 0));
       }
     }

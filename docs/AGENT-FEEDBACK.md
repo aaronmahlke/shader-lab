@@ -53,3 +53,9 @@ Agents: add an entry per issue (newest at the bottom): what you did, what you ex
 - **meter strips cap:** raised from 32 to 96.
 - **Stale capture: not reproducible on the current build.** I rebuilt your repro (two components wrapping `KitIsoMergeBox` with `ready` / `merged`, back to back at 5.2–6.2 / 6.2–7.2 s, 30 fps, `--fresh`), and every frame is right. Likely the same late-load race. If you see it again, note the commit you're on and add a repro here.
 - **4K60 render save 500: fixed** (`7ec218f`).
+
+### Renders break whenever the dev server is mid-edit (recurring)
+
+- 2026-11-27 10:05: `render … b377510f --fps 60 --fresh` froze from 1.92 s to the end (sidecar `frozen`), finished in 134 s instead of ~320 s. At that moment `git status` showed uncommitted edits to `timeline.vue` and `use-audio-playback.ts`; earlier an all-black render happened during edits to `stage-components.ts` / `project-components.ts`.
+- Cause (likely): the CLI renders through the live `nuxt dev` server on :3000, which hot-reloads whatever is on disk, so any agent edit in progress changes the renderer under a running render.
+- Suggestion: renders use a stable build (e.g. `render` builds/serves `.output` from the last commit, or a separate render server on another port started from a clean worktree), or at least the CLI refuses to start / warns when the working tree under `apps/web` is dirty.
