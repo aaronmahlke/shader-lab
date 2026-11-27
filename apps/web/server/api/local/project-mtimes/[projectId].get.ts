@@ -17,6 +17,9 @@ export default defineEventHandler(async (event) => {
     const s = await stat(join(folder, c.file)).catch(() => null);
     if (s) comps[c.id] = Math.round(s.mtimeMs);
   }
+  // Project sound rules (agents edit sound-rules.json too).
+  const rules = await stat(join(folder, "sound-rules.json")).catch(() => null);
+  comps.__soundRules = rules ? Math.round(rules.mtimeMs) : 0;
   setHeader(event, "Cache-Control", "no-store");
   return { comps };
 });

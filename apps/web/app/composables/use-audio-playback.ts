@@ -3,6 +3,7 @@ import type { AudioEffect } from "#shared/editor/audio-effects";
 import { buildFxChain, duckCurve, type DuckCurves, type FxAutomation } from "~/utils/audio-fx";
 import { triggerHits } from "~/utils/audio-triggers";
 import { isSynthSrc, renderSynth } from "~/utils/audio-synth";
+import { isRuleLayerId } from "#shared/editor/sound-rules";
 import { stageCuesVersion } from "~/composables/use-stage-cues";
 import { applyCompProps, evaluatePropertyTrack, type CompositionConfig, type LayerInstance, type PropertyTrack } from "@shader-lab/core";
 
@@ -173,7 +174,8 @@ export function collectAudio(
           const start = offset + h.start;
           const buf = env.buffers(h.src);
           const natural = buf ? start + buf.duration / h.rate : Infinity;
-          const hitTo = Math.min(win[1], b, natural, h.fadeOutAt != null ? offset + h.fadeOutAt + 0.02 : Infinity);
+          // Rules: their window only picks events; the sound plays out.
+          const hitTo = Math.min(win[1], isRuleLayerId(layer.id) ? Infinity : b, natural, h.fadeOutAt != null ? offset + h.fadeOutAt + 0.02 : Infinity);
           const hitFrom = Math.max(win[0], start);
           if (hitTo > hitFrom) {
             out.push({
@@ -404,7 +406,7 @@ function startVoice(
 }
 
 export function useAudioPlayback(opts: {
-  layers: Ref<LayerInstance[]>;
+  layers: Readonly<Ref<LayerInstance[]>>;
   tracks: Ref<PropertyTrack[]>;
   resolveComposition?: (compId: string) => CompositionConfig | null | undefined;
   /** Bumps when nested comps load/change (re-collects sounds). */

@@ -90,6 +90,7 @@ import { audioBufferToWav, useVideoExport } from "~/composables/use-video-export
 import { collectCompEvents } from "~/utils/comp-events";
 import { measureLoudness } from "~/utils/audio-meter";
 import { applyMix, snapshotMix, type MixVersion } from "#shared/editor/mix-versions";
+import { effectiveRules, migrateTriggerLayers, ruleLayer, type SoundRule } from "#shared/editor/sound-rules";
 import { soundAnchors, triggerHits } from "~/utils/audio-triggers";
 import { decodeAudio } from "~/composables/use-audio-playback";
 import type { AudioEffect } from "#shared/editor/audio-effects";
@@ -216,6 +217,12 @@ if (routeId) {
         window.history.replaceState(window.history.state, "", `/shader/${comp.id}`);
       });
     }
+    // Old trigger layers → comp sound rules (off the timeline). On the fetched
+    // doc itself, before anything copies it: the SSR payload must carry the
+    // moved layers AND the rules (idempotent on the client).
+    comp.data.tracks ??= [];
+    comp.data.settings ??= {} as typeof comp.data.settings;
+    migrateTriggerLayers({ layers: comp.data.layers, tracks: comp.data.tracks, settings: comp.data.settings });
     layers.value = comp.data.layers;
     settings.value = { ...DEFAULT_COMPOSITION_SETTINGS, ...comp.data.settings };
     tracks.value = comp.data.tracks ?? [];
@@ -535,8 +542,38 @@ function toggleMixer() {
   } catch {}
 }
 /** Audio layers (incl. nested comps): in sync while playback is real time, quiet while it steps. */
+// --- Sound rules: project kit + comp rules → virtual audio layers (not on the timeline) ---
+
+const projectRules = ref<SoundRule[]>([]);
+let projectRulesSavedAt = 0;
+let projectRulesLoaded = false;
+async function loadProjectRules() {
+  if (!projectId.value || import.meta.server) return;
+  const res = await $fetch<{ rules: SoundRule[] }>(`/api/projects/${projectId.value}/sound-rules`).catch(() => null);
+  projectRulesLoaded = false;
+  projectRules.value = res?.rules ?? [];
+  await nextTick();
+  projectRulesLoaded = true;
+}
+watch(projectId, () => void loadProjectRules(), { immediate: true });
+const saveProjectRules = useDebounceFn(async () => {
+  if (!projectId.value || (import.meta.client && new URLSearchParams(location.search).has("nosave"))) return;
+  projectRulesSavedAt = Date.now();
+  await $fetch(`/api/projects/${projectId.value}/sound-rules`, { method: "PUT", body: { rules: toRaw(projectRules.value) } }).catch((e) => console.warn("[sound rules] save failed", e));
+}, 400);
+watch(projectRules, () => projectRulesLoaded && void saveProjectRules(), { deep: true });
+
+provide("soundRules", { project: projectRules, projectId });
+
+/** Rules in effect for this comp, as virtual audio layers ("rule:<id>"). */
+const ruleLayers = computed(() =>
+  effectiveRules(projectRules.value, (settings.value.soundRules as SoundRule[] | undefined) ?? []).map((r) => ruleLayer(r.rule)),
+);
+/** Everything that makes sound in this comp: timeline layers + rules. */
+const audioLayers = computed(() => (ruleLayers.value.length ? [...layers.value, ...ruleLayers.value] : layers.value));
+
 const audioPlayback = useAudioPlayback({
-  layers,
+  layers: audioLayers,
   tracks,
   resolveComposition: (id) => resolveComposition(id),
   registryVersion,
@@ -809,7 +846,7 @@ const shaderExport = {
     componentCapture.resume();
     mediaSources.resume();
   },
-  renderAudio: (duration: number) => renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value }),
+  renderAudio: (duration: number) => renderAudioMix(audioLayers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value }),
   getCanvas,
   configureRenderer,
   restoreRenderer,
@@ -916,7 +953,7 @@ async function renderComp(opts: { scale?: number; fps?: number; format?: "auto" 
   const fps = opts.fps ?? settings.value.fps;
   const duration = settings.value.duration;
   if (opts.audioOnly) {
-    const mix = await renderAudioMix(layers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value });
+    const mix = await renderAudioMix(audioLayers.value, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value });
     if (!mix) return { ok: false, error: "This comp has no audio layers" };
     const meta = {
       app: "shader-lab", kind: "audio", projectId: projectId.value, compId: shaderId.value, compName: shaderName.value,
@@ -965,6 +1002,13 @@ if (import.meta.client) {
       });
     },
     /** Loudness: master (integrated / short-term LUFS, true peak), each strip solo, trigger sync. */
+    /** Sound rules in effect (project kit + comp), with their scope. */
+    rules: () => ({
+      project: projectRules.value.length,
+      comp: ((settings.value.soundRules as SoundRule[] | undefined) ?? []).length,
+      effective: effectiveRules(projectRules.value, (settings.value.soundRules as SoundRule[] | undefined) ?? []).map((r) => ({ id: r.rule.id, scope: r.scope, label: r.rule.label, on: r.rule.on })),
+      audioLayers: audioLayers.value.length,
+    }),
     /** Switch to a mix version by id or name (render / meter it next). */
     saveMix: (name: string) => (saveMixVersion(name), { ok: true, activeMix: settings.value.activeMix }),
     mix: (idOrName: string) => ({ ok: useMixVersion(idOrName), versions: (settings.value.mixVersions ?? []).map((m) => m.name) }),
@@ -972,13 +1016,13 @@ if (import.meta.client) {
       const duration = settings.value.duration;
       const mixOf = (ls: LayerInstance[]) =>
         renderAudioMix(ls, tracks.value, duration, resolveComposition, settings.value.masterVolume ?? 0, settings.value.masterEffects as AudioEffect[] | undefined, { frame: settings.value, settings: settings.value });
-      const full = await mixOf(layers.value);
+      const full = await mixOf(audioLayers.value);
       if (!full) return { ok: false, error: "This comp has no sound" };
       const master = await measureLoudness(full);
-      const stripLayers = layers.value.filter((l) => l.type === "audio" || (l.type === "composition" && audioPlayback.entries.value.some((e) => e.hosts[0]?.key === l.id)));
+      const stripLayers = audioLayers.value.filter((l) => l.type === "audio" || (l.type === "composition" && audioPlayback.entries.value.some((e) => e.hosts[0]?.key === l.id)));
       const strips = [];
       for (const l of stripLayers.slice(0, 96)) {
-        const solo = layers.value.map((x) => {
+        const solo = audioLayers.value.map((x) => {
           const { audioSolo: _s, ...rest } = x;
           return x.id === l.id ? { ...rest, audioSolo: true } : rest;
         }) as LayerInstance[];
@@ -988,7 +1032,7 @@ if (import.meta.client) {
       }
       // Trigger sync: where each hit's anchor lands vs its picture event.
       const sync = [];
-      for (const l of layers.value.filter((x) => x.type === "audio" && x.trigger)) {
+      for (const l of audioLayers.value.filter((x) => x.type === "audio" && x.trigger)) {
         const srcs = [l.values.src as string, ...((((l.trigger as { alternates?: string[] }).alternates) ?? []))];
         const bufs = new Map<string, AudioBuffer | null>();
         for (const s of srcs) bufs.set(s, await decodeAudio(s));
@@ -1142,11 +1186,18 @@ async function pollDisk() {
     const known = compMtimes.get(id);
     compMtimes.set(id, mtime);
     if (known === undefined || mtime <= known) continue;
+    if (id === "__soundRules") {
+      if (Date.now() - projectRulesSavedAt > 2500) void loadProjectRules();
+      continue;
+    }
     if (id === shaderId.value) {
       // Our own autosave writes too: only reload when we haven't edited lately.
       if (Date.now() - ownSaveAt < 2500) continue;
       const doc = await $fetch<ShaderDoc>(`/api/shaders/${id}`).catch(() => null);
       if (!doc?.data) continue;
+      doc.data.tracks ??= [];
+      doc.data.settings ??= {} as typeof doc.data.settings;
+      migrateTriggerLayers({ layers: doc.data.layers, tracks: doc.data.tracks, settings: doc.data.settings });
       layers.value = doc.data.layers;
       settings.value = { ...DEFAULT_COMPOSITION_SETTINGS, ...doc.data.settings };
       tracks.value = doc.data.tracks ?? [];
@@ -2781,7 +2832,7 @@ registerKeyboard({
         </div>
         <div v-if="mixerOpen" class="mb-[var(--s-gap)] h-[176px] shrink-0 overflow-hidden rounded-[var(--s-r)]">
           <EditorAudioMixer
-            :layers="layers"
+            :layers="audioLayers"
             :tracks="tracks"
             :settings="settings"
             :entries="audioPlayback.entries.value"

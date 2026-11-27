@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CompositionSettings, LayerInstance, PropertyTrack } from "@shader-lab/core";
 import type { AudioEffect } from "#shared/editor/audio-effects";
+import type { SoundRule } from "#shared/editor/sound-rules";
 
 /** Inspector with nothing selected: the comp's own settings. */
 const props = defineProps<{ settings: CompositionSettings; compName: string }>();
@@ -35,6 +36,8 @@ function onPreset(label: string) {
 const FPS = [24, 25, 30, 50, 60].map((v) => ({ value: v, label: `${v} fps` }));
 const editorLayers = inject<Ref<LayerInstance[]> | null>("editorLayers", null);
 const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
+/** Project sound kit + project id (provided by the editor page). */
+const soundRulesCtx = inject<{ project: Ref<SoundRule[]>; projectId: Ref<string | null> } | null>("soundRules", null);
 </script>
 
 <template>
@@ -125,6 +128,15 @@ const editorTracks = inject<Ref<PropertyTrack[]> | null>("editorTracks", null);
         </StudioField>
       </template>
     </EditorInspectorSection>
+
+    <EditorSoundRulesField
+      v-if="soundRulesCtx"
+      :settings="settings"
+      :project-rules="soundRulesCtx.project.value"
+      :layers="editorLayers?.value ?? []"
+      :tracks="editorTracks?.value ?? []"
+      :project-id="soundRulesCtx.projectId.value"
+    />
 
     <EditorInspectorSection title="Master (audio)">
       <StudioField label="Volume" inline>

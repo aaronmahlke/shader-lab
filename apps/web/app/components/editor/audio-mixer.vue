@@ -7,6 +7,7 @@
  */
 import type { CompositionSettings, LayerInstance, PropertyTrack } from "@shader-lab/core";
 import type { AudioEntry } from "~/composables/use-audio-playback";
+import { isRuleLayerId } from "#shared/editor/sound-rules";
 
 const props = defineProps<{
   layers: LayerInstance[];
@@ -48,6 +49,15 @@ function setParam(layer: LayerInstance, p: string, v: number) {
   history?.record();
 }
 function toggle(layer: LayerInstance, flag: "audioMuted" | "audioSolo") {
+  // Sound rules: the strip's layer is virtual; its values ARE the rule.
+  if (isRuleLayerId(layer.id)) {
+    const rule = layer.values as Record<string, unknown>;
+    const key = flag === "audioMuted" ? "muted" : "solo";
+    if (rule[key]) delete rule[key];
+    else rule[key] = true;
+    history?.record();
+    return;
+  }
   if (layer[flag]) delete layer[flag];
   else layer[flag] = true;
   history?.record();

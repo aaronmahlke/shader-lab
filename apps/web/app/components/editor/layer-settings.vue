@@ -935,8 +935,6 @@ function isUniformVisible(def: LayerUniformDef): boolean {
 
     <EditorAudioSynthField v-if="layer.type === 'audio'" :layer="layer" />
 
-    <EditorAudioTriggerField v-if="layer.type === 'audio'" :layer="layer" :layers="editorLayers?.value ?? []" :project-id="editorProjectId?.value" />
-
     <EditorInspectorSection v-if="layer.type === 'audio' || (layer.type === 'composition' && compHasAudio)" title="Audio effects">
       <EditorAudioEffectsField
         :model-value="layer.audioEffects as AudioEffect[] | undefined"

@@ -59,3 +59,13 @@ Agents: add an entry per issue (newest at the bottom): what you did, what you ex
 - 2026-11-27 10:05: `render … b377510f --fps 60 --fresh` froze from 1.92 s to the end (sidecar `frozen`), finished in 134 s instead of ~320 s. At that moment `git status` showed uncommitted edits to `timeline.vue` and `use-audio-playback.ts`; earlier an all-black render happened during edits to `stage-components.ts` / `project-components.ts`.
 - Cause (likely): the CLI renders through the live `nuxt dev` server on :3000, which hot-reloads whatever is on disk, so any agent edit in progress changes the renderer under a running render.
 - Suggestion: renders use a stable build (e.g. `render` builds/serves `.output` from the last commit, or a separate render server on another port started from a clean worktree), or at least the CLI refuses to start / warns when the working tree under `apps/web` is dirty.
+
+### Component layers go soft under camera zoom (capture scale is fixed, not zoom-aware)
+
+- 2026-11-27, project `mobile-login-uhd-project`, comp `b377510f` (Film v2). Camera `zoom` goes 1 → 2.3–2.47 during S3 (`SlackAsk` sub-comp) and S4–S5. Every component layer has `captureScale: 2` (default, `componentCaptureScaleFromValues`). Under 2.4× zoom the Slack composer text and icons are visibly soft, even in a 4K render (crop around 4.2 s), and blurry at `--scale 0.5`.
+- The user's expectation (and mine): component layers are live DOM, so they should be **resolution independent**: "we basically have capability for infinite zoom". Zooming the camera should never upscale a raster.
+- Suggestion:
+  1. **Auto capture scale per frame**: `effective = outputScale(--scale) × cameraZoom × layerScale × parent comp/layer scales × devicePixelRatio`, rounded to buckets (e.g. 1, 1.5, 2, 3, 4…) so sessions aren't recreated every frame. Keep `captureScale` as a manual override / minimum.
+  2. **Capture only the visible region** when zoomed: crop the DOM capture (viewBox) to the part of the element the camera actually sees, so high zoom doesn't explode texture size (a 3840 px wide element at 4× = 15360 px, near `MAX_TEXTURE_SIZE`). That gives effectively infinite zoom at constant cost.
+  3. Same for nested `composition` layers (S3 is a comp-in-comp): the parent camera's zoom should flow into the child comp's capture scale.
+- Workaround for now: I can raise `captureScale` on the zoomed layers by hand, but it costs memory on every frame, including the unzoomed ones.
