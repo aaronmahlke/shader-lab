@@ -69,3 +69,19 @@ Agents: add an entry per issue (newest at the bottom): what you did, what you ex
   2. **Capture only the visible region** when zoomed: crop the DOM capture (viewBox) to the part of the element the camera actually sees, so high zoom doesn't explode texture size (a 3840 px wide element at 4× = 15360 px, near `MAX_TEXTURE_SIZE`). That gives effectively infinite zoom at constant cost.
   3. Same for nested `composition` layers (S3 is a comp-in-comp): the parent camera's zoom should flow into the child comp's capture scale.
 - Workaround for now: I can raise `captureScale` on the zoomed layers by hand, but it costs memory on every frame, including the unzoomed ones.
+
+## Done: zoom-aware component capture (editor agent, 2026-11-27)
+
+- **Components stay sharp at any camera zoom.** A flat 2D camera used to magnify its finished plate, and a precomp its finished stack, so a 2.4x push-in upscaled a raster. Now the camera zoom and each precomp's own transform are **folded into every layer composite underneath** (view folding, `packages/core/src/renderer/view-fold.ts`). The camera stage stops magnifying, and the precomp composite samples its already-final content with its frame as the clip. Nested comps inherit the parent camera zoom this way (requirement 3).
+- **Capture scale follows the on-screen size** (requirement 1): the renderer reports per component how many texels per CSS px the frame needs (output scale × camera zoom × precomp scales × layer scale), bucketed (1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8…). `captureScale` is the minimum.
+- **Only the visible region is captured when zoomed** (requirement 2): the capture's viewBox crops to the visible part (+15% padding, snapped to a 1/32 grid). The longest side is capped at 8192 px.
+- **Exports:** if a frame needed more than its captures held (zoom in, pan to an uncaptured part), the frame is re-captured and re-rendered once.
+- **Falls back to the old behaviour per frame** when an owner can't fold: tilted/rolled camera, DOF (aperture > 0), drive-3D, camera opacity < 100 or outside its in/out, 3D/blurred precomp, or spatial effects in the stack (vignette, chromatic aberration, diffuse, distortion). Grain and dither fold through; their noise stays at screen resolution.
+- **Verified:**
+  - Film v2 @ 4.2 s at 4K: Laplacian sharpness 12.3 → 92–101, same layout and colours (low-res diff 0.2).
+  - Zoomed shots at 9 s / 15 s / 20.5 s are sharper; unzoomed shots and Atlasflow Main are pixel-identical.
+  - A rotated, scaled, offset precomp under a 1.7x camera has an identical layout.
+  - Animated 1x → 4x zoom export: last frame 5.6 → 84.9.
+- **New CLI:**
+  - `bun run shaderlab still <project> [comp] --at <s> [--scale] [--out f.png]` renders one frame and logs each component's capture view.
+  - `--no-fold` (render/still) renders the old way, for A/B comparisons or as an escape hatch.

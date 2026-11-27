@@ -98,6 +98,10 @@ uniform vec4 u_window;
 // sampleLayerContent then returns premultiplied color and the composite blends
 // it as such (no divide → no 8-bit banding, no double-darkened soft edges).
 uniform float u_premultiplied;
+// 1 = this layer's content is already at final screen size (a precomp whose
+// transform was folded into its own layers): sample it in screen space and
+// use the transform only as the clip.
+uniform float u_foldedContent;
 
 vec4 fetchContent(sampler2D tex, vec2 uv, float lod) {
   return texture2D(tex, uv, lod);
@@ -165,7 +169,7 @@ vec4 layerAt(vec2 uv, vec2 anchor, float px, float py, float scalePct, float rot
   vec2 inside = smoothstep(-aa, vec2(0.0), luv) * smoothstep(-aa, vec2(0.0), 1.0 - luv);
   float coverage = inside.x * inside.y;
 
-  vec4 content = sampleLayerContent(u_color, luv, u_resolution);
+  vec4 content = u_foldedContent > 0.5 ? texture2D(u_color, uv) : sampleLayerContent(u_color, luv, u_resolution);
   // Blur spreads past the layer bounds; keep the hard coverage only when sharp.
   if (layerBlur > 0.01) coverage = 1.0;
   float k = clamp(layerOpacity / 100.0, 0.0, 1.0) * coverage;

@@ -82,6 +82,7 @@ function prefixNestedPass(prefix: string, pass: RenderPass): RenderPass {
     auxSourceLayerId:
       pass.auxSourceLayerId != null ? p(pass.auxSourceLayerId) : pass.auxSourceLayerId,
     sourceLayerId: p(pass.sourceLayerId ?? pass.layerId),
+    viewFolds: pass.viewFolds?.map(p),
     cameraSourceLayerId:
       pass.cameraSourceLayerId != null ? p(pass.cameraSourceLayerId) : pass.cameraSourceLayerId,
     threeDGroup: pass.threeDGroup
@@ -173,6 +174,21 @@ function finishWithScreenBlit(
  * treat the nested comp exactly like any generator's content.
  * Returns false when there is nothing to show (unresolved ref, cycle, empty).
  */
+/** Passes a view fold can see through: composites (2D), generator sources, blits. */
+function isFoldablePass(p: RenderPass): boolean {
+  if (p.layerType === "layerComposite" || p.layerType === "blit") return true;
+  // Per-pixel effects (no spatial sampling of the stack) look the same folded;
+  // their noise just stays at screen resolution instead of being magnified.
+  if (p.layerType === "grain" || p.layerType === "dither") return true;
+  // A foldable camera's own chain (stage/DOF/bloom/composite) passes through once folded.
+  if (p.layerType.startsWith("camera") || p.layerType.startsWith("bloom")) return !!p.foldable;
+  if (p.layerType === "layerComposite3d" || p.threeDGroup) return false;
+  // Generators render their own content (no stack input); effects/distortions/cameras read the stack.
+  return p.inputLayerId === null && !p.layerType.startsWith("camera") && !p.layerType.startsWith("bloom") && p.layerType !== "resolve";
+}
+/** Host layer ids whose nested comp compiled foldable (read right after emit). */
+const nestedFoldable = new Set<string>();
+
 function emitNestedComposition(
   layer: LayerInstance,
   previous: RenderPass[],
@@ -197,8 +213,17 @@ function emitNestedComposition(
   });
   if (!nested.lastId) return false;
 
+  // Foldable precomp: its transform can be pushed into its own composites
+  // (content drawn at final size → sharp under zoom). Decided per frame.
+  const foldable = nested.passes.every(isFoldablePass);
   const prefix = `${layer.id}${NESTED_SEP}`;
-  for (const pass of nested.passes) previous.push(prefixNestedPass(prefix, pass));
+  for (const pass of nested.passes) {
+    const pp = prefixNestedPass(prefix, pass);
+    if (foldable && pp.layerType === "layerComposite") pp.viewFolds = [...(pp.viewFolds ?? []), layer.id];
+    previous.push(pp);
+  }
+  nestedFoldable.add(layer.id);
+  if (!foldable) nestedFoldable.delete(layer.id);
   previous.push({
     layerId: layer.id,
     layerType: "blit",
@@ -315,6 +340,7 @@ function compileStack(
       const downIds = [`${layer.id}-bloom-down-1`, `${layer.id}-bloom-down-2`, `${layer.id}-bloom-down-3`];
       const upIds = [`${layer.id}-bloom-up-2`, `${layer.id}-bloom-up-1`, `${layer.id}-bloom-up-0`];
 
+      const plateFoldable = result.every(isFoldablePass);
       const cameraPass = (
         layerId: string,
         layerType: RenderPass["layerType"],
@@ -330,11 +356,17 @@ function compileStack(
         // Inside a nested comp the camera keeps the plate's coverage alpha (a
         // precomp with a camera must not turn opaque over the layers below it).
         preserveAlpha: opts?._nested,
+        foldable: plateFoldable,
         ...extra,
       });
 
+      // Flat cameras fold their zoom into the composites below (sharp zoom,
+      // decided per frame); only when the plate is composites/generators.
+      if (plateFoldable) {
+        for (const p of result) if (p.layerType === "layerComposite") p.viewFolds = [...(p.viewFolds ?? []), layer.id];
+      }
       // Plate projection and DOF run at full resolution in linear light.
-      result.push(cameraPass(stageId, "cameraStage", plateId, { floatTarget: true }));
+      result.push(cameraPass(stageId, "cameraStage", plateId, { floatTarget: true, foldable: plateFoldable }));
       result.push(cameraPass(dofId, "cameraDof", stageId, { floatTarget: true }));
       // Bloom mip chain: half → 1/16 down, then an additive tent walk back up.
       result.push(cameraPass(preId, "bloomPrefilter", dofId, { floatTarget: true, targetScale: 0.5 }));
@@ -437,7 +469,9 @@ function compileStack(
       // Nested comp: its stack renders into an FBO keyed by this layer's id,
       // then the normal composite pass applies transform/opacity/blend.
       if (emitNestedComposition(layer, result, modFn, opts)) {
-        result.push(makeCompositePass(layer, previousLayerId, modFn, opts?._nested));
+        const host = makeCompositePass(layer, previousLayerId, modFn, opts?._nested);
+        if (nestedFoldable.has(layer.id)) host.foldsContent = true;
+        result.push(host);
         previousLayerId = compositePassId(layer.id);
       }
       i++;

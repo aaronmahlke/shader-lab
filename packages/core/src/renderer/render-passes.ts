@@ -12,6 +12,7 @@ import type { ComponentSource, MediaSource } from "./component-source";
 import { stbnFrameIndex } from "../modulation/stbn";
 import { NESTED_SEP } from "../compiler/compile-passes";
 import { computeContentWindow, FULL_WINDOW, WINDOWED_SOURCE_TYPES, type ContentWindow } from "./content-window";
+import { computeFoldStates, foldSim, simFromUniforms, simToUniforms, type FoldStates } from "./view-fold";
 import {
   FRAG_SHADERS,
   GRADIENT_RESOLUTION,
@@ -86,6 +87,16 @@ export type RenderPassContext = {
   motionBlur?: { open: ModulationFn | null; close: ModulationFn | null; maxSamples?: number } | null;
   /** Per-frame content windows, keyed by source pass id (see content-window.ts). */
   contentWindows?: Map<string, ContentWindow>;
+  /** View folding (see view-fold.ts): owner transforms at the frame time… */
+  foldStates?: FoldStates;
+  /** …and at any shutter fn (cached per fn). */
+  foldStatesAt?: (fn: ModulationFn | null) => FoldStates;
+  /**
+   * Out: per component source key, what the frame needs from its capture —
+   * texels per CSS px (`scale`) and the visible part of the element
+   * (`rect`, element-relative 0..1, top-down; null = all of it).
+   */
+  componentViews?: Map<string, { scale: number; rect: [number, number, number, number] | null }>;
 };
 
 /** Zero out a layer's contribution while the playhead is outside its in/out window. */
@@ -118,10 +129,22 @@ function resolvePassUniformValues(
     ? buildUniversalUniforms(layer, ctx.getModulatedValue ?? null)
     : buildLayerUniforms(layer, ctx.getModulatedValue ?? null);
 
+  // View folding: owners' transforms (flat camera zoom, precomp host) applied here.
+  if (pass.layerType === "layerComposite" && pass.viewFolds?.length && ctx.foldStates) {
+    simToUniforms(foldSim(simFromUniforms(merged), pass.viewFolds, ctx.foldStates, ctx.width / Math.max(ctx.height, 1)), merged);
+  }
+
   if (pass.layerType === "layerComposite3d") {
     mergeSceneUniforms(merged, layer, pass, ctx);
   }
   if (isComposite) applyMotionBlur(merged, layer, pass, ctx);
+  // Host of a folded precomp: its stack already arrives at final size —
+  // sample screen space, keep the (folded) frame as the clip, no extra blur.
+  if (isComposite) {
+    const folded = !!pass.foldsContent && !!ctx.foldStates?.get(pass.colorSourceLayerId ?? "");
+    merged.u_foldedContent = folded ? 1 : 0;
+    if (folded) merged.u_mbSamples = 0;
+  }
 
   if (isComposite) {
     // Layer UV rect the content buffer holds (zoomed-in source layers render only what's visible).
@@ -136,6 +159,8 @@ function resolvePassUniformValues(
 
   // A camera that drives 3D groups films the plate flat: the view transform
   // is applied per 3D layer instead, the lens chain (DOF/bloom/tonemap) stays.
+  // A folded flat camera: its zoom already lives in the composites below.
+  if (pass.layerType === "cameraStage" && ctx.foldStates?.get(pass.sourceLayerId ?? pass.layerId)) merged.zoom = 1;
   if (pass.layerType === "cameraStage" && merged.drive3d === true) {
     merged.tilt = 0;
     merged.yaw = 0;
@@ -173,6 +198,9 @@ function applyMotionBlur(
   const is3d = pass.layerType === "layerComposite3d";
   const at = (fn: ModulationFn) => {
     const u = buildUniversalUniforms(layer, fn) as Record<string, number>;
+    if (pass.layerType === "layerComposite" && pass.viewFolds?.length && ctx.foldStatesAt) {
+      simToUniforms(foldSim(simFromUniforms(u), pass.viewFolds, ctx.foldStatesAt(fn), ctx.width / Math.max(ctx.height, 1)), u);
+    }
     const cam: Record<string, unknown> = {};
     if (is3d) mergeSceneUniforms(cam, layer, pass, { ...ctx, getModulatedValue: fn });
     return {
@@ -573,6 +601,11 @@ function setPassUniforms(
         texUnit++;
       }
       const contentScale = ctx.contentScale ?? 1;
+      const uCapRect = gl.getUniformLocation(program, "u_capRect");
+      if (uCapRect) {
+        const r = entry.source.rect ?? [0, 0, 1, 1];
+        gl.uniform4f(uCapRect, r[0], r[1], Math.max(1e-6, r[2]), Math.max(1e-6, r[3]));
+      }
       const uContentSize = gl.getUniformLocation(program, "u_contentSize");
       if (uContentSize) {
         gl.uniform2f(
@@ -922,6 +955,19 @@ export function renderPasses(
   // Depth-sort 3D group slots for this frame (keyframed/LFO Z flows through modFn).
   const execPasses = assignThreeDSlots(passes, ctx.findLayer, ctx.getModulatedValue, width / Math.max(height, 1));
 
+  // View folding states for this frame (and lazily per shutter fn).
+  const foldStates = computeFoldStates(execPasses, ctx, ctx.getModulatedValue ?? null);
+  const foldCache = new Map<ModulationFn | null, FoldStates>();
+  ctx = {
+    ...ctx,
+    foldStates,
+    foldStatesAt: (fn) => {
+      let s = foldCache.get(fn);
+      if (!s) foldCache.set(fn, (s = computeFoldStates(execPasses, ctx, fn, foldStates)));
+      return s;
+    },
+  };
+
   // Content windows: zoomed-in source layers render only their visible part (sharp at any scale).
   const sourceTypes = new Map(execPasses.map((p) => [p.layerId, p.layerType] as const));
   const consumers = new Map<string, number>();
@@ -938,6 +984,41 @@ export function renderPasses(
     const u = resolvePassUniformValues(pass, ctx);
     const win = computeContentWindow(u, pass.layerType === "layerComposite3d", width, height, ctx.contentScale ?? 1);
     if (win !== FULL_WINDOW) windows.set(src, win);
+    if (sourceTypes.get(src) === "component" && ctx.componentViews) recordComponentView(src, u, win, pass.layerType === "layerComposite3d");
+  }
+  // Shared component sources (cloners) still report their scale, whole element.
+  for (const pass of execPasses) {
+    if (pass.layerType !== "layerComposite" || !pass.colorSourceLayerId || sourceTypes.get(pass.colorSourceLayerId) !== "component") continue;
+    if (!ctx.componentViews || (consumers.get(pass.colorSourceLayerId) ?? 0) <= 1) continue;
+    recordComponentView(pass.colorSourceLayerId, resolvePassUniformValues(pass, ctx), FULL_WINDOW, false);
+  }
+
+  /** What this frame needs from a component's capture (see RenderPassContext.componentViews). */
+  function recordComponentView(srcId: string, u: Record<string, unknown>, win: ContentWindow, is3d: boolean) {
+    const srcPass = execPasses.find((p) => p.layerId === srcId);
+    if (!srcPass) return;
+    const key = sourceKeyFor(srcPass, ctx);
+    const cs = ctx.contentScale ?? 1;
+    const [wx, wy, ww, wh] = win as unknown as [number, number, number, number];
+    // On-screen magnification of the layer: its (folded) 2D scale; 3D from the window.
+    const mag = is3d ? 1 / Math.max(1e-3, Math.min(ww, wh)) : Math.max(Number(u.layerScale ?? 100) / 100, 1e-3);
+    const prev = ctx.componentViews!.get(key);
+    const scale = Math.max(prev?.scale ?? 0, cs * mag);
+    let rect: [number, number, number, number] | null = null;
+    const source = ctx.componentSources?.get(key);
+    if (win !== FULL_WINDOW && source && !prev) {
+      // Layer uv (y-up) → element uv, as component-source.frag maps it.
+      const cw = source.cssWidth * cs;
+      const ch = source.cssHeight * cs;
+      const ex = (lx: number) => ((lx - 0.5) * width + 0.5 * cw) / cw;
+      const ey = (ly: number) => ((ly - 0.5) * height + 0.5 * ch) / ch;
+      const x0 = Math.max(0, ex(wx));
+      const x1 = Math.min(1, ex(wx + ww));
+      const top = Math.max(0, 1 - ey(wy + wh));
+      const bottom = Math.min(1, 1 - ey(wy));
+      if (x1 > x0 && bottom > top && (x1 - x0 < 0.95 || bottom - top < 0.95)) rect = [x0, top, x1 - x0, bottom - top];
+    }
+    ctx.componentViews!.set(key, { scale, rect: prev ? null : rect });
   }
   ctx = { ...ctx, contentWindows: windows };
 

@@ -30,7 +30,62 @@ type ComponentCaptureOptions = {
    * aren't captured — DOM capture is the most expensive thing per frame.
    */
   isActive?: (layerId: string, time?: number) => boolean;
+  /**
+   * What the last rendered frame needed from this layer's capture (the
+   * renderer's on-screen scale incl. camera zoom + precomp scales, and the
+   * visible part). Drives zoom-aware capture; omitted = fixed captureScale.
+   */
+  view?: (layerId: string) => { scale: number; rect: [number, number, number, number] | null } | null;
 };
+
+/** Capture scales snap to these (fewer re-rasters while a zoom animates). */
+const SCALE_BUCKETS = [1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32];
+/** Longest side of a capture in px (texture memory stays bounded at any zoom). */
+const MAX_CAPTURE_PX = 8192;
+/** Snap grid for capture rects (element-relative): small pans reuse the same rect. */
+const RECT_GRID = 1 / 32;
+
+type CaptureView = { scale: number; rect: [number, number, number, number] | null };
+
+/** Bucketed scale for a need (manual captureScale is the floor). */
+function wantedScale(manual: number, need: CaptureView | null): number {
+  const demand = need?.scale ?? 0;
+  return Math.max(manual, SCALE_BUCKETS.find((b) => b >= demand * 0.97) ?? SCALE_BUCKETS[SCALE_BUCKETS.length - 1]!);
+}
+
+/** The capture to take for a needed view: bucketed scale, padded snapped rect, size-capped. */
+function planCapture(manual: number, need: CaptureView | null, css: { w: number; h: number } | null): CaptureView {
+  let scale = wantedScale(manual, need);
+  let rect: CaptureView["rect"] = null;
+  if (need?.rect) {
+    const [x, y, w, h] = need.rect;
+    const padX = Math.max(w * 0.15, RECT_GRID);
+    const padY = Math.max(h * 0.15, RECT_GRID);
+    const x0 = Math.max(0, Math.floor((x - padX) / RECT_GRID) * RECT_GRID);
+    const y0 = Math.max(0, Math.floor((y - padY) / RECT_GRID) * RECT_GRID);
+    const x1 = Math.min(1, Math.ceil((x + w + padX) / RECT_GRID) * RECT_GRID);
+    const y1 = Math.min(1, Math.ceil((y + h + padY) / RECT_GRID) * RECT_GRID);
+    if (x1 - x0 < 0.9 || y1 - y0 < 0.9) rect = [x0, y0, x1 - x0, y1 - y0];
+  }
+  if (css) {
+    const longest = Math.max(css.w * (rect?.[2] ?? 1), css.h * (rect?.[3] ?? 1));
+    if (longest * scale > MAX_CAPTURE_PX) scale = Math.max(0.5, MAX_CAPTURE_PX / longest);
+  }
+  return { scale, rect };
+}
+
+/** Does a capture serve a needed view (scale high enough or at its size cap, rect covers what's visible)? */
+function serves(have: CaptureView | undefined, need: CaptureView | null, manual: number, cappedAt?: number): boolean {
+  if (!have) return false;
+  if (!need) return true;
+  const want = wantedScale(manual, need);
+  if (have.scale + 1e-6 < want && !(cappedAt != null && have.scale + 1e-6 >= cappedAt)) return false;
+  if (!have.rect) return true;
+  if (!need.rect) return false;
+  const [hx, hy, hw, hh] = have.rect;
+  const [nx, ny, nw, nh] = need.rect;
+  return nx >= hx - 1e-6 && ny >= hy - 1e-6 && nx + nw <= hx + hw + 1e-6 && ny + nh <= hy + hh + 1e-6;
+}
 
 export function useComponentCapture(options: ComponentCaptureOptions) {
   const sessions = new Map<string, DomCaptureSession>();
@@ -58,11 +113,16 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
   const pushed = new Set<string>();
   /** Last capture error per layer (cleared on success). */
   const failures = new Map<string, unknown>();
+  /** What each layer's current frame holds (scale + rect). */
+  const captured = new Map<string, CaptureView>();
+  /** Scale a capture was limited to by MAX_CAPTURE_PX (asking for more is pointless). */
+  const capped = new Map<string, number>();
 
   /** Free a layer's frame + GPU texture (it's off screen); re-captured when it returns. */
   function release(layerId: string) {
     if (!pushed.has(layerId)) return;
     pushed.delete(layerId);
+    captured.delete(layerId);
     options.setComponentSource(layerId, null);
     sessions.get(layerId)?.reset();
   }
@@ -84,13 +144,20 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
       sessionScales.set(layer.id, scale);
     }
 
+    const known = contentSizes.get(layer.id);
+    const need = options.view?.(layer.id) ?? null;
+    const plan = planCapture(scale, need, known ? { w: known.cssWidth, h: known.cssHeight } : null);
     const run = session
-      .capture(element)
+      .capture(element, plan)
       .then((result) => {
         failures.delete(layer.id);
         if (disposed || !result || result === "unchanged") return false;
         pushed.add(layer.id);
+        captured.set(layer.id, { scale: result.scale ?? plan.scale, rect: result.rect ?? null });
+        if (plan.scale + 1e-6 < wantedScale(scale, need)) capped.set(layer.id, plan.scale);
+        else capped.delete(layer.id);
         options.setComponentSource(layer.id, {
+          rect: result.rect ?? null,
           frame: result.image,
           cssWidth: result.cssWidth,
           cssHeight: result.cssHeight,
@@ -165,6 +232,21 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     }
   }
 
+  /**
+   * After rendering a frame: do the captures hold what it needed (zoom-aware
+   * scale and visible rect)? Exports re-capture + re-render once when not.
+   */
+  function viewsSatisfied(time?: number): boolean {
+    if (!options.view) return true;
+    for (const layer of componentLayers()) {
+      if (options.isActive && !options.isActive(layer.id, time)) continue;
+      const need = options.view(layer.id);
+      if (!need) continue;
+      if (!serves(captured.get(layer.id), need, componentCaptureScaleFromValues(layer.values), capped.get(layer.id))) return false;
+    }
+    return true;
+  }
+
   /** Stop the live loop (exports drive capture explicitly per frame). */
   function pause(): void {
     paused = true;
@@ -224,5 +306,5 @@ export function useComponentCapture(options: ComponentCaptureOptions) {
     contentSizes.clear();
   });
 
-  return { captureAll, pause, resume, contentSizes };
+  return { captureAll, viewsSatisfied, pause, resume, contentSizes };
 }

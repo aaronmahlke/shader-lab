@@ -27,6 +27,11 @@ export type ComponentSourceInput = {
    */
   cssWidth: number;
   cssHeight: number;
+  /**
+   * Part of the element the frame holds (element-relative 0..1, top-down:
+   * x, y, w, h). Zoomed-in layers capture only what's visible; omitted = all.
+   */
+  rect?: [number, number, number, number] | null;
 };
 
 /** Stored source; `version` bumps on every push so uploads happen only on change. */

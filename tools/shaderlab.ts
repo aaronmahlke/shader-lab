@@ -11,6 +11,7 @@
  *
  * --fresh renders the picture even when the stored render can be reused.
  * --mix <name|id> renders / meters a saved mix version (the project is not changed).
+ * --no-fold renders without view folding (zoom-aware sharpness), the old way (A/B, escape hatch).
  *
  * Uses the running local Shader Lab server (or starts the built one), opens
  * the comp in a hidden Chrome on the GPU with background throttling off, and
@@ -224,6 +225,7 @@ async function openCompUnlocked(args: Args, label: string, run: (o: Opened) => P
       }
     });
     // nosave: a CLI tab never writes the comp back (e.g. after --mix).
+    if (args["no-fold"]) await page.evaluateOnNewDocument(() => ((globalThis as any).__SHADERLAB_NO_VIEW_FOLD = true));
     await page.goto(`${url}/shader/${comp.id}?nosave`, { waitUntil: "domcontentloaded", timeout: 120_000 });
     await page.waitForFunction(() => (window as any).__shaderlab?.ready?.(), { timeout: 120_000 });
     const gpu = await page.evaluate(() => {
@@ -273,6 +275,23 @@ async function meter(args: Args) {
   });
 }
 
+async function still(args: Args) {
+  const at = Number(args.at ?? 0);
+  const scale = Number(args.scale ?? 1);
+  return openComp(args, ` (still @ ${at}s)`, async ({ page }) => {
+    const r = (await page.evaluate((t, s) => (window as any).__shaderlab.still(t, s), at, scale)) as { ok: boolean; png?: string; error?: string; width?: number; height?: number };
+    if (!r.ok || !r.png) {
+      log(`error: ${r.error ?? "still failed"}`);
+      return 1;
+    }
+    const out = resolve(String(args.out ?? `still-${at}.png`));
+    writeFileSync(out, Buffer.from(r.png.split(",")[1]!, "base64"));
+    log(`still ${r.width}×${r.height} → ${out}`);
+    if ((r as { views?: object }).views) log(`component views: ${JSON.stringify((r as { views?: object }).views)}`);
+    return 0;
+  });
+}
+
 async function render(args: Args) {
   const audioOnly = args["audio-only"] === true;
   return openComp(args, audioOnly ? " (audio only)" : "", async ({ project, comp, page }) => {
@@ -315,8 +334,8 @@ async function render(args: Args) {
 
 const args = parseArgs(process.argv.slice(2));
 const cmd = args._[0];
-if (cmd === "render" || cmd === "events" || cmd === "meter") {
-  (cmd === "render" ? render(args) : cmd === "events" ? events(args) : meter(args))
+if (cmd === "render" || cmd === "events" || cmd === "meter" || cmd === "still") {
+  (cmd === "render" ? render(args) : cmd === "events" ? events(args) : cmd === "still" ? still(args) : meter(args))
     .then((code) => process.exit(code))
     .catch((err) => {
       log("error:", err instanceof Error ? err.message : err);
@@ -324,7 +343,7 @@ if (cmd === "render" || cmd === "events" || cmd === "meter") {
     });
 } else {
   console.error(
-    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh] [--mix <name>]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]\n  bun tools/shaderlab.ts meter <project folder> [comp] [--out meter.json]",
+    "usage:\n  bun tools/shaderlab.ts render <project folder> [comp] [--out f.mp4] [--scale 1] [--fps 30] [--format auto|mp4|webm] [--audio-only] [--fresh] [--mix <name>]\n  bun tools/shaderlab.ts still <project folder> [comp] --at <seconds> [--scale 1] [--out f.png]\n  bun tools/shaderlab.ts events <project folder> [comp] [--out events.json]\n  bun tools/shaderlab.ts meter <project folder> [comp] [--out meter.json]",
   );
   process.exit(cmd ? 1 : 0);
 }

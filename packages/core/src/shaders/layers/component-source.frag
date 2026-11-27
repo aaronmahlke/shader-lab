@@ -16,6 +16,9 @@ uniform sampler2D u_layerTexture;
 uniform vec2 u_contentSize;
 // 0 until the host pushes a first frame — render transparent, never black.
 uniform int u_hasTexture;
+// Part of the element the texture holds (element uv, top-down x, y, w, h):
+// zoomed-in layers capture only what's visible. (0,0,1,1) = the whole element.
+uniform vec4 u_capRect;
 
 void main() {
   if (u_hasTexture == 0) {
@@ -39,7 +42,8 @@ void main() {
   // derivatives across 2x2 pixel quads, which are undefined in divergent
   // control flow. Sampling inside the branch picked garbage LODs along the
   // rect edge — a faint 1 px line (the whole texture's average) at its border.
-  vec4 content = texture2D(u_layerTexture, clamp(vec2(uv.x, 1.0 - uv.y), 0.0, 1.0));
+  vec2 tuv = (vec2(uv.x, 1.0 - uv.y) - u_capRect.xy) / u_capRect.zw;
+  vec4 content = texture2D(u_layerTexture, clamp(tuv, 0.0, 1.0));
   if (coverage <= 0.0) {
     gl_FragColor = vec4(0.0);
     return;

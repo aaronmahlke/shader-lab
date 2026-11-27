@@ -19,6 +19,9 @@ import { stageStylesRevision } from "./stage-pointer";
 export type CapturedFrame = {
   /** Decoded and ready for texImage2D. */
   image: HTMLImageElement;
+  /** Part of the element captured (null = all) and texels per CSS px. */
+  rect?: [number, number, number, number] | null;
+  scale?: number;
   /** Layout size of the captured element in CSS px (the image itself is scale x larger). */
   cssWidth: number;
   cssHeight: number;
@@ -334,7 +337,13 @@ export class DomCaptureSession {
    * Returns "unchanged" when the element's serialized markup is identical to
    * the previous capture, null when the element has no layout box, else a frame.
    */
-  async capture(element: HTMLElement): Promise<CapturedFrame | "unchanged" | null> {
+  async capture(
+    element: HTMLElement,
+    /** Per-capture overrides: texels per CSS px, and the part of the element to keep (0..1, top-down). */
+    view: { scale?: number; rect?: [number, number, number, number] | null } = {},
+  ): Promise<CapturedFrame | "unchanged" | null> {
+    const scale = view.scale ?? this.scale;
+    const crop = view.rect ?? null;
     // Guard for SSR callers; there is nothing to lay out without a document.
     if (typeof document === "undefined") return null;
 
@@ -371,13 +380,20 @@ export class DomCaptureSession {
     wrapper.appendChild(clone);
 
     const serialized = new XMLSerializer().serializeToString(wrapper);
-    const pixelWidth = Math.round(cssWidth * this.scale);
-    const pixelHeight = Math.round(cssHeight * this.scale);
+    // Visible part only (zoomed in): the viewBox crops, so the raster spends
+    // every pixel on what the camera sees and stays bounded at any zoom.
+    const [rx, ry, rw, rh] = crop ?? [0, 0, 1, 1];
+    const vbX = rx * cssWidth;
+    const vbY = ry * cssHeight;
+    const vbW = Math.max(1, rw * cssWidth);
+    const vbH = Math.max(1, rh * cssHeight);
+    const pixelWidth = Math.max(1, Math.round(vbW * scale));
+    const pixelHeight = Math.max(1, Math.round(vbH * scale));
 
     // The foreignObject is laid out in CSS pixels while the SVG rasterizes at
     // scale x, so the viewBox does the upscaling: layout stays identical and
     // only the rasterization gets denser.
-    const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelWidth}" height="${pixelHeight}" viewBox="0 0 ${cssWidth} ${cssHeight}">`;
+    const head = `<svg xmlns="http://www.w3.org/2000/svg" width="${pixelWidth}" height="${pixelHeight}" viewBox="${vbX} ${vbY} ${vbW} ${vbH}">`;
     const body = `<foreignObject x="0" y="0" width="${cssWidth}" height="${cssHeight}">${serialized}</foreignObject></svg>`;
 
     // When the markup has not moved, the raster cannot have either. Skipping
@@ -402,7 +418,7 @@ export class DomCaptureSession {
     // not be skipped forever as "unchanged" (left exports frozen on old frames).
     this.lastMarkup = signature;
 
-    return { image, cssWidth, cssHeight };
+    return { image, cssWidth, cssHeight, rect: crop, scale };
   }
 
   /** Drop the dedupe cache so the next capture always yields a frame. */

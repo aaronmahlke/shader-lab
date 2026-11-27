@@ -328,6 +328,11 @@ export function useMultiPassRenderer(
   }
 
   /** Push (or clear) a captured component frame for a layer. */
+  /** What the last frame needed from a component's capture (zoom-aware scale, visible rect). */
+  function getComponentView(layerId: string) {
+    return renderer?.getComponentView(layerId) ?? null;
+  }
+
   function setComponentSource(layerId: string, source: ComponentSourceInput | null): void {
     renderer?.setComponentSource(layerId, source);
   }
@@ -368,6 +373,7 @@ export function useMultiPassRenderer(
     renderFrame,
     capture,
     setComponentSource,
+    getComponentView,
     setMediaSource,
     requestRender: scheduleRender,
     setLiveRenderEnabled,

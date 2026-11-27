@@ -44,6 +44,8 @@ export class CompositionRenderer {
   private textTextures = new Map<string, TextTextureEntry>();
   private textCanvas: HTMLCanvasElement | null = null;
   private componentSources = new Map<string, ComponentSource>();
+  /** Last frame's needs per component source (capture scale + visible rect). */
+  private componentViews = new Map<string, { scale: number; rect: [number, number, number, number] | null }>();
   private componentTextures = new Map<string, ComponentTextureEntry>();
   private mediaSources = new Map<string, MediaSource>();
   private mediaTextures = new Map<string, MediaTextureEntry>();
@@ -247,6 +249,7 @@ export class CompositionRenderer {
 
   private passContext(time: number, modFn?: ModulationFn | null): RenderPassContext {
     const gl = this.gl;
+    this.componentViews = new Map();
     const width = this.canvas.width;
     const height = this.canvas.height;
     return {
@@ -263,6 +266,7 @@ export class CompositionRenderer {
         this.createTextImage(spec, w, h, contentScale, window),
       componentSources: this.componentSources,
       componentTextures: this.componentTextures,
+      componentViews: this.componentViews,
       mediaSources: this.mediaSources,
       mediaTextures: this.mediaTextures,
       contentScale: this.getContentScale(height),
@@ -318,6 +322,15 @@ export class CompositionRenderer {
       ...source,
       version: (previous?.version ?? 0) + 1,
     });
+  }
+
+  /**
+   * What the last rendered frame needed from a component's capture: texels
+   * per CSS px (on-screen scale incl. camera zoom / precomp scales) and the
+   * visible part of the element (null = all). Null when it wasn't drawn.
+   */
+  getComponentView(layerId: string): { scale: number; rect: [number, number, number, number] | null } | null {
+    return this.componentViews.get(layerId) ?? null;
   }
 
   /** Layer ids that currently have a pushed component source. */

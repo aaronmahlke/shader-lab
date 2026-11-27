@@ -161,6 +161,17 @@ export type RenderPass = {
    * flattening to 1, so a precomp keeps transparency where nothing rendered.
    */
   preserveAlpha?: boolean;
+  /**
+   * View folding (sharp zoom): owners whose transform is folded into this
+   * composite at render time, inner → outer — flat 2D cameras above it in its
+   * stack and precomp hosts around it. The owner then stops magnifying
+   * (camera stage zoom 1, host composite samples screen-space content).
+   */
+  viewFolds?: string[];
+  /** cameraStage: the plate below is foldable (composites/generators only). */
+  foldable?: boolean;
+  /** Host composite of a foldable nested comp (content can arrive pre-transformed). */
+  foldsContent?: boolean;
   isOutput: boolean;
 };
 

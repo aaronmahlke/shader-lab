@@ -625,6 +625,7 @@ const {
   restoreRenderer,
   renderFrame,
   setComponentSource,
+  getComponentView,
   setMediaSource,
   requestRender,
   setLiveRenderEnabled,
@@ -740,6 +741,8 @@ const componentCapture = useComponentCapture({
   getElement: (layerId) => stageHostRef.value?.getElement(layerId) ?? null,
   setComponentSource,
   requestRender,
+  // Zoom-aware capture: scale + visible part from the last rendered frame.
+  view: (layerId) => getComponentView(layerId),
 });
 
 // --- Image/video layers: host-side decode + playhead-driven video time ---
@@ -869,9 +872,15 @@ const shaderExport = {
     lastExportFrameTime = time;
     // 4. Seek every video layer to the exact frame time (awaits `seeked`).
     await mediaSources.syncForExport(time);
-    // 5. Capture the DOM in that exact state and render.
+    // 5. Capture the DOM in that exact state and render. Zoom-aware captures
+    //    follow the frame's on-screen size: if this frame needed more (zoom
+    //    in, pan to an uncaptured part), capture again and re-render once.
     await componentCapture.captureAll(time);
     renderFrame(time);
+    if (!componentCapture.viewsSatisfied(time)) {
+      await componentCapture.captureAll(time);
+      renderFrame(time);
+    }
   },
 };
 
@@ -984,6 +993,24 @@ async function renderComp(opts: { scale?: number; fps?: number; format?: "auto" 
 if (import.meta.client) {
   (window as unknown as { __shaderlab?: unknown }).__shaderlab = {
     render: renderComp,
+    /** One frame at `time` (s) and `scale` × comp size, as a PNG data URL (export path: capture + render). */
+    still: async (time: number, scale = 1) => {
+      const width = Math.round(settings.value.width * scale);
+      const height = Math.round(settings.value.height * scale);
+      shaderExport.pause();
+      shaderExport.configureRenderer(width, height);
+      try {
+        await shaderExport.renderFrame(time);
+        const canvas = getCanvas();
+        if (!canvas) return { ok: false, error: "no canvas" };
+        // Zoom-aware capture: what each drawn component needed this frame.
+        const views = Object.fromEntries(stagedComponentLayers.value.map((l) => [l.name ?? l.id, getComponentView(l.id)]).filter(([, v]) => v));
+        return { ok: true, width, height, views, png: canvas.toDataURL("image/png") };
+      } finally {
+        shaderExport.restoreRenderer();
+        shaderExport.resume();
+      }
+    },
     /** True once nested comps, components and media are loaded enough to render. */
     /**
      * Comp loaded AND every staged component loaded + mounted (their cues
@@ -1087,6 +1114,10 @@ const frameCache = useFrameCache({
     fullQualityRender = true;
     try {
       renderFrame(time);
+      if (!componentCapture.viewsSatisfied(time)) {
+        await componentCapture.captureAll(time);
+        renderFrame(time);
+      }
     } finally {
       fullQualityRender = false;
     }
